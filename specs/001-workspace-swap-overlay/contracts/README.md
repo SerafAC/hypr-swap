@@ -29,7 +29,10 @@ implemented in the module named.
 | FR-017 | [config.md](./config.md) — `placement`; `ui/mod.rs` (one surface per monitor) |
 | FR-020, FR-021 | [shortcuts.md](./shortcuts.md) — new-workspace shortcut; `actions.rs` |
 | FR-022, FR-022a, FR-022b | [shortcuts.md](./shortcuts.md) |
+| FR-022c | [shortcuts.md](./shortcuts.md) — sticky mode when the bind carries no modifier ([research.md](../research.md) R15) |
 | FR-023, FR-024 | [config.md](./config.md) |
 | FR-025, FR-026a–d | [cli.md](./cli.md) (exit codes), [compositor-ipc.md](./compositor-ipc.md) (reconnect) |
+| FR-025a | [cli.md](./cli.md) — second-instance detection at start-up, exit 3 |
 | FR-026, FR-027, FR-028 | `state.rs`, `session.rs` |
 | FR-029–FR-032 | [diagnostics.md](./diagnostics.md) |
+| FR-033, FR-034 | [cli.md](./cli.md) — invocation, `--version`/`--help`/`--config`, exit codes 0 and 2 |

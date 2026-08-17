@@ -343,11 +343,27 @@ and presentation take effect.
 - **FR-022b**: The application MUST document the exact bind lines required for its shortcuts, and
   MUST start and run normally when some or all of those shortcuts are left unbound — an unbound
   shortcut MUST NOT produce an error or prevent the other shortcuts from working.
+- **FR-022c**: When the switcher shortcut is bound to a key combination containing no modifier, the
+  application MUST keep the overlay open after the shortcut is released, since there is no modifier
+  release to commit on (FR-002 cannot apply). In this mode the overlay MUST commit the highlighted
+  entry when the user presses Enter and cancel on the cancel key, using the same navigation as
+  every other mode.
 - **FR-023**: The application MUST run with documented defaults for every setting when no
   configuration is present. The defaults are: flat list presentation, overlay shown on the active
   monitor only, and MRU entry order.
 - **FR-024**: The application MUST report invalid configuration values with a message identifying
   the offending setting, fall back to that setting's default, and continue running.
+
+**Process interface**
+
+- **FR-033**: The application MUST be startable with no arguments and MUST accept an option to
+  print its version and an option to print usage, each exiting successfully without starting the
+  daemon. The usage output MUST include the documented bind lines (FR-022b), so a user who has the
+  binary has the binding instructions.
+- **FR-034**: The application MUST accept an option naming an alternative configuration file, so
+  that a configuration can be exercised without modifying the user's own. Unlike the default
+  location, a file named explicitly and not found MUST be reported as an error rather than silently
+  falling back to defaults (FR-023).
 
 **Diagnostics**
 
@@ -366,6 +382,9 @@ and presentation take effect.
 - **FR-025**: The application MUST report a clear, actionable error and exit non-zero when it
   cannot reach the compositor **at start-up**. Losing an already-established connection while
   running is handled by FR-026a instead, and MUST NOT cause the application to exit.
+- **FR-025a**: The application MUST detect at start-up that another instance has already registered
+  its named shortcuts with the compositor, report the collision, and exit non-zero rather than run
+  as a second instance competing for the same shortcut names.
 - **FR-026**: The application MUST reflect workspace, window, and monitor changes that occur while
   it is running, so that a subsequently opened overlay shows current state.
 - **FR-026a**: When the compositor connection is lost while the application is running, the
@@ -378,8 +397,11 @@ and presentation take effect.
   activations observed after reconnecting.
 - **FR-026d**: While disconnected, the application MUST NOT consume resources by retrying without
   delay, and MUST NOT display an overlay.
-- **FR-027**: A selection whose target workspace or monitor no longer exists at commit time MUST be
-  treated as a cancellation rather than producing an error or an incorrect move.
+- **FR-027**: A selection whose target **workspace** no longer exists at commit time MUST be treated
+  as a cancellation rather than producing an error or an incorrect move. If the target workspace
+  still exists but the monitor it was bound to when the overlay opened has gone, the selection MUST
+  resolve to plain activation of that workspace on the focused monitor (FR-009) — a vanished monitor
+  cancels nothing on its own.
 - **FR-028**: Triggering the switcher shortcut while an overlay is already open MUST NOT create a
   second overlay.
 

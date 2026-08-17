@@ -67,7 +67,7 @@ its named shortcuts, reconnects, and reports diagnostics. No overlay and no work
 - [ ] T020 Unit tests in src/state.rs for each event→state transition in the data-model table, `push` moving an id to the front without duplicates, removal of destroyed ids, and history cleared on connection loss (FR-008c, FR-008d, FR-026c)
 - [ ] T021 Implement the Wayland client core in src/ui/mod.rs — connection, registry, binding `wl_compositor`, `wl_shm`, `wl_seat`, `wl_output`, `zwlr_layer_shell_v1`, and the shortcuts manager, with keyboard handling scaffolding; a missing required global is fatal exit 3 (contracts/compositor-ipc.md)
 - [ ] T022 Register `hypr-swap:switcher` and `hypr-swap:new-workspace` and dispatch their `pressed`/`released` events in src/ui/shortcuts.rs, reporting a registration failure on stderr and as a notification (contracts/shortcuts.md, FR-022, FR-030)
-- [ ] T023 Implement start-up in src/main.rs — `--config`/`--version`/`--help` parsing, required-environment checks, second-instance detection via `hyprctl globalshortcuts`, and exit codes 0/2/3 (contracts/cli.md, FR-025)
+- [ ] T023 Implement start-up in src/main.rs — `--config`/`--version`/`--help` parsing, required-environment checks, second-instance detection via `hyprctl globalshortcuts`, and exit codes 0/2/3 (contracts/cli.md, FR-025, FR-025a, FR-033, FR-034)
 - [ ] T024 Wire the calloop event loop in src/main.rs over the Wayland fd and the Hyprland event socket fd, plus `SIGTERM`/`SIGINT` handling that closes any overlay without committing and exits 0 (contracts/cli.md)
 - [ ] T025 Implement reconnection orchestration in src/main.rs — on connection loss close any open overlay uncommitted, retry with backoff, and on success rebuild the world, clear the activation history, and re-register both shortcuts, all reported at `INFO` with no notification (FR-026a–d, FR-031)
 
@@ -96,18 +96,18 @@ focused.
 
 - [ ] T029 [P] [US1] Implement `entries(world, order) -> (Vec<Entry>, usize)` in src/ordering.rs — MRU (history first, never-active in compositor order, highlight index 1), compositor order and grouped-by-monitor (highlight on the active workspace), with special/scratchpad workspaces filtered out and the single-workspace clamp (FR-007, FR-008a, FR-008b, FR-008d)
 - [ ] T030 [P] [US1] Unit tests in src/ordering.rs for all three orders, the initial highlight of each, never-active workspaces sorting last, scratchpad exclusion, and the one-workspace clamp
-- [ ] T031 [P] [US1] Implement the session state machine in src/session.rs — `Open`/`Committed`/`Cancelled`, `AwaitingFocus`/`Focused`/`NeverFocused`, wrapping navigation in both directions, `initial_mods` capture, and the vanished-target-becomes-cancelled rule (data-model.md → Switcher Session, FR-003, FR-004, FR-027, FR-028)
+- [ ] T031 [P] [US1] Implement the session state machine in src/session.rs — `Open`/`Committed`/`Cancelled`, `AwaitingFocus`/`Focused`/`NeverFocused`, wrapping navigation in both directions, `initial_mods` capture, and the vanished-target rule: a target workspace that no longer exists cancels, while a surviving workspace whose snapshot monitor has gone degrades to plain activation (data-model.md → Switcher Session, FR-003, FR-004, FR-027, FR-028)
 - [ ] T032 [P] [US1] Unit tests in src/session.rs for every transition in the data-model state diagram, including wrap-around both ways, cancel leaving history untouched, fast-tap commit from `AwaitingFocus`, and connection-loss cancellation
 - [ ] T033 [P] [US1] Implement list-entry metrics and the viewport/scroll arithmetic in src/ui/layout.rs — fixed row height, the 80 % × 80 % monitor cap, one-entry scroll margin, scale multiplication (FR-019, research.md R16, contracts/config.md constants table)
 - [ ] T034 [P] [US1] Unit tests in src/ui/layout.rs for viewport arithmetic at several monitor sizes and entry counts including 20 workspaces, proving entries never shrink and the highlight is always in view with its margin (SC-005)
 - [ ] T035 [US1] Implement `actions::plan` in src/actions.rs for the same-monitor case (`workspace <id>`) and the already-active no-op returning `None` (FR-009, FR-011, research.md R8)
-- [ ] T036 [US1] Unit tests in src/actions.rs for the same-monitor plan and the `None` no-op case
+- [ ] T036 [US1] Unit tests in src/actions.rs for the same-monitor plan, the `None` no-op case, and the FR-027 degradation — a selected workspace whose snapshot monitor is absent from the current world resolves to same-monitor activation rather than cancelling
 - [ ] T037 [US1] Implement flat-list painting in src/ui/render.rs with cairo/pango — workspace name followed by its window titles, distinct highlight and active-workspace styling, pango `ellipsize` for overlong text (FR-008, FR-014, FR-015b)
 - [ ] T038 [US1] Map the overlay layer surface in src/ui/mod.rs — `zwlr_layer_shell_v1` overlay layer, `exclusive` keyboard interactivity, namespace `hypr-swap`, no exclusive zone, shm buffer allocation and damage/commit on navigation; report and abort the session if exclusive focus is refused (FR-002a, FR-018)
-- [ ] T039 [US1] Implement commit-on-release in src/ui/mod.rs — record `initial_mods` on `wl_keyboard.enter`, commit when a subsequent `modifiers` event shows any of them released, plus the fast-tap path that commits the initial highlight when `released` arrives before focus and never maps the overlay, plus sticky mode when `initial_mods` is empty (FR-002, FR-005, FR-022a, research.md R4, R15)
+- [ ] T039 [US1] Implement commit-on-release in src/ui/mod.rs — record `initial_mods` on `wl_keyboard.enter`, commit when a subsequent `modifiers` event shows any of them released, plus the fast-tap path that commits the initial highlight when `released` arrives before focus and never maps the overlay, plus sticky mode when `initial_mods` is empty (FR-002, FR-005, FR-022a, FR-022c, research.md R4, R15)
 - [ ] T040 [US1] Implement the fixed in-overlay key map in src/ui/mod.rs — `Tab`/`Right`/`Down` next, `Shift+Tab`/`Left`/`Up` previous, `Escape` cancel, `Enter` commit in sticky mode, all other keys ignored (FR-004, FR-004a, FR-006, contracts/shortcuts.md)
 - [ ] T041 [US1] Make a `switcher` `pressed` event advance the highlight when a session is already open, with no second overlay, in src/ui/shortcuts.rs and its handler in src/main.rs (FR-003, FR-028, research.md R5)
-- [ ] T042 [US1] Wire the commit path in src/main.rs — session outcome → `actions::plan` against the current world → `hypr::ipc` dispatch, treating a target workspace or monitor that no longer exists as a cancellation reported at `INFO` (FR-005, FR-027)
+- [ ] T042 [US1] Wire the commit path in src/main.rs — session outcome → `actions::plan` resolving the target's monitor from the current world → `hypr::ipc` dispatch; a target workspace that no longer exists is a cancellation reported at `INFO`, a vanished monitor degrades to activation on the focused monitor (FR-005, FR-027)
 
 ### Tests for User Story 1 (REQUIRED)
 
@@ -124,6 +124,8 @@ focused.
 - [ ] T053 [P] [US1] E2E `e2e_special_workspaces_excluded` — a scratchpad workspace present; covers FR-007 — in tests/e2e_switcher.rs
 - [ ] T054 [P] [US1] E2E `e2e_list_shows_window_names` — default presentation entries show workspace name then window titles; covers FR-014, US3-AS6 — in tests/e2e_presentation.rs
 - [ ] T055 [P] [US1] E2E `e2e_scrolls_many_workspaces` and `e2e_above_fullscreen` — 20 workspaces scroll at fixed entry size, and the overlay renders above a fullscreen client (asserted via `hyprctl layers`); cover FR-019, SC-005, FR-018 — in tests/e2e_presentation.rs
+- [ ] T097 [P] [US1] E2E `e2e_focus_returns_on_close` — a `foot` client holds focus, the overlay opens and closes, and keyboard focus returns to that client; covers FR-002a — in tests/e2e_switcher.rs
+- [ ] T098 [P] [US1] E2E `e2e_monitor_removed_degrades` — destroy a headless output holding the highlighted workspace while the overlay is open, then release; the selection resolves to plain activation on the focused monitor rather than cancelling; covers FR-027 and the monitor-disconnected edge case — in tests/e2e_switcher.rs
 
 **Checkpoint**: The switcher is fully usable on a single monitor — this is the MVP.
 
@@ -179,6 +181,7 @@ miniatures appear and that selection and release behave exactly as in the flat l
 - [ ] T072 [P] [US3] E2E `e2e_grid_offscreen_workspace` — a workspace never displayed on any monitor renders as accurately as a visible one; covers FR-015a, US3-AS3, and compositor-ipc assumption 1 — in tests/e2e_presentation.rs
 - [ ] T073 [P] [US3] E2E `e2e_grid_empty_workspace` — a workspace with no windows appears as a marked empty miniature; covers FR-007, US3-AS5 — in tests/e2e_presentation.rs
 - [ ] T074 [P] [US3] E2E `e2e_title_truncation` — a `foot` client with a very long title; covers FR-015b — in tests/e2e_presentation.rs
+- [ ] T099 [P] [US3] E2E `e2e_grid_commit_matches_list` — the same navigation and release gesture under `presentation = "grid"` produces the identical activation and swap outcome as the list; covers FR-016, US3-AS4 — in tests/e2e_presentation.rs
 
 **Checkpoint**: Both presentations work with identical interaction.
 
@@ -220,7 +223,7 @@ presentation take effect.
 
 - [ ] T080 [US5] Implement `placement = "all"` in src/ui/mod.rs — one layer surface per connected monitor driven by a single session so every copy shows the same highlight, with exclusive keyboard interactivity on the focused monitor's surface only (FR-017, US5-AS2/AS3)
 - [ ] T081 [P] [US5] Write docs/binds.md with the exact bind lines, the `bind` vs `binde` rule, the unbound-shortcut guarantee, and the bare-key sticky-mode note (FR-022b, contracts/shortcuts.md)
-- [ ] T082 [P] [US5] Make `--help` in src/main.rs print usage including the bind lines from docs/binds.md so the two never drift (contracts/cli.md, Principle III)
+- [ ] T082 [P] [US5] Make `--help` in src/main.rs print usage including the bind lines from docs/binds.md so the two never drift (contracts/cli.md, FR-033, Principle III)
 - [ ] T083 [US5] Extend the src/config.rs unit tests to cover the exact stderr subjects (`config.presentation`, `config.placement`, `config.order`) and the notify flag on each fallback, matching contracts/diagnostics.md
 
 ### Tests for User Story 5 (REQUIRED)
@@ -232,6 +235,7 @@ presentation take effect.
 - [ ] T088 [P] [US5] E2E `e2e_no_compositor_at_start` — no `HYPRLAND_INSTANCE_SIGNATURE`, expecting the stderr record, the notification, and exit 3; covers FR-025 — in tests/e2e_config.rs
 - [ ] T089 [P] [US5] E2E `e2e_reconnects_after_restart` — kill and restart the nested Hyprland, asserting the shortcuts work again within 10 s, the history is rebuilt, and no notification was raised; covers FR-026a, FR-026b, FR-026c, FR-031, SC-009 — in tests/e2e_config.rs
 - [ ] T090 [P] [US5] E2E `e2e_no_notification_daemon` — no notification service reachable, asserting one `WARN notify:` line and normal operation; covers FR-032 — in tests/e2e_config.rs
+- [ ] T100 [P] [US5] E2E `e2e_no_overlay_while_disconnected` — with the compositor connection down, firing the switcher shortcut maps no layer surface and consumes no CPU spinning; covers FR-026d — in tests/e2e_config.rs
 
 **Checkpoint**: Every user story is complete and independently testable.
 
@@ -280,7 +284,7 @@ presentation take effect.
 
 - Setup: T002, T004, T005, T006 in parallel (T003 waits on T002)
 - Foundational: T009/T011/T013/T017 in parallel (distinct files), then T021/T022/T023 in parallel, and T027/T028 in parallel once T026 lands
-- US1: T029–T034 in parallel (three distinct files, pure logic); all thirteen E2E tasks T043–T055 in parallel once T042 lands
+- US1: T029–T034 in parallel (three distinct files, pure logic); all fifteen E2E tasks T043–T055, T097 and T098 in parallel once T042 lands
 - US2: T062–T066 in parallel once T059/T060 land
 - US3: T067/T068 in parallel; T071–T074 in parallel once T070 lands
 - US5: T081/T082 in parallel; T084–T090 in parallel
@@ -346,8 +350,10 @@ Task: "E2E e2e_navigation_wraps_and_reverses in tests/e2e_switcher.rs"
 - Unit tests are in-module `#[cfg(test)]` blocks, so a unit-test task names the same `src/*.rs` file
   as the code it covers; they are separate tasks so the constitution's coverage requirement stays
   visible per component
-- `main.rs`, `hypr/*` and `ui/{mod,shortcuts,render}.rs` are the deliberately logic-free shell and
-  are covered by E2E rather than unit tests (plan.md → Constitution Check IV)
+- `main.rs`, `ui/mod.rs`, `ui/shortcuts.rs` and `ui/render.rs` are the deliberately logic-free shell
+  and are covered by E2E rather than unit tests — a documented deviation from Principle IV, recorded
+  in plan.md → Complexity Tracking. `hypr/ipc.rs` and `hypr/events.rs` are **not** exempt and have
+  unit tests (T016–T018)
 - Every E2E task names the FR or acceptance scenario it covers, per Constitution V
 - The two documented E2E substitutions are headless outputs for physical monitors and `foot` for
   arbitrary applications; the fault-injection hook (T060) is the third and is confined to the

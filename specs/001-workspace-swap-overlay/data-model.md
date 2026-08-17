@@ -187,8 +187,10 @@ the MRU highlight clamps to index 0 (spec Edge Cases).
 
 - At most one session exists at a time (FR-028).
 - `Cancelled` performs no dispatch and leaves the activation history untouched (US1-AS5).
-- On commit, if the target workspace or its monitor no longer exists in the current world, the
-  session is treated as cancelled (FR-027) — the entries are a snapshot, so this is a real case.
+- On commit, if the target workspace no longer exists in the current world, the session is treated
+  as cancelled (FR-027) — the entries are a snapshot, so this is a real case. If the workspace
+  survives but the monitor recorded in its `Entry` no longer exists, the plan degrades to plain
+  activation on the focused monitor rather than cancelling (FR-027, FR-009).
 - On close, keyboard focus returns to the previously focused window, which happens implicitly when
   the layer surface is destroyed (FR-002a).
 
@@ -213,6 +215,10 @@ follows the same contract and returns `None` when the active workspace is alread
   `rollback` (FR-013a).
 - `rollback` restores workspace→monitor bindings, per-monitor active workspaces, and focus
   (FR-013a). A same-monitor activation has a trivial rollback and, in practice, never needs it.
+- `plan` resolves the selected workspace's monitor from the **current** world, not from the `Entry`
+  snapshot. A snapshot monitor that no longer exists therefore falls through to the same-monitor
+  activation shape, which is what makes FR-027's degradation fall out of the existing code path
+  rather than needing a special case.
 - Plans never touch workspaces other than the pair involved (spec Assumptions).
 
 ## Configuration

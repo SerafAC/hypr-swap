@@ -91,12 +91,14 @@ transaction layer). Both were resolved in Phase 0 without new abstractions.
       `actions.rs`; the entry/viewport geometry only in `ui/layout.rs`; every diagnostic string
       passes through `diag.rs`. The two presentations share one navigation path and one session
       state machine — `ui/render.rs` differs only in how an entry is painted.
-- [x] **IV. Unit tests**: PASS. The decision logic is I/O-free and unit-tested directly:
-      `ordering.rs`, `actions.rs` (including the generated rollback plan), `session.rs`,
-      `config.rs`, `ui/layout.rs`, `hypr/events.rs` (line parsing) and the IPC response
-      deserialisers. `main.rs` and the Wayland/cairo modules are the thin, deliberately
-      logic-free shell and are covered by E2E instead — the split is documented in
-      [research.md](./research.md) R14.
+- [x] **IV. Unit tests**: PASS with a documented deviation. The decision logic is I/O-free and
+      unit-tested directly: `ordering.rs`, `actions.rs` (including the generated rollback plan),
+      `session.rs`, `config.rs`, `ui/layout.rs`, `hypr/events.rs` (line parsing) and the IPC
+      response deserialisers. `main.rs` and the Wayland/cairo modules are the thin, deliberately
+      logic-free shell and are covered by E2E instead. This is a deviation from Principle IV,
+      recorded in Complexity Tracking below with its rationale and the rejected alternative; the
+      rationale is expanded in [research.md](./research.md) R14. Note `hypr/ipc.rs` and
+      `hypr/events.rs` are unit-tested and are **not** part of the exemption.
 - [x] **V. E2E coverage**: PASS. Every major requirement maps to at least one E2E test that drives
       the real external interface (a compositor bind → a real key press → the compositor's own
       reported state). The mapping is the table below.
@@ -136,10 +138,20 @@ transaction layer). Both were resolved in Phase 0 without new abstractions.
 | `e2e_vanished_target_cancels` | destroy target while open | FR-027 |
 | `e2e_no_notification_daemon` | no notification service on the bus | FR-032 |
 | `e2e_special_workspaces_excluded` | scratchpad present | FR-007 |
+| `e2e_focus_returns_on_close` | overlay opens over a focused client, then closes | FR-002a |
+| `e2e_grid_commit_matches_list` | `presentation = "grid"`, navigate and release | FR-016, US3-AS4 |
+| `e2e_no_overlay_while_disconnected` | shortcut fired with the compositor gone | FR-026d |
+| `e2e_monitor_removed_degrades` | destroy a headless output while the overlay is open | FR-027, US2 edge case |
 
 Requirements deliberately not E2E-covered: **FR-013c** (rollback itself fails) is unit-tested
 against an injected double failure, because provoking it end-to-end would require corrupting the
-compositor; **FR-031** (recovery is stderr-only, no notification) is asserted as part of
+compositor; **FR-008** (the overlay indicates the highlighted entry and the active workspace) is a
+purely visual property, and screenshot comparison is rejected in [research.md](./research.md) R14 as
+brittle across fonts and scaling — it is covered by `ui/layout.rs` unit tests for the highlight
+index and by manual quickstart validation; **FR-030's shortcut-registration-failure notification**
+cannot be provoked against a compositor that accepts the registration, so the notification path is
+unit-tested in `diag.rs` and the registration path is exercised positively by every switcher E2E
+test; **FR-031** (recovery is stderr-only, no notification) is asserted as part of
 `e2e_reconnects_after_restart`; **SC-003**, **SC-004** and **SC-007** are longevity/usability
 criteria measured by the soak and usability checks described in
 [quickstart.md](./quickstart.md), not by an automated assertion.
@@ -212,14 +224,18 @@ docs/
 splitting it into a library crate plus a binary, or into a core/UI workspace, would add a package
 boundary that nothing yet needs (Principle II). The module split above is along the seam that
 matters for testing: `config`, `model`, `state`, `ordering`, `actions`, `session` and `ui::layout`
-are I/O-free and unit-tested directly, while `hypr/*` and `ui/{mod,shortcuts,render}` are the thin
-shell that talks to the compositor and is covered by E2E. Integration tests live in `tests/` per
-Cargo convention, with the nested-compositor harness shared as a `tests/e2e/` module.
+are I/O-free and unit-tested directly. `hypr/ipc` and `hypr/events` do I/O but keep their encoding
+and parsing separable, so they are unit-tested too. Only `main.rs` and `ui/{mod,shortcuts,render}`
+are the thin shell covered by E2E alone — the exemption recorded in Complexity Tracking below.
+Integration tests live in `tests/` per Cargo convention, with the nested-compositor harness shared
+as a `tests/e2e/` module.
 
 ## Complexity Tracking
 
-> No Constitution Check violations. This table is intentionally empty.
+> Two documented deviations from the constitution. Both are testing-strategy deviations, not
+> design complexity; neither introduces an abstraction or a dependency.
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| _(none)_ | | |
+| **Principle IV** — `main.rs`, `ui/mod.rs`, `ui/shortcuts.rs` and `ui/render.rs` carry no unit tests; they are covered by E2E only | These four files are the Wayland/cairo shell. Unit-testing them means constructing a `wl_display`, a seat and a layer surface in-process — i.e. a mock compositor, which [research.md](./research.md) R14 rejects as testing the application against our own beliefs about Hyprland. Every decision they contain has been pushed into `session.rs`, `ordering.rs`, `actions.rs` and `ui/layout.rs`, which are unit-tested directly | A mock Wayland server would let the shell be unit-tested, but the tests would assert against a fake whose fidelity is unverifiable, and the class of bug they would catch (protocol misuse) is exactly what the nested-Hyprland E2E suite catches for real. Note the exemption is narrower than the shell as a whole: `hypr/ipc.rs` and `hypr/events.rs` *are* unit-tested (T016–T018) |
+| **Testing Standards** — `hypr/ipc.rs` carries an environment-gated fault-injection hook used only by the E2E rollback tests (T060) | FR-013a/FR-013b/SC-010 require all-or-nothing swap semantics with rollback. A genuine dispatcher failure cannot be provoked from outside the compositor, so the failure must be injected. This is the third documented substitution alongside headless outputs and `foot` | Corrupting the compositor to force a real dispatch failure is not reproducible and risks the developer's session. Skipping the tests would leave the rollback path — the one path the user can never observe succeeding — unexercised |
