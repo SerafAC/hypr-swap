@@ -8,9 +8,12 @@
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::de::DeserializeOwned;
 
+use crate::actions::{CommandPlan, ExpectedState};
 use crate::model::{Monitor, Window, Workspace};
 
 /// Environment variable that makes a nominated batch step fail.
@@ -18,6 +21,10 @@ use crate::model::{Monitor, Window, Workspace};
 /// The one documented substitution reserved for the E2E rollback tests (research.md R14): a
 /// genuine dispatcher failure cannot be provoked from outside the compositor, so it is injected.
 /// Unset — which is always the case in normal use — this costs one environment read at start-up.
+///
+/// The injection fires **once** per process. A rollback that was sabotaged along with the batch
+/// it repairs could only ever demonstrate FR-013c, and FR-013b — the ordinary case, where the
+/// undo works — would be untestable.
 pub const FAULT_INJECTION_VAR: &str = "HYPR_SWAP_E2E_FAIL_BATCH_STEP";
 
 /// Batched responses are concatenated with this separator.
@@ -45,12 +52,34 @@ impl std::fmt::Display for IpcError {
     }
 }
 
+/// How a dispatched plan ended up (FR-013a–c).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DispatchOutcome {
+    /// Applied, and the compositor reports the state the plan expected.
+    Verified,
+    /// Something failed, and the pre-state was restored (FR-013b).
+    RolledBack { reason: String },
+    /// Something failed and so did the undo, so the user is told where their workspaces
+    /// actually are (FR-013c).
+    RollbackFailed { reason: String, resulting: String },
+}
+
+/// The one-shot fault injected for the E2E rollback tests.
+///
+/// `used` is shared across clones because the application clones its [`Ipc`] into the event loop
+/// callbacks; a per-clone flag would fire once per clone instead of once per process.
+#[derive(Debug, Clone)]
+struct Fault {
+    step: usize,
+    used: Arc<AtomicBool>,
+}
+
 /// A connection factory for the request socket. Holds no socket of its own: each request opens
 /// and closes one, so a compositor restart cannot leave a stale handle behind.
 #[derive(Debug, Clone)]
 pub struct Ipc {
     socket: PathBuf,
-    fail_step: Option<usize>,
+    fault: Option<Fault>,
 }
 
 impl Ipc {
@@ -59,7 +88,7 @@ impl Ipc {
     pub fn new(runtime_dir: &Path, signature: &str) -> Self {
         Self {
             socket: request_socket_path(runtime_dir, signature),
-            fail_step: injected_fault(),
+            fault: injected_fault(),
         }
     }
 
@@ -128,11 +157,15 @@ impl Ipc {
 
         // The injected fault omits the nominated step, so the compositor really is left in the
         // half-applied state the rollback path exists to repair.
-        let (sent, injected) = match self.fail_step {
-            Some(step) if step >= 1 && step <= commands.len() => {
+        let (sent, injected) = match &self.fault {
+            Some(fault)
+                if fault.step >= 1
+                    && fault.step <= commands.len()
+                    && !fault.used.swap(true, Ordering::Relaxed) =>
+            {
                 let mut kept = commands.to_vec();
-                let dropped = kept.remove(step - 1);
-                (kept, Some((step, dropped)))
+                let dropped = kept.remove(fault.step - 1);
+                (kept, Some((fault.step, dropped)))
             }
             _ => (commands.to_vec(), None),
         };
@@ -146,6 +179,78 @@ impl Ipc {
             )));
         }
         Ok(())
+    }
+
+    /// Dispatch a plan, read the result back, and undo it if the compositor did not end up where
+    /// the plan said it would (FR-013, FR-013a).
+    ///
+    /// Read-back rather than trust: a batch is not a transaction — a rejected step leaves its
+    /// predecessors applied (research.md R8) — and a dispatcher that answers `ok` can still have
+    /// done something other than what was asked. Comparing against the compositor makes it the
+    /// source of truth for both the check and, in the tests, the oracle.
+    ///
+    /// The FR-013 post-condition, that both affected monitors still show an active workspace,
+    /// falls out of the comparison: every monitor the plan touches is named in
+    /// [`ExpectedState::active`], so a monitor left showing anything else is a mismatch.
+    #[must_use]
+    pub fn dispatch_verified(&self, plan: &CommandPlan) -> DispatchOutcome {
+        let Some(reason) = self.attempt(&plan.commands, &plan.expected) else {
+            return DispatchOutcome::Verified;
+        };
+
+        // FR-013a: undo the parts that did land. The rollback aims at the recorded pre-state, so
+        // it does not matter how far the batch got.
+        let rollback_failure = self.attempt(&plan.rollback.commands, &plan.rollback.expected);
+        let resulting = rollback_failure
+            .is_some()
+            .then(|| self.describe(&plan.rollback.expected));
+        classify(reason, rollback_failure, resulting)
+    }
+
+    /// Dispatch a batch and confirm the state it claimed it would produce. `None` on success,
+    /// otherwise why not.
+    fn attempt(&self, commands: &[String], expected: &ExpectedState) -> Option<String> {
+        match self.dispatch(commands) {
+            Ok(()) => self.verify(expected),
+            Err(e) => Some(e.to_string()),
+        }
+    }
+
+    fn verify(&self, expected: &ExpectedState) -> Option<String> {
+        match (self.monitors(), self.workspaces()) {
+            (Ok(monitors), Ok(workspaces)) => expected.mismatch(&monitors, &workspaces),
+            // Unable to look is not the same as looking and seeing the wrong thing, but it is
+            // just as much a reason not to claim success.
+            (Err(e), _) | (_, Err(e)) => {
+                Some(format!("the resulting state could not be read: {e}"))
+            }
+        }
+    }
+
+    /// Where the workspaces a plan touched have actually ended up, for the FR-013c report.
+    fn describe(&self, state: &ExpectedState) -> String {
+        self.workspaces().map_or_else(
+            |e| format!("the compositor could not be asked where they are: {e}"),
+            |workspaces| state.describe_actual(&workspaces),
+        )
+    }
+}
+
+/// What a dispatch-then-verify-then-undo sequence adds up to.
+///
+/// Pure, and separate from the I/O that feeds it, so every combination is unit-testable — which
+/// matters most for the FR-013c arm, the one a live compositor cannot be made to produce.
+fn classify(
+    reason: String,
+    rollback_failure: Option<String>,
+    resulting: Option<String>,
+) -> DispatchOutcome {
+    match rollback_failure {
+        None => DispatchOutcome::RolledBack { reason },
+        Some(rollback) => DispatchOutcome::RollbackFailed {
+            reason: format!("{reason}; the rollback failed too: {rollback}"),
+            resulting: resulting.unwrap_or_else(|| "the resulting state is unknown".to_owned()),
+        },
     }
 }
 
@@ -215,8 +320,12 @@ pub fn classify_dispatch(response: &str, expected: usize) -> Result<(), IpcError
     }
 }
 
-fn injected_fault() -> Option<usize> {
-    std::env::var(FAULT_INJECTION_VAR).ok()?.parse().ok()
+fn injected_fault() -> Option<Fault> {
+    let step = std::env::var(FAULT_INJECTION_VAR).ok()?.parse().ok()?;
+    Some(Fault {
+        step,
+        used: Arc::new(AtomicBool::new(false)),
+    })
 }
 
 #[cfg(test)]
@@ -325,5 +434,97 @@ mod tests {
     #[test]
     fn an_empty_response_to_a_dispatch_is_a_failure() {
         assert!(classify_dispatch("", 1).is_err());
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The dispatch-verify-rollback outcome (T059), and the injected fault (T060).
+    // -----------------------------------------------------------------------------------------
+
+    #[test]
+    fn a_failure_the_rollback_repaired_is_reported_as_rolled_back() {
+        // FR-013b: the user asked for a change that did not happen, and their layout is intact.
+        assert_eq!(
+            classify("step 2 failed: Invalid dispatcher".to_owned(), None, None),
+            DispatchOutcome::RolledBack {
+                reason: "step 2 failed: Invalid dispatcher".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn a_failure_the_rollback_could_not_repair_carries_the_resulting_state() {
+        // FR-013c: both messages matter — why it went wrong, and where things are now.
+        let outcome = classify(
+            "step 2 failed".to_owned(),
+            Some("workspace 1 is on eDP-1 rather than HEADLESS-2".to_owned()),
+            Some("workspace 2 is on eDP-1 and workspace 1 is on eDP-1".to_owned()),
+        );
+        let DispatchOutcome::RollbackFailed { reason, resulting } = outcome else {
+            panic!("a double failure is never reported as a rollback that worked");
+        };
+        assert!(reason.contains("step 2 failed"), "{reason}");
+        assert!(reason.contains("the rollback failed too"), "{reason}");
+        assert_eq!(
+            resulting,
+            "workspace 2 is on eDP-1 and workspace 1 is on eDP-1"
+        );
+    }
+
+    #[test]
+    fn a_double_failure_with_nothing_readable_still_says_so() {
+        // Losing the compositor mid-rollback must not silently degrade to the FR-013b message.
+        let outcome = classify(
+            "step 1 failed".to_owned(),
+            Some("unreachable".to_owned()),
+            None,
+        );
+        assert!(matches!(outcome, DispatchOutcome::RollbackFailed { .. }));
+    }
+
+    #[test]
+    fn the_injected_fault_drops_its_step_once_and_then_stops() {
+        // T060: the rollback batch that follows the sabotaged one must be allowed to succeed.
+        let fault = Fault {
+            step: 2,
+            used: Arc::new(AtomicBool::new(false)),
+        };
+        assert!(
+            !fault.used.swap(true, Ordering::Relaxed),
+            "the first batch is sabotaged"
+        );
+        assert!(
+            fault.used.swap(true, Ordering::Relaxed),
+            "the second is not"
+        );
+    }
+
+    #[test]
+    fn the_fault_flag_is_shared_across_clones() {
+        // The application clones its `Ipc` into the event loop callbacks; a per-clone flag would
+        // fire once per clone and sabotage the rollback as well.
+        let ipc = Ipc {
+            socket: PathBuf::from("/nonexistent"),
+            fault: Some(Fault {
+                step: 1,
+                used: Arc::new(AtomicBool::new(false)),
+            }),
+        };
+        let clone = ipc.clone();
+        let used = |ipc: &Ipc| {
+            ipc.fault
+                .as_ref()
+                .is_some_and(|f| f.used.swap(true, Ordering::Relaxed))
+        };
+        assert!(!used(&ipc));
+        assert!(used(&clone), "the clone sees the original's use");
+    }
+
+    #[test]
+    fn without_the_environment_variable_there_is_no_fault_at_all() {
+        // The hook costs one environment read and nothing else in normal use.
+        assert!(
+            Ipc::new(Path::new("/run/user/1000"), "abc").fault.is_none()
+                || std::env::var(FAULT_INJECTION_VAR).is_ok()
+        );
     }
 }

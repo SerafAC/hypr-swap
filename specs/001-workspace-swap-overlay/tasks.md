@@ -141,20 +141,20 @@ monitor 1 and confirm that after release B is on monitor 1 and active, and A is 
 
 ### Implementation for User Story 2
 
-- [ ] T056 [US2] Extend `actions::plan` in src/actions.rs with the two cross-monitor shapes — `swapactiveworkspaces <monA> <monB>` + `focusmonitor <monA>` when the target is its monitor's active workspace, and `moveworkspacetomonitor` × 2 + `focusworkspaceoncurrentmonitor` when it is not — each producing an `ExpectedState` and an inverse `RollbackPlan` computed from the pre-state (FR-010, FR-013a, research.md R8)
-- [ ] T057 [US2] Unit tests in src/actions.rs for both cross-monitor plan shapes, their `ExpectedState`, their generated rollback batches, and the single-monitor degradation to plain activation (FR-009, FR-010, US2-AS5)
-- [ ] T058 [US2] Unit test in src/actions.rs for the FR-013c double-failure path — an injected failure on both the plan and its rollback yields the "report the resulting state" outcome rather than a silent inconsistency
-- [ ] T059 [US2] Implement batched dispatch with post-dispatch read-back verification against `ExpectedState` and inverse-batch rollback on mismatch in src/hypr/ipc.rs, asserting the FR-013 post-condition that both affected monitors still show an active workspace (FR-013, FR-013a, SC-010)
-- [ ] T060 [US2] Add the E2E-only fault-injection hook in src/hypr/ipc.rs, enabled by an environment variable, that fails a nominated step of a batch — the one documented substitution for the rollback tests (research.md R14)
-- [ ] T061 [US2] Emit the swap diagnostics in src/main.rs via src/diag.rs — `ERROR swap:` with a notification for a rolled-back swap, and the distinct resulting-state message when the rollback itself fails (FR-013b, FR-013c, contracts/diagnostics.md)
+- [X] T056 [US2] Extend `actions::plan` in src/actions.rs with the two cross-monitor shapes — `swapactiveworkspaces <monA> <monB>` + `focusmonitor <monA>` when the target is its monitor's active workspace, and `moveworkspacetomonitor` × 2 + `focusworkspaceoncurrentmonitor` when it is not — each producing an `ExpectedState` and an inverse `RollbackPlan` computed from the pre-state (FR-010, FR-013a, research.md R8)
+- [X] T057 [US2] Unit tests in src/actions.rs for both cross-monitor plan shapes, their `ExpectedState`, their generated rollback batches, and the single-monitor degradation to plain activation (FR-009, FR-010, US2-AS5)
+- [X] T058 [US2] Unit test in src/actions.rs for the FR-013c double-failure path — an injected failure on both the plan and its rollback yields the "report the resulting state" outcome rather than a silent inconsistency
+- [X] T059 [US2] Implement batched dispatch with post-dispatch read-back verification against `ExpectedState` and inverse-batch rollback on mismatch in src/hypr/ipc.rs, asserting the FR-013 post-condition that both affected monitors still show an active workspace (FR-013, FR-013a, SC-010)
+- [X] T060 [US2] Add the E2E-only fault-injection hook in src/hypr/ipc.rs, enabled by an environment variable, that fails a nominated step of a batch — the one documented substitution for the rollback tests (research.md R14)
+- [X] T061 [US2] Emit the swap diagnostics in src/main.rs via src/diag.rs — `ERROR swap:` with a notification for a rolled-back swap, and the distinct resulting-state message when the rollback itself fails (FR-013b, FR-013c, contracts/diagnostics.md)
 
 ### Tests for User Story 2 (REQUIRED)
 
-- [ ] T062 [P] [US2] E2E `e2e_swap_active_workspaces` — two headless outputs, target active on the other monitor, asserting no intermediate half-swapped state; covers FR-010, FR-012, FR-013, US2-AS1, and compositor-ipc assumption 4 — in tests/e2e_swap.rs
-- [ ] T063 [P] [US2] E2E `e2e_swap_inactive_target` — target bound to another monitor but not shown there; covers FR-010, US2-AS2, and confirms the research.md R8 [spike] behaviour of `moveworkspacetomonitor` and post-move focus — in tests/e2e_swap.rs
-- [ ] T064 [P] [US2] E2E `e2e_swap_single_monitor_degrades` — one output only, selection behaves as plain activation with no error; covers FR-009, US2-AS5 — in tests/e2e_swap.rs
-- [ ] T065 [P] [US2] E2E `e2e_swap_rollback_on_failure` — fault-injected second step; covers FR-013a, FR-013b, SC-010, US2-AS6 — in tests/e2e_swap.rs
-- [ ] T066 [P] [US2] E2E `soak` (`#[ignore]`) — 100 consecutive two-monitor swaps comparing the window inventory before and after; covers SC-003, US2-AS4 — in tests/e2e_swap.rs
+- [X] T062 [P] [US2] E2E `e2e_swap_active_workspaces` — two headless outputs, target active on the other monitor, asserting no intermediate half-swapped state; covers FR-010, FR-012, FR-013, US2-AS1, and compositor-ipc assumption 4 — in tests/e2e_swap.rs
+- [X] T063 [P] [US2] E2E `e2e_swap_inactive_target` — target bound to another monitor but not shown there; covers FR-010, US2-AS2, and confirms the research.md R8 [spike] behaviour of `moveworkspacetomonitor` and post-move focus — in tests/e2e_swap.rs
+- [X] T064 [P] [US2] E2E `e2e_swap_single_monitor_degrades` — one output only, selection behaves as plain activation with no error; covers FR-009, US2-AS5 — in tests/e2e_swap.rs
+- [X] T065 [P] [US2] E2E `e2e_swap_rollback_on_failure` — fault-injected second step; covers FR-013a, FR-013b, SC-010, US2-AS6 — in tests/e2e_swap.rs
+- [X] T066 [P] [US2] E2E `soak` (`#[ignore]`) — 100 consecutive two-monitor swaps comparing the window inventory before and after; covers SC-003, US2-AS4 — in tests/e2e_swap.rs
 
 **Checkpoint**: US1 and US2 both work independently; the product's namesake behaviour is complete.
 
@@ -410,3 +410,68 @@ than applied silently.
 - **`e2e_scrolls_many_workspaces` opens the overlay on a 640×480 headless output.** Twenty rows
   fit inside 80 % of a full-size monitor, so a scenario run there would assert FR-019's "entries
   never shrink" half without ever exercising its scrolling half.
+
+### Implementation notes recorded during Phase 4
+
+- **The R8 [spike] ran first and changed its plan table.** `moveworkspacetomonitor` carries
+  keyboard focus to the destination when the workspace being moved is the focused monitor's
+  active one, so the documented third row's final `focusworkspaceoncurrentmonitor <sel>` ran on
+  the *wrong* monitor and dragged the selection straight back. The row now has an explicit
+  `focusmonitor <monA>` before it. Full findings are in research.md R8 → Spike outcome.
+- **The rollback is a pre-state restore, not the inverse of the forward commands** (T056). The
+  same spike showed a `[[BATCH]]` is not a transaction: a rejected step leaves its predecessors
+  applied. An inverse batch assumes the plan landed in full, which is false in exactly the case
+  the rollback exists for, so `RollbackPlan` instead drives the compositor to the recorded
+  pre-state — bindings, then actives, then focus — from wherever it actually is. Bindings go
+  first because `focusworkspaceoncurrentmonitor` moves a workspace bound elsewhere.
+- **`CommandPlan.rollback` changed type** from `Vec<String>` to a `RollbackPlan` carrying the
+  pre-state, because FR-013c needs something to verify the rollback *against*. The same-monitor
+  activation keeps its one-command literal inverse: a single dispatch cannot half-apply.
+- **The FR-013b/FR-013c decision is a pure function** (`ipc::classify`) fed by the I/O around it,
+  so the double-failure arm — which no live compositor can be made to produce — is unit-tested
+  rather than merely reasoned about. T058's half of it lives in `actions.rs`, where the plan and
+  its rollback are both shown to be unsatisfied by the same half-swapped world.
+- **The fault injection is one-shot per process** (T060), shared across `Ipc` clones through an
+  `Arc<AtomicBool>`. Sabotaging every batch would sabotage the rollback too, leaving FR-013b —
+  the case where the undo works — with no way to be tested at all.
+- **T062 uses the nested instance's own output plus one headless output**, rather than the two
+  headless outputs the task text names. That is two monitors either way, and it keeps the
+  scenario's monitor names stable across the suite.
+- **SC-010 is asserted by sampling, not by inference.** `Nested::sample_layout` watches the
+  compositor from a background thread for the whole gesture and the test asserts every layout it
+  saw was either the one before or the one after — plus that it saw both, so "nothing bad was
+  observed" is not a claim about an idle sampler.
+- **The soak found a real defect in `state.rs`, and it is fixed here.** `moveworkspace` was
+  applied incrementally as a rebinding, but the event says nothing about what either monitor is
+  now *showing*: the destination may switch to the moved workspace and the vacated monitor falls
+  back to one the event does not name. Both `active_workspace` fields therefore went stale after
+  a swap, and the very next selection looked like the FR-011 no-op and silently did nothing —
+  every pass after the first. `moveworkspace` now asks for a full rebuild, like `createworkspace`
+  and `monitoradded` already did for the same reason; data-model.md's transition table is
+  updated to match.
+- **The soak runs under `order = "compositor"`.** Under MRU a swap activates *both* workspaces,
+  and which one the history puts first decides whether the next gesture swaps or is a legitimate
+  no-op — not something a hundred-pass loop can predict. Compositor order fixes the entry list,
+  so "open, advance once, release" selects the other monitor's workspace every time.
+
+### Defect fixes recorded after Phase 4
+
+- **The overlay was sized in the wrong unit system on a scaled monitor (FR-019).**
+  `ui/layout.rs` produced device-pixel metrics — correctly, that is what the shm buffer needs —
+  and `ui/mod.rs` passed them straight to `zwlr_layer_surface_v1::set_size`, which takes *logical*
+  pixels. The two coincide only at scale 1, so the whole E2E suite passed while the overlay came
+  out `scale` times too large on any monitor with a scale factor: a 4K panel at scale 2 got a
+  3072×264 surface on a 1920×1080 logical desktop instead of 1536×132.
+
+  `Metrics` now carries both sizes (`surface_size()` logical, `buffer_size()` device) plus the
+  scale that relates them, `refit` takes the compositor's logical `configure` size, and the ratio
+  is declared to the compositor with a `wp_viewport` per overlay surface. FR-019's 80 % cap is
+  taken on the logical desktop, which is what the user actually sees. Decision and rejected
+  alternatives are in research.md R17; `wp_viewporter` is added to the required-globals table in
+  contracts/compositor-ipc.md.
+
+- **`e2e_overlay_scales_with_the_monitor` measures the same 3840×2160 output twice**, at scale 1
+  and at scale 2, and asserts the scaled pass is indistinguishable from a real 1920×1080 monitor.
+  It restarts the daemon between the two: Hyprland emits no event for a scale change made with
+  `hyprctl keyword monitor`, so a daemon that outlived the change would size the overlay from the
+  scale it cached at start-up (research.md R17 → Note on staleness).

@@ -37,23 +37,36 @@ pub const OVERLAY_PADDING: u32 = 12;
 /// always see where the list continues (research.md R16).
 pub const SCROLL_MARGIN: usize = 1;
 
-/// The surface size and the entry geometry for one overlay, in device pixels.
+/// The buffer size and the entry geometry for one overlay, in device pixels — plus the surface
+/// size the compositor is asked for, in logical pixels.
 ///
-/// Everything here is already multiplied by the monitor's scale, so the renderer paints in the
-/// same units the buffer is allocated in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// **Two unit systems meet here, and keeping them apart is the whole point of this type.** The
+/// buffer is allocated and painted in device pixels, so every drawing measurement below is
+/// already multiplied by the monitor's scale. The compositor, however, sizes a surface in
+/// *logical* pixels — `zwlr_layer_surface_v1::set_size`, `configure`'s reply and `hyprctl layers`
+/// all speak them. Handing device pixels to `set_size` is what makes an overlay on a scaled
+/// monitor come out `scale` times larger than every other window on it, so the logical size is
+/// carried explicitly rather than left to the caller to remember to divide (FR-019).
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Metrics {
-    /// Overlay surface width.
+    /// Overlay buffer width, device pixels.
     pub width: u32,
-    /// Overlay surface height — exactly the rows on screen plus padding, so a short list gets a
-    /// short overlay rather than an empty box.
+    /// Overlay buffer height, device pixels — exactly the rows on screen plus padding, so a short
+    /// list gets a short overlay rather than an empty box.
     pub height: u32,
-    /// One entry's height. Fixed: it does not vary with the number of entries (FR-019).
+    /// Overlay surface width, logical pixels.
+    pub logical_width: u32,
+    /// Overlay surface height, logical pixels.
+    pub logical_height: u32,
+    /// The monitor's scale factor, i.e. the ratio between the two sizes above.
+    pub scale: f32,
+    /// One entry's height, device pixels. Fixed: it does not vary with the number of entries
+    /// (FR-019).
     pub row_height: u32,
-    /// The text line inside a row. The renderer sizes its font from this, so type scales with
-    /// the monitor exactly as the rows do.
+    /// The text line inside a row, device pixels. The renderer sizes its font from this, so type
+    /// scales with the monitor exactly as the rows do.
     pub text_height: u32,
-    /// Padding between the entry column and the surface edge.
+    /// Padding between the entry column and the surface edge, device pixels.
     pub padding: u32,
     /// How many entries are on screen at once.
     pub visible_rows: usize,
@@ -64,6 +77,21 @@ impl Metrics {
     #[must_use]
     pub fn scrolls(&self, entry_count: usize) -> bool {
         entry_count > self.visible_rows
+    }
+
+    /// The size to ask the compositor for, in the logical pixels its protocol speaks.
+    ///
+    /// This is the *only* size that may reach `set_size` or `wp_viewport::set_destination`;
+    /// [`Self::buffer_size`] is what the shm buffer is allocated in.
+    #[must_use]
+    pub fn surface_size(&self) -> (u32, u32) {
+        (self.logical_width, self.logical_height)
+    }
+
+    /// The size to allocate and paint the buffer in, in device pixels.
+    #[must_use]
+    pub fn buffer_size(&self) -> (u32, u32) {
+        (self.width, self.height)
     }
 
     /// The rectangle of the `slot`-th row on screen — `(x, y, width, height)`, device pixels.
@@ -83,22 +111,37 @@ impl Metrics {
 
 /// Size an overlay for the flat-list presentation on one monitor.
 ///
-/// `monitor_size` is in device pixels and `scale` is that monitor's scale factor, so the result
-/// is the same physical size on a `HiDPI` monitor as on a standard one.
+/// `monitor_size` is in device pixels and `scale` is that monitor's scale factor, both as
+/// `j/monitors` reports them. Every drawing constant is multiplied by the scale and the resulting
+/// buffer is divided back down to the logical size the surface is asked for, so the overlay
+/// occupies the same fraction of the screen — and so the same physical size — on a `HiDPI`
+/// monitor as on a standard one.
 #[must_use]
 pub fn list_metrics(monitor_size: (u32, u32), scale: f32, entry_count: usize) -> Metrics {
     let text_height = scaled(TEXT_LINE_HEIGHT, scale);
     let row_height = scaled(TEXT_LINE_HEIGHT + ROW_PADDING * 2, scale);
     let padding = scaled(OVERLAY_PADDING, scale);
 
-    let width = fraction(monitor_size.0, OVERLAY_WIDTH_FRACTION);
-    let max_height = fraction(monitor_size.1, OVERLAY_HEIGHT_FRACTION);
+    // The cap is a fraction of what the user actually sees, so it is taken on the logical desktop
+    // — 80 % of a 4K panel at scale 2 is 80 % of the 1920×1080 the compositor lays out on it.
+    let logical_monitor = (
+        logical(monitor_size.0, scale),
+        logical(monitor_size.1, scale),
+    );
+    let logical_width = fraction(logical_monitor.0, OVERLAY_WIDTH_FRACTION);
+    let max_height = scaled(fraction(logical_monitor.1, OVERLAY_HEIGHT_FRACTION), scale);
 
     let visible_rows = entry_count.clamp(1, rows_that_fit(max_height, row_height, padding));
+    // Built from the row geometry rather than scaled from a logical height, so the rows always
+    // tile the buffer exactly however the scale rounds.
+    let height = row_height * visible_rows as u32 + padding * 2;
 
     Metrics {
-        width,
-        height: row_height * visible_rows as u32 + padding * 2,
+        width: scaled(logical_width, scale),
+        height,
+        logical_width,
+        logical_height: logical(height, scale),
+        scale,
         row_height,
         text_height,
         padding,
@@ -121,10 +164,20 @@ pub fn rows_that_fit(height: u32, row_height: u32, padding: u32) -> usize {
 
 /// Re-fit a set of metrics to a surface size the compositor chose.
 ///
+/// `logical_width` and `logical_height` come straight from a `configure`, so they are in the
+/// compositor's logical pixels; the buffer they imply is multiplied back up by the monitor scale.
+///
 /// Keeps the row height — entries never shrink (FR-019) — and changes only how many of them are
 /// on screen, so the painted rows always fit the surface actually agreed to.
 #[must_use]
-pub fn refit(metrics: Metrics, width: u32, height: u32, entry_count: usize) -> Metrics {
+pub fn refit(
+    metrics: Metrics,
+    logical_width: u32,
+    logical_height: u32,
+    entry_count: usize,
+) -> Metrics {
+    let width = scaled(logical_width, metrics.scale);
+    let height = scaled(logical_height, metrics.scale);
     let visible_rows =
         entry_count
             .max(1)
@@ -132,6 +185,8 @@ pub fn refit(metrics: Metrics, width: u32, height: u32, entry_count: usize) -> M
     Metrics {
         width,
         height,
+        logical_width,
+        logical_height,
         visible_rows,
         ..metrics
     }
@@ -175,14 +230,24 @@ pub fn first_visible(
     first.min(max_first)
 }
 
-/// Round a logical-pixel constant to device pixels, never to zero.
-fn scaled(logical: u32, scale: f32) -> u32 {
-    let scale = if scale.is_finite() && scale > 0.0 {
-        scale
+/// The scale to compute with: anything the compositor cannot have meant — zero, negative, `NaN` —
+/// becomes 1 rather than collapsing or exploding the overlay.
+fn sane_scale(scale: f32) -> f64 {
+    if scale.is_finite() && scale > 0.0 {
+        f64::from(scale)
     } else {
         1.0
-    };
-    ((f64::from(logical) * f64::from(scale)).round() as u32).max(1)
+    }
+}
+
+/// Round a logical-pixel measurement up to device pixels, never to zero.
+fn scaled(logical: u32, scale: f32) -> u32 {
+    ((f64::from(logical) * sane_scale(scale)).round() as u32).max(1)
+}
+
+/// Round a device-pixel measurement back down to logical pixels, never to zero.
+fn logical(device: u32, scale: f32) -> u32 {
+    ((f64::from(device) / sane_scale(scale)).round() as u32).max(1)
 }
 
 fn fraction(pixels: u32, of: f64) -> u32 {
@@ -314,7 +379,121 @@ mod tests {
         for scale in [0.0, -1.0, f32::NAN] {
             let metrics = list_metrics(HD, scale, 5);
             assert_eq!(metrics.row_height, 36, "scale {scale}");
+            assert_eq!(
+                metrics.surface_size(),
+                metrics.buffer_size(),
+                "scale {scale}"
+            );
         }
+    }
+
+    // --- Logical versus device pixels --------------------------------------
+
+    #[test]
+    fn the_surface_size_is_logical_pixels_and_the_buffer_size_is_device_pixels() {
+        // The bug this separation exists to prevent: `set_size` takes logical pixels, so handing
+        // it the buffer size makes the overlay `scale` times too large on a scaled monitor.
+        let metrics = list_metrics((3840, 2160), 2.0, 5);
+        assert_eq!(metrics.buffer_size(), (3072, metrics.height));
+        assert_eq!(metrics.surface_size(), (1536, metrics.height / 2));
+    }
+
+    #[test]
+    fn a_scaled_monitor_asks_for_the_same_surface_as_the_unscaled_one_behind_it() {
+        // A 4K panel at scale 2 presents a 1920×1080 logical desktop, so the overlay must occupy
+        // exactly what it would on a real 1920×1080 monitor — the same size as every other window
+        // on that screen, not twice it.
+        let unscaled = list_metrics((1920, 1080), 1.0, 7);
+        let scaled_up = list_metrics((3840, 2160), 2.0, 7);
+        assert_eq!(scaled_up.surface_size(), unscaled.surface_size());
+        assert_eq!(scaled_up.visible_rows, unscaled.visible_rows);
+        assert_eq!(
+            scaled_up.buffer_size(),
+            (unscaled.width * 2, unscaled.height * 2),
+            "the buffer is still painted at full device resolution"
+        );
+    }
+
+    #[test]
+    fn the_overlay_stays_inside_the_cap_of_the_logical_monitor_at_every_scale() {
+        // FR-019's 80 % cap is a fraction of what the user sees, which is the logical desktop.
+        for (size, scale) in [
+            ((1920, 1080), 1.0),
+            ((2560, 1440), 1.25),
+            ((3840, 2160), 1.5),
+            ((3840, 2160), 2.0),
+            ((3000, 2000), 1.75),
+            ((5120, 2880), 2.5),
+        ] {
+            let logical_monitor = (logical(size.0, scale), logical(size.1, scale));
+            for count in [1, 3, 20, 50] {
+                let metrics = list_metrics(size, scale, count);
+                let (width, height) = metrics.surface_size();
+                assert!(
+                    width <= logical_monitor.0 * 4 / 5 + 1
+                        && height <= logical_monitor.1 * 4 / 5 + 1,
+                    "{size:?} at scale {scale} with {count} entries: {:?} exceeds 80 % of {logical_monitor:?}",
+                    metrics.surface_size()
+                );
+                assert!(metrics.visible_rows >= 1);
+            }
+        }
+    }
+
+    #[test]
+    fn a_fractional_scale_round_trips_between_the_two_unit_systems() {
+        // A compositor that grants the size asked for must not cause a resize on the way back.
+        // The *surface* size is what the protocol contracts on, so it round-trips exactly; the
+        // buffer is free to land a device pixel either side of where it started, which at worst
+        // trims a pixel off the bottom padding.
+        for scale in [1.0, 1.25, 1.5, 1.6, 1.75, 2.0, 2.5, 3.0] {
+            let metrics = list_metrics((3840, 2160), scale, 10);
+            let (width, height) = metrics.surface_size();
+            let refitted = refit(metrics, width, height, 10);
+            assert_eq!(refitted.surface_size(), (width, height), "scale {scale}");
+            assert_eq!(refitted.visible_rows, metrics.visible_rows, "scale {scale}");
+            assert_eq!(refitted.width, metrics.width, "scale {scale}");
+            assert!(
+                refitted.height.abs_diff(metrics.height) <= 1,
+                "scale {scale}: {} against {}",
+                refitted.height,
+                metrics.height
+            );
+        }
+    }
+
+    #[test]
+    fn the_rows_tile_the_buffer_exactly_at_every_scale() {
+        // The buffer is what cairo paints into, so a row running past its bottom edge would be
+        // silently clipped. Deriving the height from the row geometry is what prevents that.
+        for scale in [1.0, 1.125, 1.25, 1.5, 1.6, 1.75, 2.0, 2.5, 3.0] {
+            for count in [1, 5, 20] {
+                let metrics = list_metrics((3840, 2160), scale, count);
+                let (_, last_y, _, row) = metrics.row_rect(metrics.visible_rows - 1);
+                assert_eq!(
+                    last_y + row + metrics.padding,
+                    metrics.height,
+                    "scale {scale} with {count} entries"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn refitting_reads_the_compositors_logical_size_and_scales_the_buffer_back_up() {
+        let metrics = list_metrics((3840, 2160), 2.0, 20);
+        let refitted = refit(metrics, 800, 300, 20);
+        assert_eq!(refitted.surface_size(), (800, 300));
+        assert_eq!(
+            refitted.buffer_size(),
+            (1600, 600),
+            "device pixels to paint"
+        );
+        assert_eq!(
+            refitted.row_height, metrics.row_height,
+            "rows never shrink, at any scale"
+        );
+        assert_eq!(refitted.visible_rows, rows_that_fit(600, 72, 24));
     }
 
     #[test]

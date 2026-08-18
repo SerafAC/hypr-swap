@@ -126,6 +126,7 @@ transaction layer). Both were resolved in Phase 0 without new abstractions.
 | `e2e_placement_all_monitors` | `placement = "all"` | FR-017, US5-AS2/3 |
 | `e2e_above_fullscreen` | fullscreen client | FR-018 |
 | `e2e_scrolls_many_workspaces` | 20 workspaces | FR-019, SC-005 |
+| `e2e_overlay_scales_with_the_monitor` | 4K output at scale 1, then at scale 2 | FR-019, research.md R17 |
 | `e2e_new_workspace_lowest_unused` | new-workspace bind | FR-020, US4-AS1/3 |
 | `e2e_new_workspace_noop_when_empty` | repeat press | FR-021, US4-AS2 |
 | `e2e_defaults_without_config` | no config file | FR-023, SC-006, US5-AS4 |

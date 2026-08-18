@@ -143,14 +143,20 @@ impl World {
                     None => Applied::ByRebuilding,
                 }
             }
-            // Neither carries what the world needs: a new workspace's monitor binding, or a new
-            // window's geometry.
+            // None of these carries what the world needs: a new workspace's monitor binding, or a
+            // new window's geometry.
             Event::WorkspaceCreated { .. }
             | Event::WindowOpened { .. }
             // A window that changed workspace changed geometry with it.
             | Event::WindowMoved { .. }
             // Monitor changes reshuffle workspace bindings across the whole layout.
-            | Event::MonitorsChanged => Applied::ByRebuilding,
+            | Event::MonitorsChanged
+            // A move says which monitor a workspace went to, and nothing about what either
+            // monitor is now *showing* — the destination may switch to it, and the monitor it
+            // left falls back to some other workspace bound to it, which the event does not
+            // name. Rebinding alone would leave both `active_workspace` fields quietly wrong,
+            // and a stale one turns the next selection into a phantom FR-011 no-op.
+            | Event::WorkspaceMoved { .. } => Applied::ByRebuilding,
             Event::WorkspaceDestroyed { name } => {
                 let Some(id) = self.workspace_by_name(name).map(|w| w.id) else {
                     return Applied::Incrementally;
@@ -159,18 +165,6 @@ impl World {
                 self.windows.retain(|window| window.workspace != id);
                 self.history.remove(id);
                 Applied::Incrementally
-            }
-            Event::WorkspaceMoved { name, monitor } => {
-                if self.monitor(monitor).is_none() {
-                    return Applied::ByRebuilding;
-                }
-                match self.workspaces.iter_mut().find(|workspace| workspace.name == *name) {
-                    Some(workspace) => {
-                        workspace.monitor.clone_from(monitor);
-                        Applied::Incrementally
-                    }
-                    None => Applied::ByRebuilding,
-                }
             }
             Event::WindowClosed { address } => {
                 self.windows.retain(|window| window.address != *address);
@@ -463,29 +457,28 @@ mod tests {
     }
 
     #[test]
-    fn moving_a_workspace_rebinds_it_to_the_new_monitor() {
+    fn moving_a_workspace_asks_for_a_rebuild() {
+        // The event names the destination monitor and nothing else. Both monitors may now be
+        // showing something different — the one the workspace left falls back to a workspace the
+        // event does not name — so rebinding incrementally would leave `active_workspace` wrong
+        // on both. That is not a cosmetic error: a stale active workspace makes the next
+        // selection look like the FR-011 no-op and silently do nothing.
         let mut world = world();
         let applied = world.apply(&Event::WorkspaceMoved {
             name: "mail".to_owned(),
             monitor: "eDP-1".to_owned(),
         });
-        assert_eq!(applied, Applied::Incrementally);
-        assert_eq!(world.workspace(4).unwrap().monitor, "eDP-1");
+        assert_eq!(applied, Applied::ByRebuilding);
     }
 
     #[test]
-    fn moving_a_workspace_to_an_unknown_monitor_asks_for_a_rebuild() {
+    fn moving_a_workspace_to_an_unknown_monitor_also_asks_for_a_rebuild() {
         let mut world = world();
         let applied = world.apply(&Event::WorkspaceMoved {
             name: "mail".to_owned(),
             monitor: "DP-9".to_owned(),
         });
         assert_eq!(applied, Applied::ByRebuilding);
-        assert_eq!(
-            world.workspace(4).unwrap().monitor,
-            "HEADLESS-2",
-            "binding is unchanged"
-        );
     }
 
     #[test]

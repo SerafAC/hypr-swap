@@ -8,7 +8,8 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use hypr_swap::hypr::ipc::Ipc;
@@ -86,6 +87,55 @@ pub struct OverlaySurface {
 
 /// The `wlr-layer-shell` level the overlay must occupy (FR-018).
 pub const OVERLAY_LEVEL: u32 = 3;
+
+/// What every monitor is showing, and which one has keyboard focus — everything a swap changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Layout {
+    /// `(monitor, active workspace)`, sorted by monitor so two layouts compare directly.
+    pub monitors: Vec<(String, i32)>,
+    pub focused: Option<String>,
+}
+
+impl Layout {
+    /// The workspace a named monitor is showing.
+    #[must_use]
+    pub fn on(&self, monitor: &str) -> Option<i32> {
+        self.monitors
+            .iter()
+            .find(|(name, _)| name == monitor)
+            .map(|(_, workspace)| *workspace)
+    }
+}
+
+/// A background watcher recording every distinct layout the compositor passed through.
+pub struct Sampler {
+    running: Arc<AtomicBool>,
+    seen: Arc<Mutex<Vec<Layout>>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Sampler {
+    /// Stop watching and return the layouts seen, in order and without repeats.
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn stop(mut self) -> Vec<Layout> {
+        self.running.store(false, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+        let seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
+        seen.clone()
+    }
+}
+
+impl Drop for Sampler {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
 
 /// A running nested compositor. Killed when dropped, so a panicking test cannot leak one.
 pub struct Nested {
@@ -344,6 +394,70 @@ impl Nested {
         );
     }
 
+    /// Which workspace each monitor is showing, and which monitor has focus.
+    ///
+    /// One value that captures everything a swap changes, so a test can compare whole states
+    /// rather than a handful of fields (SC-010).
+    #[must_use]
+    pub fn layout(&self) -> Layout {
+        let mut monitors: Vec<(String, i32)> = self
+            .monitors()
+            .into_iter()
+            .map(|monitor| (monitor.name, monitor.active_workspace))
+            .collect();
+        monitors.sort();
+        Layout {
+            monitors,
+            focused: self
+                .monitors()
+                .into_iter()
+                .find(|monitor| monitor.focused)
+                .map(|monitor| monitor.name),
+        }
+    }
+
+    /// Watch the layout continuously in the background until the returned sampler is stopped.
+    ///
+    /// SC-010 says no half-swapped state is ever observable, which is a claim about the states
+    /// that exist *during* the change — the only way to test it from outside is to keep looking.
+    #[must_use]
+    pub fn sample_layout(&self) -> Sampler {
+        let ipc = self.ipc.clone();
+        let running = Arc::new(AtomicBool::new(true));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let thread = std::thread::spawn({
+            let running = Arc::clone(&running);
+            let seen = Arc::clone(&seen);
+            move || {
+                while running.load(Ordering::Relaxed) {
+                    let mut monitors: Vec<(String, i32)> = ipc
+                        .monitors()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|monitor| (monitor.name, monitor.active_workspace))
+                        .collect();
+                    monitors.sort();
+                    let focused = ipc
+                        .monitors()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .find(|monitor| monitor.focused)
+                        .map(|monitor| monitor.name);
+                    let layout = Layout { monitors, focused };
+                    let mut seen = seen.lock().unwrap_or_else(PoisonError::into_inner);
+                    if seen.last() != Some(&layout) {
+                        seen.push(layout);
+                    }
+                }
+            }
+        });
+        Sampler {
+            running,
+            seen,
+            thread: Some(thread),
+        }
+    }
+
     /// Start the application under test against this instance.
     #[must_use]
     pub fn start_daemon(&self) -> Daemon {
@@ -351,10 +465,20 @@ impl Nested {
     }
 
     #[must_use]
-    #[allow(clippy::missing_panics_doc)]
     pub fn start_daemon_with(&self, args: &[&str]) -> Daemon {
+        self.start_daemon_with_env(args, &[])
+    }
+
+    /// Start the daemon with extra environment — the fault-injection hook and nothing else
+    /// (research.md R14).
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn start_daemon_with_env(&self, args: &[&str], environment: &[(&str, &str)]) -> Daemon {
         let mut command = Command::new(env!("CARGO_BIN_EXE_hypr-swap"));
         self.env(&mut command);
+        for (name, value) in environment {
+            command.env(name, value);
+        }
         let child = command
             .args(args)
             .stdin(Stdio::null())

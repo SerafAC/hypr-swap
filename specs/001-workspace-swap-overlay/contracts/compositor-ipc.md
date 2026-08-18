@@ -11,6 +11,7 @@ contract most likely to break under a compositor upgrade, so it is pinned and st
 |---|---|---|
 | `hyprland_global_shortcuts_manager_v1` | Register `switcher` and `new-workspace` | Fatal at start-up, exit 3 |
 | `zwlr_layer_shell_v1` (v4) | Overlay-layer surface, exclusive keyboard interactivity | Fatal at start-up, exit 3 |
+| `wp_viewporter` (v1) | Display the device-pixel buffer at the surface's logical size, so the overlay is the same physical size on a scaled monitor (FR-019) | Fatal at start-up, exit 3 |
 | `wl_shm`, `wl_compositor`, `wl_seat`, `wl_output` | Buffers, input, per-monitor surfaces | Fatal at start-up, exit 3 |
 
 `virtual_keyboard_manager_v1` is used by the **E2E suite only**, never by the application.
@@ -18,6 +19,12 @@ contract most likely to break under a compositor upgrade, so it is pinned and st
 Layer surface parameters: layer `overlay` (above fullscreen windows, FR-018), keyboard
 interactivity `exclusive` (FR-002a), anchored centre with no exclusive zone, namespace
 `hypr-swap`. One surface per monitor the overlay is shown on (FR-017).
+
+**Units.** `set_size` and `configure`'s reply are in *logical* pixels; the shm buffer is in
+*device* pixels, i.e. logical × the monitor's `j/monitors[].scale`. `wp_viewport::set_destination`
+is set to the logical size on every frame, which is what declares the ratio between the two.
+`wl_surface::set_buffer_scale` is deliberately left at 1: it takes an integer, and Hyprland's
+fractional scales (1.25, 1.5, …) could not be expressed with it.
 
 ## IPC sockets
 

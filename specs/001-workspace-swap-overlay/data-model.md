@@ -103,7 +103,7 @@ wholesale rebuilds:
 | `workspace`, `workspacev2` | Set focused monitor's active workspace; push to history |
 | `focusedmon` | Change focused monitor; push its active workspace to history |
 | `createworkspace`, `destroyworkspace` | Add/remove workspace; drop destroyed ids from history |
-| `moveworkspace` | Rebind workspace to a monitor |
+| `moveworkspace` | Full rebuild — the event names the destination monitor but not what either monitor now displays |
 | `openwindow`, `closewindow`, `movewindow` | Add/remove/rebind window |
 | `windowtitle` | Update title |
 | `monitoradded`, `monitorremoved` | Full rebuild (cheap, and monitor changes reshuffle bindings) |

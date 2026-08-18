@@ -15,6 +15,8 @@ pub mod shortcuts;
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::dispatch2::Dispatch2;
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
+use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewport::WpViewport;
+use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewporter::WpViewporter;
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::keyboard::{
     KeyEvent, KeyboardHandler, Keysym, Modifiers, RawModifiers,
@@ -106,6 +108,9 @@ pub struct App {
     pool: SlotPool,
     compositor: CompositorState,
     layer_shell: LayerShell,
+    /// Maps each overlay's device-pixel buffer onto its logical-pixel surface size, which is what
+    /// keeps the overlay the same physical size on a scaled monitor as on an unscaled one.
+    viewporter: WpViewporter,
     shortcuts_manager: HyprlandGlobalShortcutsManagerV1,
     /// Held for the lifetime of the connection: dropping a shortcut unregisters it.
     registered: Vec<HyprlandGlobalShortcutV1>,
@@ -131,6 +136,10 @@ pub struct App {
 /// One mapped layer surface showing the session.
 struct Overlay {
     layer: LayerSurface,
+    /// Declares that this surface's buffer is in device pixels while the surface itself is the
+    /// logical size the compositor configured. Without it the buffer would be taken as logical
+    /// and the overlay would come out `scale` times too big on a scaled monitor (FR-019).
+    viewport: WpViewport,
     /// Geometry for this monitor, fixed for the life of the session.
     metrics: Metrics,
     /// Held until the next frame replaces it; releasing it early would show a torn buffer.
@@ -140,6 +149,14 @@ struct Overlay {
     first_visible: usize,
     /// Set by the first `configure`; nothing may be attached before it arrives.
     configured: bool,
+}
+
+impl Drop for Overlay {
+    fn drop(&mut self) {
+        // A viewport that outlives its surface makes every later request a protocol error, so it
+        // goes first — before the `LayerSurface` field below it is dropped.
+        self.viewport.destroy();
+    }
 }
 
 /// Connect to the compositor and bind everything the application cannot work without.
@@ -165,6 +182,12 @@ pub fn connect(config: Configuration, world: World) -> Result<(Wayland, App), St
         .map_err(|e| StartupError::MissingGlobal("wl_compositor", e.to_string()))?;
     let layer_shell = LayerShell::bind(&globals, &qh)
         .map_err(|e| StartupError::MissingGlobal("zwlr_layer_shell_v1", e.to_string()))?;
+    // Required rather than optional: without it there is no way to paint at a scaled monitor's
+    // real resolution and still ask for a correctly-sized surface, and Hyprland has offered it
+    // for its whole supported range (contracts/compositor-ipc.md).
+    let viewporter: WpViewporter = globals
+        .bind(&qh, 1..=1, shortcuts::NoData)
+        .map_err(|e| StartupError::MissingGlobal("wp_viewporter", e.to_string()))?;
     let shortcuts_manager: HyprlandGlobalShortcutsManagerV1 =
         globals.bind(&qh, 1..=1, shortcuts::NoData).map_err(|e| {
             StartupError::MissingGlobal("hyprland_global_shortcuts_manager_v1", e.to_string())
@@ -178,6 +201,7 @@ pub fn connect(config: Configuration, world: World) -> Result<(Wayland, App), St
         pool,
         compositor,
         layer_shell,
+        viewporter,
         shortcuts_manager,
         registered: Vec::new(),
         keyboard: None,
@@ -297,6 +321,10 @@ impl App {
     /// `placement = "all"` needs.
     fn map_overlay(&mut self, metrics: Metrics) {
         let surface = self.compositor.create_surface(&self.qh);
+        // Created before the surface is handed to the layer shell, which takes ownership of it.
+        let viewport = self
+            .viewporter
+            .get_viewport(&surface, &self.qh, shortcuts::NoData);
         let layer = self.layer_shell.create_layer_surface(
             &self.qh,
             surface,
@@ -305,7 +333,10 @@ impl App {
             None,
         );
         layer.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
-        layer.set_size(metrics.width, metrics.height);
+        // Logical pixels: `set_size` is in the compositor's coordinate space, not the buffer's.
+        // The scale is applied to the buffer instead, by the viewport set in `draw`.
+        let (surface_width, surface_height) = metrics.surface_size();
+        layer.set_size(surface_width, surface_height);
         // Anchored to nothing, so the compositor centres it.
         layer.set_anchor(Anchor::empty());
         layer.set_exclusive_zone(0);
@@ -313,6 +344,7 @@ impl App {
 
         self.overlay = Some(Overlay {
             layer,
+            viewport,
             metrics,
             buffer: None,
             first_visible: 0,
@@ -359,7 +391,16 @@ impl App {
         let Ok(stride) = render::stride_for(metrics.width) else {
             return;
         };
+        // Device pixels throughout: the buffer is allocated, painted and damaged in them.
         let (Ok(width), Ok(height)) = (i32::try_from(metrics.width), i32::try_from(metrics.height))
+        else {
+            return;
+        };
+        // Logical pixels: what that buffer is displayed at. Setting this is what stops a HiDPI
+        // monitor's overlay from being drawn `scale` times larger than everything around it.
+        let (surface_width, surface_height) = metrics.surface_size();
+        let (Ok(destination_width), Ok(destination_height)) =
+            (i32::try_from(surface_width), i32::try_from(surface_height))
         else {
             return;
         };
@@ -394,6 +435,10 @@ impl App {
             );
             return;
         }
+
+        overlay
+            .viewport
+            .set_destination(destination_width, destination_height);
 
         let wl_surface = overlay.layer.wl_surface();
         if buffer.attach_to(wl_surface).is_ok() {
@@ -451,6 +496,33 @@ impl Dispatch2<HyprlandGlobalShortcutV1, App> for shortcuts::ShortcutData {
             Event::Pressed { .. } => app.on_shortcut(self.0, true),
             Event::Released { .. } => app.on_shortcut(self.0, false),
         }
+    }
+}
+
+// --- Viewporter -------------------------------------------------------------
+
+impl Dispatch2<WpViewporter, App> for shortcuts::NoData {
+    fn event(
+        &self,
+        _: &mut App,
+        _: &WpViewporter,
+        _: <WpViewporter as Proxy>::Event,
+        _: &Connection,
+        _: &QueueHandle<App>,
+    ) {
+        // Neither the viewporter nor a viewport has any events.
+    }
+}
+
+impl Dispatch2<WpViewport, App> for shortcuts::NoData {
+    fn event(
+        &self,
+        _: &mut App,
+        _: &WpViewport,
+        _: <WpViewport as Proxy>::Event,
+        _: &Connection,
+        _: &QueueHandle<App>,
+    ) {
     }
 }
 
@@ -645,7 +717,7 @@ impl LayerShellHandler for App {
         if let Some(overlay) = self.overlay.as_mut() {
             // A compositor may hand back a size of its own choosing. Honour it rather than
             // painting outside the surface it agreed to — refitting the row count, never the
-            // row size (FR-019).
+            // row size (FR-019). The size is in logical pixels, which is what `refit` takes.
             let (width, height) = configure.new_size;
             if width != 0 && height != 0 {
                 overlay.metrics = layout::refit(overlay.metrics, width, height, entry_count);

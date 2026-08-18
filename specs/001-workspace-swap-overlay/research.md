@@ -222,7 +222,7 @@ The three cases, all **[verified]** as available dispatchers:
 |---|---|
 | Selected workspace is on the focused monitor | `workspace <id>` |
 | Selected workspace is the *active* workspace of another monitor | `swapactiveworkspaces <monA> <monB>`, then `focusmonitor <monA>` |
-| Selected workspace is bound to another monitor but not shown there | `moveworkspacetomonitor <sel> <monA>`, `moveworkspacetomonitor <act> <monB>`, `focusworkspaceoncurrentmonitor <sel>` |
+| Selected workspace is bound to another monitor but not shown there | `moveworkspacetomonitor <sel> <monA>`, `moveworkspacetomonitor <act> <monB>`, `focusmonitor <monA>`, `focusworkspaceoncurrentmonitor <sel>` |
 
 **Rationale**: Batching is what keeps SC-010's "no half-swapped state is ever observable" honest —
 the compositor applies the whole batch within one pass rather than across several round trips, so
@@ -238,6 +238,36 @@ keyboard focus lands after the pair of moves. The experiment is a scripted three
 two-headless-output scenario run under the E2E harness (R14) before `actions.rs` is finalised; it
 becomes `e2e_swap_inactive_target`. If the observed behaviour differs, only the plan table above
 changes — the surrounding verify/rollback machinery does not.
+
+### Spike outcome — the third row **changed** [verified]
+
+Run under the R14 harness on Hyprland 0.56.2, one primary and one headless output, with
+workspace 1 active on the primary, 2 active on the headless output and 3 bound to the headless
+output but not shown. Four findings, each of which the plan now depends on:
+
+1. `moveworkspacetomonitor <ws> <mon>` where `ws` is **not** its monitor's active workspace changes
+   the binding only: both monitors keep showing what they were showing, and focus does not move.
+2. `moveworkspacetomonitor <ws> <mon>` where `ws` **is** the focused monitor's active workspace
+   makes it active on the destination, **takes keyboard focus with it**, and leaves the source
+   monitor falling back to some other workspace bound to it.
+3. Because of (2), the original third row was wrong: by the time
+   `focusworkspaceoncurrentmonitor <sel>` ran, "current monitor" was the *other* monitor, so it
+   dragged the selected workspace straight back there — the exact opposite of FR-010. The row now
+   carries an explicit `focusmonitor <monA>` before it. The fallback in (2) is not a substitute:
+   which workspace a vacated monitor falls back to depends on what else is bound to it.
+4. `swapactiveworkspaces` leaves focus on the monitor that already had it, and is its own inverse.
+   Its `focusmonitor <monA>` step is therefore defensive rather than corrective, and is kept so
+   FR-010's "leave keyboard focus on it" is stated in the plan rather than inherited from
+   compositor behaviour.
+
+A fifth finding changed the **rollback**, not the plan table: a `[[BATCH]]` whose second step is
+invalid still applies its first step and answers `ok\n\n\nInvalid dispatcher`. Batching prevents an
+intermediate *frame*, which is what SC-010 asks for, but it is not a transaction. A rollback that
+re-issued the inverse of the forward plan would therefore assume a state the compositor is not in
+precisely when it is needed. The rollback is instead generated from the recorded pre-state —
+restore every binding, then every monitor's active workspace, then focus — which reaches the
+pre-state from *any* intermediate state, and is idempotent. Bindings are restored first because
+`focusworkspaceoncurrentmonitor` moves a workspace that is bound elsewhere, per (3).
 
 ## R9 — New-workspace resolution (FR-020, FR-021)
 
@@ -419,6 +449,38 @@ one place (Principle III) so they can become settings later if a requirement eve
 The viewport arithmetic sits in `ui/layout.rs` as a pure function of (entry count, entry size,
 monitor size, highlight index), which is what lets SC-005's 20-workspace case be unit-tested at
 every monitor size without a compositor, with the E2E test confirming the same on real outputs.
+
+## R17 — Logical versus device pixels on a scaled monitor (FR-019)
+
+**Decision**: `ui/layout.rs` carries both units explicitly. The shm buffer is allocated and
+painted in **device pixels** (every drawing constant multiplied by `j/monitors[].scale`), while
+the surface is asked for in the **logical pixels** `zwlr_layer_surface_v1::set_size` and
+`configure` speak — `Metrics::surface_size()` versus `Metrics::buffer_size()`. The ratio between
+the two is declared to the compositor with **`wp_viewporter`**: a `wp_viewport` on the overlay
+surface with `set_destination` set to the logical size on every frame.
+
+**Rationale**: The two coordinate systems coincide only at scale 1, which is why conflating them
+survived the original E2E suite. On a monitor with a scale factor — a 4K panel on a 14" laptop —
+handing the device-pixel buffer size to `set_size` made the overlay `scale` times larger than
+every other window on that monitor. Deriving the 80 % cap from the *logical* desktop is likewise
+what makes it 80 % of what the user actually sees.
+
+**Rejected**: `wl_surface::set_buffer_scale`, which needs no extra global but takes an integer.
+Hyprland's fractional scales (1.25, 1.5, 1.75) cannot be expressed with it, so an overlay on a
+1.5-scaled monitor would have to be painted at 2× and downscaled by the compositor — blurrier and
+no simpler. Also rejected: painting at logical resolution with no scaling at all, which leaves the
+overlay correctly sized but visibly soft next to every other client on a HiDPI monitor.
+
+`wp_viewporter` is a required global, fatal at start-up like the other three
+([contracts/compositor-ipc.md](./contracts/compositor-ipc.md)); it is a stable protocol Hyprland
+has offered across the whole supported version range, and a fallback path would be a second way
+to size the overlay that no supported compositor would ever take (Principle II).
+
+**Note on staleness**: the daemon sizes the overlay from its cached `World`, which is refreshed
+from the event socket. Hyprland emits no event when a monitor's scale changes under `hyprctl
+keyword monitor`, so the cached scale is stale until the next event that forces a rebuild — any
+window opening, closing or moving. This is why `e2e_overlay_scales_with_the_monitor` restarts the
+daemon between its two measurements.
 
 ## Resolved unknowns
 

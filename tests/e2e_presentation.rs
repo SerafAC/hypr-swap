@@ -146,19 +146,21 @@ fn e2e_scrolls_many_workspaces() {
     let surface = open_overlay(&nested, &mut keyboard);
     assert_eq!(
         surface.size,
-        (expected.width, expected.height),
+        expected.surface_size(),
         "the mapped surface is the size ui::layout asked for"
     );
 
     // The properties FR-019 requires, asserted against the real surface rather than against the
-    // computation that produced it.
+    // computation that produced it. `hyprctl layers` reports logical pixels, and this monitor is
+    // at scale 1, so its size is directly comparable; `e2e_overlay_scales_with_the_monitor`
+    // covers the scaled case.
     assert!(
         surface.size.0 <= monitor.size.0 * 4 / 5 && surface.size.1 <= monitor.size.1 * 4 / 5,
         "the overlay stays inside 80 % of {:?}, got {:?}",
         monitor.size,
         surface.size
     );
-    let rows = (surface.size.1 - expected.padding * 2) / expected.row_height;
+    let rows = (expected.height - expected.padding * 2) / expected.row_height;
     assert_eq!(
         u32::try_from(expected.visible_rows).unwrap(),
         rows,
@@ -224,6 +226,142 @@ fn e2e_above_fullscreen() {
         1,
         "cancelling over a fullscreen client changes nothing"
     );
+}
+
+#[test]
+fn e2e_overlay_scales_with_the_monitor() {
+    // FR-019: on a monitor with a scale factor — a 4K panel on a 14" laptop, say — the overlay
+    // has to sit in the compositor's layout exactly as every other window on that monitor does,
+    // rather than `scale` times larger than all of them.
+    //
+    // This is the regression the two-unit-system split in `ui::layout` exists for. The buffer is
+    // painted in device pixels, but `set_size` and `hyprctl layers` both speak logical ones, so
+    // sizing the surface from the buffer made the overlay come out `scale` times too big.
+    let nested = Nested::start();
+    let _one = clients::spawn_on(&nested, 1, "alpha-window");
+    let _two = clients::spawn_on(&nested, 2, "beta-window");
+
+    // The same panel twice: once presented at scale 1, once at scale 2. The logical desktop is
+    // 1920×1080 in the second case, so the overlay must be sized for that, not for 3840×2160.
+    let panel = nested.add_headless_output();
+    nested.hyprctl(&[
+        "keyword",
+        "monitor",
+        &format!("{panel},3840x2160@60,auto,1"),
+    ]);
+    nested.dispatch(&format!("focusmonitor {panel}"));
+    nested.wait_until("the panel is focused unscaled", || {
+        nested.monitors().iter().any(|monitor| {
+            monitor.name == panel && monitor.focused && (monitor.scale - 1.0).abs() < 0.01
+        })
+    });
+
+    let (unscaled_monitor, unscaled_expected, unscaled) = measure_overlay(&nested);
+    assert_eq!(
+        unscaled.size,
+        unscaled_expected.surface_size(),
+        "the unscaled reference"
+    );
+
+    nested.hyprctl(&[
+        "keyword",
+        "monitor",
+        &format!("{panel},3840x2160@60,auto,2"),
+    ]);
+    nested.wait_until("the same panel is now at scale 2", || {
+        nested.monitors().iter().any(|monitor| {
+            monitor.name == panel && monitor.focused && (monitor.scale - 2.0).abs() < 0.01
+        })
+    });
+
+    let (scaled_monitor, scaled_expected, scaled) = measure_overlay(&nested);
+    assert_eq!(
+        scaled_monitor.size, unscaled_monitor.size,
+        "the panel's own resolution did not change; only how it is presented did"
+    );
+
+    assert_eq!(
+        scaled.size,
+        scaled_expected.surface_size(),
+        "the mapped surface is the logical size ui::layout asked for"
+    );
+    // The bug in one assertion. Scaling a 3840×2160 panel by 2 makes the compositor lay out a
+    // 1920×1080 desktop on it, and the overlay has to be indistinguishable from one opened on a
+    // real 1920×1080 monitor — which is where the pre-fix build put a 3072-wide surface.
+    let logical_monitor = (scaled_monitor.size.0 / 2, scaled_monitor.size.1 / 2);
+    assert_eq!(
+        scaled.size,
+        layout::list_metrics(logical_monitor, 1.0, entries(&nested, Order::Mru).len())
+            .surface_size(),
+        "a 4K panel at scale 2 must present the overlay exactly as a {logical_monitor:?} monitor does"
+    );
+    assert!(
+        scaled.size.0 <= logical_monitor.0 * 4 / 5 && scaled.size.1 <= logical_monitor.1 * 4 / 5,
+        "the overlay stays inside FR-019's cap on the {logical_monitor:?} logical desktop, got {:?}",
+        scaled.size
+    );
+
+    // The two halves of that, spelled out. The width tracks the desktop, so halving the logical
+    // desktop halves it...
+    assert_eq!(
+        scaled.size.0,
+        unscaled.size.0 / 2,
+        "the width is a fraction of the logical desktop, which scale 2 halved"
+    );
+    // ...while the height is built from a fixed logical row size, so it does not move. That is
+    // the point of scaling: a row stays 36 logical pixels and therefore doubles in device pixels,
+    // ending up the same physical size as the scaled-up text in every other window.
+    assert_eq!(
+        scaled.size.1, unscaled.size.1,
+        "rows keep their logical height, so the entries match the rest of the desktop"
+    );
+    assert_eq!(
+        scaled_expected.height,
+        unscaled_expected.height * 2,
+        "and are therefore painted at twice the device resolution"
+    );
+    // The buffer is still the panel's real resolution, so nothing is upscaled into blur.
+    assert_eq!(
+        scaled_expected.buffer_size().0,
+        unscaled_expected.width,
+        "the same device pixels across the panel either way"
+    );
+}
+
+/// Open the overlay against a freshly started daemon and report the focused monitor, the metrics
+/// `ui::layout` derives for it, and the surface the compositor actually mapped.
+///
+/// The daemon is started — and stopped — inside this function on purpose. It caches the
+/// compositor's monitors and refreshes them from the event socket, and Hyprland emits no event
+/// for a monitor's scale changing under `hyprctl keyword`, so a daemon that outlived the change
+/// would size the overlay from the scale it saw at start-up. Restarting is how the scenario
+/// measures the two configurations rather than one configuration twice.
+fn measure_overlay(
+    nested: &Nested,
+) -> (hypr_swap::model::Monitor, layout::Metrics, OverlaySurface) {
+    let _daemon = nested.start_daemon();
+    let mut keyboard = Keyboard::attach(&nested.wayland_display);
+
+    let monitor = nested
+        .monitors()
+        .into_iter()
+        .find(|monitor| monitor.focused)
+        .expect("a focused monitor");
+    let expected = layout::list_metrics(
+        monitor.size,
+        monitor.scale,
+        entries(nested, Order::Mru).len(),
+    );
+    let surface = open_overlay(nested, &mut keyboard);
+
+    keyboard.tap_while_held(e2e::keyboard::KEY_ESC);
+    keyboard.release(KEY_LEFTALT);
+    keyboard.settle();
+    nested.wait_until("the overlay unmaps", || {
+        nested.overlay_surfaces().is_empty()
+    });
+
+    (monitor, expected, surface)
 }
 
 /// The focused monitor's pixel size — what a fullscreen window fills.

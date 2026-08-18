@@ -24,7 +24,7 @@ use hypr_swap::actions;
 use hypr_swap::config::{self, Configuration, LoadError};
 use hypr_swap::diag::{self, Condition};
 use hypr_swap::hypr::events::{Backoff, Disconnected, EventStream};
-use hypr_swap::hypr::ipc::{Ipc, IpcError};
+use hypr_swap::hypr::ipc::{DispatchOutcome, Ipc, IpcError};
 use hypr_swap::session;
 use hypr_swap::state::{Applied, World};
 use hypr_swap::ui::shortcuts::Shortcut;
@@ -359,12 +359,37 @@ fn commit_session(ipc: &Ipc, app: &mut App) {
         return;
     };
 
-    if let Err(e) = ipc.dispatch(&plan.commands) {
-        diag::report(
+    // A cross-monitor selection moves two workspaces and can half-apply, so it is dispatched,
+    // read back and undone on mismatch (FR-013a). A same-monitor activation goes down the same
+    // path: one plan type, one verification, one place to report from.
+    let (subject, attempt) = if plan.is_swap() {
+        (
+            "swap",
+            format!(
+                "swapping workspace {selected} onto {}",
+                session.origin_monitor
+            ),
+        )
+    } else {
+        ("activation", format!("activating workspace {selected}"))
+    };
+
+    match ipc.dispatch_verified(&plan) {
+        DispatchOutcome::Verified => {}
+        // FR-013b: the user asked for a change that did not happen. Their layout is intact, but
+        // saying nothing would leave them believing the gesture worked.
+        DispatchOutcome::RolledBack { reason } => diag::report(
             Condition::SwapRolledBack,
-            "activation",
-            &format!("could not activate workspace {selected}: {e}"),
-        );
+            subject,
+            &format!("{attempt} failed, rolled back to the previous layout ({reason})"),
+        ),
+        // FR-013c: the layout has changed in a way nobody asked for, so the report says where
+        // things actually are rather than what was attempted.
+        DispatchOutcome::RollbackFailed { reason, resulting } => diag::report(
+            Condition::RollbackFailed,
+            subject,
+            &format!("{attempt} failed; rollback failed; {resulting} ({reason})"),
+        ),
     }
 }
 
