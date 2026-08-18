@@ -108,6 +108,37 @@ fallback is `keyboard-shortcuts-inhibit-unstable-v1` (present in 0.55.4 **[verif
 lifetime of the overlay, which forces raw key delivery — rejected as the default because it
 suppresses *all* the user's binds while open, which is a heavier hammer than the feature needs.
 
+### Spike outcome — **PASS**, no fallback needed [verified]
+
+Run with `examples/spike_modifiers.rs` against a nested Hyprland (`bind = ALT, F12, global,
+hypr-swap-spike:probe`), driving itself through `virtual-keyboard-unstable-v1`. Observed timeline
+for hold-ALT → tap-F12 → release-ALT:
+
+| t | Event |
+|---|---|
+| 0 ms | shortcut `pressed`; overlay layer surface created |
+| +6 ms | `wl_keyboard.enter` — exclusive keyboard focus granted |
+| +6 ms | `modifiers` **depressed = 0x0008** (Mod1/ALT) — the `initial_mods` capture |
+| +30 ms | shortcut `released` — fired by the release of **F12**, with ALT still held |
+| +430 ms | `modifiers` **depressed = 0x0000** — the ALT release, the commit trigger |
+
+- **(a) confirmed.** `modifiers` arrives on `enter` carrying the held modifier, and again on each
+  change, including the release of the very modifier the bind uses.
+- **(b) confirmed with room to spare.** `pressed` → first frame measured at **4 ms** against a
+  150 ms budget (SC-001).
+
+Two implementation consequences, both already assumed by the design and now evidenced:
+
+1. The shortcut's own `released` event really does fire on the bind's *key*, 400 ms before the
+   modifier release. This is exactly why it is only the fast-tap fallback (see Alternatives
+   below), and the spike is the direct evidence.
+2. The compositor may emit the same `modifiers` state twice in a row. The commit path must be
+   idempotent — one session commits once — rather than assuming one event per transition.
+
+Also learned, and carried into the E2E keyboard helper: Hyprland ignores injected keys unless the
+virtual keyboard also announces its modifier state with `zwp_virtual_keyboard_v1.modifiers`. Key
+events alone reach neither binds nor focused clients.
+
 **Alternatives considered**: **Relying on the shortcut's own `released` event** as the primary
 signal — rejected: Hyprland fires bind release on the release of the bind's *key* (Tab), not its
 modifier, so `Alt+Tab, Tab, Tab, release Alt` would commit on the first Tab release. It is kept
@@ -325,6 +356,29 @@ the one place an E2E test reaches past the real interface, and it is confined to
 **[spike]** The nested instance must be confirmed to start, accept `output create headless`, and
 accept virtual-keyboard input under the developer's session before the E2E suite is built out;
 this is the first task of the E2E work and gates the rest.
+
+### Spike outcome — **PASS** [verified]
+
+Confirmed against Hyprland 0.56.2 running nested inside a 0.55.4 session:
+
+- The nested instance starts as an ordinary Wayland client of the host session, takes the next
+  free `wayland-N` socket, and gets its **own** `HYPRLAND_INSTANCE_SIGNATURE` and IPC socket pair.
+  The host session is untouched throughout.
+- `hyprctl output create headless` works and adds `HEADLESS-1` at 1920×1080, so cross-monitor
+  scenarios need no second physical display.
+- `foot` spawns inside it and reports its title and geometry through `j/clients`.
+- `virtual-keyboard-unstable-v1` is present and accepted. The device appears in `hyprctl devices`
+  as `hl-virtual-keyboard-<client>` once a keymap is sent.
+
+Three facts the harness depends on, all found the hard way and worth stating:
+
+1. **Injected keys need explicit modifier state.** `zwp_virtual_keyboard_v1.key` alone is inert —
+   neither binds nor focused clients see it. The client must also send
+   `zwp_virtual_keyboard_v1.modifiers(depressed, …)` around the key events. This is the single
+   most important detail in `tests/e2e/keyboard.rs`.
+2. **A keymap must be sent before any key**, otherwise the device is created but ignored.
+3. The nested instance must be located by **diffing the `wayland-N` sockets** before and after
+   launch; it does not report its display name anywhere machine-readable.
 
 **Alternatives considered**: **Testing against the developer's live session** — destructive, since
 tests move the user's real workspaces between monitors. **A mock compositor** — would test the
