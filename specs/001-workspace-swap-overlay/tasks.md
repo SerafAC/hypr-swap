@@ -170,18 +170,18 @@ miniatures appear and that selection and release behave exactly as in the flat l
 
 ### Implementation for User Story 3
 
-- [ ] T067 [P] [US3] Implement grid cell metrics (240 × 135 logical px + label line) and the miniature rect mapping `(window.at - monitor.position) / monitor.size` normalised against the monitor the *workspace* is bound to, in src/ui/layout.rs (FR-015a, contracts/config.md constants table)
-- [ ] T068 [P] [US3] Unit tests in src/ui/layout.rs for miniature normalisation — relative positions and proportions preserved, identical results for a workspace bound to a monitor it is not currently displayed on, zero-size windows skipped (SC-008)
-- [ ] T069 [US3] Implement miniature painting in src/ui/render.rs — one labelled rectangle per mapped window, floating windows drawn on top in `clients` order, pango-ellipsised titles, workspace name beneath the cell, and a clearly-marked empty miniature for a workspace with no windows (FR-015, FR-015a, FR-015b, FR-007, US3-AS5)
-- [ ] T070 [US3] Select the presentation from `config.presentation` in src/ui/mod.rs so navigation, commit and cancel paths are shared between list and grid with no duplicated session logic (FR-016, US3-AS4)
+- [X] T067 [P] [US3] Implement grid cell metrics (240 × 135 logical px + label line) and the miniature rect mapping `(window.at - monitor.position) / monitor.size` normalised against the monitor the *workspace* is bound to, in src/ui/layout.rs (FR-015a, contracts/config.md constants table)
+- [X] T068 [P] [US3] Unit tests in src/ui/layout.rs for miniature normalisation — relative positions and proportions preserved, identical results for a workspace bound to a monitor it is not currently displayed on, zero-size windows skipped (SC-008)
+- [X] T069 [US3] Implement miniature painting in src/ui/render.rs — one labelled rectangle per mapped window, floating windows drawn on top in `clients` order, pango-ellipsised titles, workspace name beneath the cell, and a clearly-marked empty miniature for a workspace with no windows (FR-015, FR-015a, FR-015b, FR-007, US3-AS5)
+- [X] T070 [US3] Select the presentation from `config.presentation` in src/ui/mod.rs so navigation, commit and cancel paths are shared between list and grid with no duplicated session logic (FR-016, US3-AS4)
 
 ### Tests for User Story 3 (REQUIRED)
 
-- [ ] T071 [P] [US3] E2E `e2e_grid_miniature_layout` — `presentation = "grid"` with two windows side by side and a third below the second; covers FR-015, FR-015a, SC-008, US3-AS1/AS2 — in tests/e2e_presentation.rs
-- [ ] T072 [P] [US3] E2E `e2e_grid_offscreen_workspace` — a workspace never displayed on any monitor renders as accurately as a visible one; covers FR-015a, US3-AS3, and compositor-ipc assumption 1 — in tests/e2e_presentation.rs
-- [ ] T073 [P] [US3] E2E `e2e_grid_empty_workspace` — a workspace with no windows appears as a marked empty miniature; covers FR-007, US3-AS5 — in tests/e2e_presentation.rs
-- [ ] T074 [P] [US3] E2E `e2e_title_truncation` — a `foot` client with a very long title; covers FR-015b — in tests/e2e_presentation.rs
-- [ ] T099 [P] [US3] E2E `e2e_grid_commit_matches_list` — the same navigation and release gesture under `presentation = "grid"` produces the identical activation and swap outcome as the list; covers FR-016, US3-AS4 — in tests/e2e_presentation.rs
+- [X] T071 [P] [US3] E2E `e2e_grid_miniature_layout` — `presentation = "grid"` with two windows side by side and a third below the second; covers FR-015, FR-015a, SC-008, US3-AS1/AS2 — in tests/e2e_presentation.rs
+- [X] T072 [P] [US3] E2E `e2e_grid_offscreen_workspace` — a workspace never displayed on any monitor renders as accurately as a visible one; covers FR-015a, US3-AS3, and compositor-ipc assumption 1 — in tests/e2e_presentation.rs
+- [X] T073 [P] [US3] E2E `e2e_grid_empty_workspace` — a workspace with no windows appears as a marked empty miniature; covers FR-007, US3-AS5 — in tests/e2e_presentation.rs
+- [X] T074 [P] [US3] E2E `e2e_title_truncation` — a `foot` client with a very long title; covers FR-015b — in tests/e2e_presentation.rs
+- [X] T099 [P] [US3] E2E `e2e_grid_commit_matches_list` — the same navigation and release gesture under `presentation = "grid"` produces the identical activation and swap outcome as the list; covers FR-016, US3-AS4 — in tests/e2e_presentation.rs
 
 **Checkpoint**: Both presentations work with identical interaction.
 
@@ -475,3 +475,49 @@ than applied silently.
   It restarts the daemon between the two: Hyprland emits no event for a scale change made with
   `hyprctl keyword monitor`, so a daemon that outlived the change would size the overlay from the
   scale it cached at start-up (research.md R17 → Note on staleness).
+
+### Implementation notes recorded during Phase 5
+
+- **`Metrics` now describes both presentations, and a list is the one-column degenerate grid.**
+  FR-016 requires identical navigation and selection, and the cheapest way to guarantee that is
+  for there to be one implementation rather than two that must be kept in step. So `row_rect`
+  became `cell_rect` (a row is a cell that fills the surface), `visible_rows` counts rows of
+  entries with `visible_entries()` beside it, and `first_visible_entry` wraps the existing
+  `first_visible` — applied to *rows* — so a cell keeps its column as the viewport scrolls. The
+  list path is arithmetically unchanged, which
+  `the_list_viewport_is_unchanged_by_the_shared_grid_arithmetic` asserts directly.
+
+- **`render::list` became `render::overlay`** and branches on `metrics.presentation` for one thing
+  only: how a single entry is drawn. The backdrop, the viewport slice and the highlight are shared
+  (T070). `ui/mod.rs` chooses between `list_metrics` and `grid_metrics` in `open_session` and
+  nothing else in the session, commit or cancel paths knows which presentation is in use.
+
+- **The miniature is letterboxed to its monitor's aspect ratio inside the fixed cell**, which
+  T067's wording does not ask for. FR-015a asks for the proportion a window *occupies*, and
+  normalising a 4:3 workspace into a 16:9 cell would stretch every window in it — the requirement
+  would be false for any monitor that is not 16:9. The documented 240 × 135 cell is unchanged;
+  `layout::miniature_area` fits the monitor's shape inside it and centres it, and the E2E
+  scenarios never exercise this because a nested Hyprland's outputs are all 16:9.
+
+- **`miniature_rect` returns `Option` and clamps to the miniature.** A zero-size window is not a
+  rectangle and SC-008 counts one rectangle per window, so it is declined rather than painted as a
+  degenerate sliver; a window overhanging its monitor is clipped to the panel rather than allowed
+  to paint over the neighbouring cell.
+
+- **`e2e_grid_miniature_layout` runs on a headless 1920 × 1080 output.** The nested instance's own
+  output is a window on the developer's session and comes up taller than it is wide, so Hyprland's
+  default layout splits horizontally first and the side-by-side arrangement US3-AS2 describes never
+  occurs there. The three roles are then identified from the geometry the compositor *reported*
+  rather than from the order the windows were spawned in — Hyprland puts a new window in the
+  opposite half from what the spawn order suggests, and the scenario is about the arrangement
+  surviving the mapping, not about which window is where.
+
+- **`e2e_grid_empty_workspace` declares `workspace = 5, persistent:true`.** Hyprland destroys an
+  ordinary workspace the moment its last window closes, so an empty workspace cannot otherwise be
+  made to exist for the overlay to list (FR-007, US3-AS5).
+
+- **FR-015b is asserted by what truncation is *not*.** Pango's ellipsis is a pixel and research.md
+  R14 rejects screenshot comparison, so `e2e_title_truncation` asserts the two halves of the
+  requirement's "rather than": the overlong title is not omitted — it reaches the renderer whole
+  and its window still gets a rectangle — and it does not overflow, because neither the overlay
+  nor the rectangle inside it grows by a pixel to accommodate it.

@@ -18,6 +18,8 @@
     clippy::cast_sign_loss
 )]
 
+use crate::config::Presentation;
+
 /// The documented cap: the overlay claims at most this fraction of the monitor in each axis, so
 /// the surrounding desktop stays visible as context (FR-019, research.md R16).
 pub const OVERLAY_WIDTH_FRACTION: f64 = 0.8;
@@ -37,6 +39,20 @@ pub const OVERLAY_PADDING: u32 = 12;
 /// always see where the list continues (research.md R16).
 pub const SCROLL_MARGIN: usize = 1;
 
+/// A grid cell's miniature area, in logical pixels — the documented 240 × 135 (16:9) constant
+/// (`contracts/config.md`). Fixed, exactly as the list's row height is: FR-019 forbids shrinking
+/// entries to make the set fit, in either presentation.
+pub const GRID_CELL_WIDTH: u32 = 240;
+pub const GRID_CELL_HEIGHT: u32 = 135;
+
+/// Space between grid cells, in logical pixels. Also the inset between a cell's highlight and the
+/// miniature panel inside it, so the highlight stays visible around a selected cell.
+pub const GRID_GAP: u32 = 12;
+
+/// The label line beneath a miniature: one text line plus the space above it that separates the
+/// label from the miniature it names (FR-015).
+pub const GRID_LABEL_HEIGHT: u32 = TEXT_LINE_HEIGHT + ROW_PADDING;
+
 /// The buffer size and the entry geometry for one overlay, in device pixels — plus the surface
 /// size the compositor is asked for, in logical pixels.
 ///
@@ -47,8 +63,15 @@ pub const SCROLL_MARGIN: usize = 1;
 /// all speak them. Handing device pixels to `set_size` is what makes an overlay on a scaled
 /// monitor come out `scale` times larger than every other window on it, so the logical size is
 /// carried explicitly rather than left to the caller to remember to divide (FR-019).
+///
+/// The same type describes both presentations (FR-016). A list is the degenerate grid — one
+/// column, a cell that fills the row, no gap and no miniature — which is what lets the session,
+/// the viewport arithmetic and the surface plumbing be shared rather than written twice.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Metrics {
+    /// Which presentation this geometry describes. Only [`refit`] and the renderer branch on it;
+    /// everything else is the same arithmetic either way.
+    pub presentation: Presentation,
     /// Overlay buffer width, device pixels.
     pub width: u32,
     /// Overlay buffer height, device pixels — exactly the rows on screen plus padding, so a short
@@ -60,23 +83,40 @@ pub struct Metrics {
     pub logical_height: u32,
     /// The monitor's scale factor, i.e. the ratio between the two sizes above.
     pub scale: f32,
-    /// One entry's height, device pixels. Fixed: it does not vary with the number of entries
-    /// (FR-019).
+    /// The pitch of one row of entries, device pixels — the cell's own height plus [`Self::gap`].
+    /// Fixed: it does not vary with the number of entries (FR-019).
     pub row_height: u32,
     /// The text line inside a row, device pixels. The renderer sizes its font from this, so type
     /// scales with the monitor exactly as the rows do.
     pub text_height: u32,
     /// Padding between the entry column and the surface edge, device pixels.
     pub padding: u32,
-    /// How many entries are on screen at once.
+    /// How many rows of entries are on screen at once. In the list — one column — this is also
+    /// the number of entries; the grid multiplies it by [`Self::columns`].
     pub visible_rows: usize,
+    /// Entries per row: 1 in the list, as many cells as fit inside the cap in the grid.
+    pub columns: usize,
+    /// One entry's width, device pixels. The list's cell spans the surface; the grid's is the
+    /// documented fixed width.
+    pub cell_width: u32,
+    /// The miniature area at the top of a grid cell, device pixels; the label line occupies what
+    /// is left of the cell below it. Zero in the list, which has no miniature.
+    pub miniature_height: u32,
+    /// Space between cells, device pixels. Zero in the list, whose rows are adjacent.
+    pub gap: u32,
 }
 
 impl Metrics {
-    /// Whether the list is taller than the cap allows, i.e. whether the viewport scrolls.
+    /// How many entries are on screen at once.
+    #[must_use]
+    pub fn visible_entries(&self) -> usize {
+        self.visible_rows * self.columns.max(1)
+    }
+
+    /// Whether the entries exceed the cap, i.e. whether the viewport scrolls.
     #[must_use]
     pub fn scrolls(&self, entry_count: usize) -> bool {
-        entry_count > self.visible_rows
+        entry_count > self.visible_entries()
     }
 
     /// The size to ask the compositor for, in the logical pixels its protocol speaks.
@@ -94,17 +134,53 @@ impl Metrics {
         (self.width, self.height)
     }
 
-    /// The rectangle of the `slot`-th row on screen — `(x, y, width, height)`, device pixels.
+    /// The rectangle of the `slot`-th entry on screen — `(x, y, width, height)`, device pixels.
     ///
     /// `slot` is the position in the viewport, not the index in the entry list; the caller adds
-    /// [`first_visible`] to go the other way.
+    /// [`first_visible_entry`]'s result to go the other way. Rows fill left to right, which in
+    /// the one-column list is simply top to bottom.
     #[must_use]
-    pub fn row_rect(&self, slot: usize) -> (u32, u32, u32, u32) {
+    pub fn cell_rect(&self, slot: usize) -> (u32, u32, u32, u32) {
+        let columns = self.columns.max(1);
+        let column = (slot % columns) as u32;
+        let row = (slot / columns) as u32;
         (
-            self.padding,
-            self.padding + self.row_height * slot as u32,
-            self.width.saturating_sub(self.padding * 2),
-            self.row_height,
+            self.padding + (self.cell_width + self.gap) * column,
+            self.padding + self.row_height * row,
+            self.cell_width,
+            self.row_height - self.gap,
+        )
+    }
+
+    /// The miniature panel inside the `slot`-th cell — `(x, y, width, height)`, device pixels,
+    /// fractional because it is letterboxed to the monitor's aspect ratio.
+    ///
+    /// Inset by half a gap so a selected cell's highlight stays visible around it.
+    #[must_use]
+    pub fn miniature_box(&self, slot: usize, monitor_size: (u32, u32)) -> (f64, f64, f64, f64) {
+        let (x, y, width, _) = self.cell_rect(slot);
+        let inset = self.gap / 2;
+        miniature_area(
+            (
+                x + inset,
+                y + inset,
+                width.saturating_sub(inset * 2),
+                self.miniature_height.saturating_sub(inset * 2),
+            ),
+            monitor_size,
+        )
+    }
+
+    /// The label strip beneath the `slot`-th cell's miniature — `(x, y, width, height)`, device
+    /// pixels. FR-015 puts the workspace name here, underneath the preview it names.
+    #[must_use]
+    pub fn label_rect(&self, slot: usize) -> (u32, u32, u32, u32) {
+        let (x, y, width, height) = self.cell_rect(slot);
+        (
+            x,
+            y + self.miniature_height,
+            width,
+            height.saturating_sub(self.miniature_height),
         )
     }
 }
@@ -135,9 +211,11 @@ pub fn list_metrics(monitor_size: (u32, u32), scale: f32, entry_count: usize) ->
     // Built from the row geometry rather than scaled from a logical height, so the rows always
     // tile the buffer exactly however the scale rounds.
     let height = row_height * visible_rows as u32 + padding * 2;
+    let width = scaled(logical_width, scale);
 
     Metrics {
-        width: scaled(logical_width, scale),
+        presentation: Presentation::List,
+        width,
         height,
         logical_width,
         logical_height: logical(height, scale),
@@ -146,7 +224,75 @@ pub fn list_metrics(monitor_size: (u32, u32), scale: f32, entry_count: usize) ->
         text_height,
         padding,
         visible_rows,
+        // A row is a cell that fills the surface: one column, no gap, no miniature.
+        columns: 1,
+        cell_width: width.saturating_sub(padding * 2),
+        miniature_height: 0,
+        gap: 0,
     }
+}
+
+/// Size an overlay for the grid presentation on one monitor (FR-015, FR-019).
+///
+/// The cell is the documented fixed 240 × 135 plus its label line, so the arithmetic is the list's
+/// with one extra question answered first: how many of those cells fit across the cap. Entries
+/// never shrink here either — a set too large for the cap scrolls, exactly as the list's does.
+#[must_use]
+pub fn grid_metrics(monitor_size: (u32, u32), scale: f32, entry_count: usize) -> Metrics {
+    let text_height = scaled(TEXT_LINE_HEIGHT, scale);
+    let cell_width = scaled(GRID_CELL_WIDTH, scale);
+    let miniature_height = scaled(GRID_CELL_HEIGHT, scale);
+    let gap = scaled(GRID_GAP, scale);
+    let padding = scaled(OVERLAY_PADDING, scale);
+    // The pitch carries the gap, so `cell_rect` subtracts it to get the cell's own height.
+    let row_height = miniature_height + scaled(GRID_LABEL_HEIGHT, scale) + gap;
+
+    let logical_monitor = (
+        logical(monitor_size.0, scale),
+        logical(monitor_size.1, scale),
+    );
+    let max_width = scaled(fraction(logical_monitor.0, OVERLAY_WIDTH_FRACTION), scale);
+    let max_height = scaled(fraction(logical_monitor.1, OVERLAY_HEIGHT_FRACTION), scale);
+
+    // Never wider than there are entries to put in it: three workspaces get a three-cell overlay,
+    // not a full-width one with empty space.
+    let columns = columns_that_fit(max_width, cell_width, gap, padding).min(entry_count.max(1));
+    let rows_needed = entry_count.max(1).div_ceil(columns);
+    // The last row spends no gap, so the height it needs is one gap less than its pitch implies.
+    let visible_rows = rows_needed.min(rows_that_fit(max_height + gap, row_height, padding));
+
+    // Both sizes are built from the cell geometry rather than scaled from a logical size, so the
+    // cells tile the buffer exactly however the scale rounds — as the list's rows do.
+    let width = padding * 2 + cell_width * columns as u32 + gap * (columns as u32 - 1);
+    let height = padding * 2 + row_height * visible_rows as u32 - gap;
+
+    Metrics {
+        presentation: Presentation::Grid,
+        width,
+        height,
+        logical_width: logical(width, scale),
+        logical_height: logical(height, scale),
+        scale,
+        row_height,
+        text_height,
+        padding,
+        visible_rows,
+        columns,
+        cell_width,
+        miniature_height,
+        gap,
+    }
+}
+
+/// How many whole cells fit across `width` once the padding is spent. Never zero.
+#[must_use]
+pub fn columns_that_fit(width: u32, cell_width: u32, gap: u32, padding: u32) -> usize {
+    if cell_width == 0 {
+        return 1;
+    }
+    // One notional gap is added back because the last column does not spend one.
+    let available = width.saturating_sub(padding * 2) + gap;
+    ((available / (cell_width + gap)).max(1)) as usize
 }
 
 /// How many whole rows fit in `height` once the padding is spent.
@@ -178,18 +324,127 @@ pub fn refit(
 ) -> Metrics {
     let width = scaled(logical_width, metrics.scale);
     let height = scaled(logical_height, metrics.scale);
-    let visible_rows =
-        entry_count
-            .max(1)
-            .min(rows_that_fit(height, metrics.row_height, metrics.padding));
+    // The list's cell spans the surface, so a narrower surface narrows it; the grid's cell is a
+    // documented fixed size, so a narrower surface fits fewer of them instead.
+    let (columns, cell_width) = match metrics.presentation {
+        Presentation::List => (1, width.saturating_sub(metrics.padding * 2)),
+        Presentation::Grid => (
+            columns_that_fit(width, metrics.cell_width, metrics.gap, metrics.padding),
+            metrics.cell_width,
+        ),
+    };
+    let rows_needed = entry_count.max(1).div_ceil(columns);
+    let visible_rows = rows_needed.min(rows_that_fit(
+        height + metrics.gap,
+        metrics.row_height,
+        metrics.padding,
+    ));
     Metrics {
         width,
         height,
         logical_width,
         logical_height,
         visible_rows,
+        columns,
+        cell_width,
         ..metrics
     }
+}
+
+/// The index of the first entry on screen, for either presentation.
+///
+/// Scrolling moves whole rows: in the grid a cell keeps its column as the viewport moves, which is
+/// what makes the arrangement stable enough to navigate. Reduces to [`first_visible`] on rows and
+/// is exactly it in the one-column list.
+#[must_use]
+pub fn first_visible_entry(
+    metrics: &Metrics,
+    entry_count: usize,
+    highlight: usize,
+    previous: usize,
+) -> usize {
+    let columns = metrics.columns.max(1);
+    let first_row = first_visible(
+        metrics.visible_rows,
+        entry_count.div_ceil(columns),
+        highlight / columns,
+        previous / columns,
+    );
+    first_row * columns
+}
+
+/// Letterbox a monitor-shaped box inside `cell`, centred — `(x, y, width, height)`.
+///
+/// A miniature that filled a 16:9 cell with a 4:3 monitor's layout would stretch every window in
+/// it, and FR-015a asks for the proportion each window *occupies*, not merely its position. The
+/// cell stays the documented fixed size; the drawing area inside it takes the monitor's shape.
+#[must_use]
+pub fn miniature_area(
+    cell: (u32, u32, u32, u32),
+    monitor_size: (u32, u32),
+) -> (f64, f64, f64, f64) {
+    let (x, y, width, height) = (
+        f64::from(cell.0),
+        f64::from(cell.1),
+        f64::from(cell.2),
+        f64::from(cell.3),
+    );
+    if monitor_size.0 == 0 || monitor_size.1 == 0 || width <= 0.0 || height <= 0.0 {
+        return (x, y, width, height);
+    }
+    let aspect = f64::from(monitor_size.0) / f64::from(monitor_size.1);
+    let (fitted_width, fitted_height) = if width / height > aspect {
+        (height * aspect, height)
+    } else {
+        (width, width / aspect)
+    };
+    (
+        x + (width - fitted_width) / 2.0,
+        y + (height - fitted_height) / 2.0,
+        fitted_width,
+        fitted_height,
+    )
+}
+
+/// Map one window's layout rectangle into a miniature (FR-015a, SC-008).
+///
+/// The normalisation is `(window.at − monitor.position) / monitor.size`, against the monitor the
+/// *workspace* is bound to — never the one the overlay happens to be shown on. That is the whole
+/// of "equally accurate for workspaces that are not currently visible": the compositor reports the
+/// same layout coordinates either way, so a workspace that has never been composited maps exactly
+/// as a visible one does (research.md R7).
+///
+/// Returns `None` for a window with no area, for a monitor with no size, and for a window that
+/// falls entirely outside its monitor — none of which can be drawn as a proportion of anything.
+#[must_use]
+pub fn miniature_rect(
+    window_at: (i32, i32),
+    window_size: (u32, u32),
+    monitor_position: (i32, i32),
+    monitor_size: (u32, u32),
+    area: (f64, f64, f64, f64),
+) -> Option<(f64, f64, f64, f64)> {
+    if window_size.0 == 0 || window_size.1 == 0 || monitor_size.0 == 0 || monitor_size.1 == 0 {
+        return None;
+    }
+    let (monitor_width, monitor_height) = (f64::from(monitor_size.0), f64::from(monitor_size.1));
+    let relative_x = f64::from(window_at.0 - monitor_position.0) / monitor_width;
+    let relative_y = f64::from(window_at.1 - monitor_position.1) / monitor_height;
+    let relative_width = f64::from(window_size.0) / monitor_width;
+    let relative_height = f64::from(window_size.1) / monitor_height;
+
+    let (area_x, area_y, area_width, area_height) = area;
+    let left = area_x + relative_x * area_width;
+    let top = area_y + relative_y * area_height;
+
+    // Clamped to the miniature: a window straddling the edge of its monitor — a shell overhanging
+    // its output, say — must not paint over the neighbouring cell.
+    let clamped_left = left.clamp(area_x, area_x + area_width);
+    let clamped_top = top.clamp(area_y, area_y + area_height);
+    let width = (left + relative_width * area_width).min(area_x + area_width) - clamped_left;
+    let height = (top + relative_height * area_height).min(area_y + area_height) - clamped_top;
+
+    (width > 0.0 && height > 0.0).then_some((clamped_left, clamped_top, width, height))
 }
 
 /// The index of the first entry on screen, given where the viewport was before.
@@ -469,7 +724,7 @@ mod tests {
         for scale in [1.0, 1.125, 1.25, 1.5, 1.6, 1.75, 2.0, 2.5, 3.0] {
             for count in [1, 5, 20] {
                 let metrics = list_metrics((3840, 2160), scale, count);
-                let (_, last_y, _, row) = metrics.row_rect(metrics.visible_rows - 1);
+                let (_, last_y, _, row) = metrics.cell_rect(metrics.visible_rows - 1);
                 assert_eq!(
                     last_y + row + metrics.padding,
                     metrics.height,
@@ -503,14 +758,14 @@ mod tests {
     }
 
     #[test]
-    fn row_rects_stack_without_gaps_or_overlap() {
+    fn list_cell_rects_stack_without_gaps_or_overlap() {
         let metrics = list_metrics(HD, 1.0, 20);
         for slot in 1..metrics.visible_rows {
-            let (_, previous_y, _, height) = metrics.row_rect(slot - 1);
-            let (_, y, _, _) = metrics.row_rect(slot);
+            let (_, previous_y, _, height) = metrics.cell_rect(slot - 1);
+            let (_, y, _, _) = metrics.cell_rect(slot);
             assert_eq!(y, previous_y + height, "slot {slot}");
         }
-        let (_, last_y, _, height) = metrics.row_rect(metrics.visible_rows - 1);
+        let (_, last_y, _, height) = metrics.cell_rect(metrics.visible_rows - 1);
         assert!(last_y + height + metrics.padding <= metrics.height);
     }
 
@@ -540,6 +795,321 @@ mod tests {
     fn a_surface_too_short_for_a_row_still_shows_one() {
         let metrics = list_metrics(HD, 1.0, 20);
         assert_eq!(refit(metrics, 1536, 10, 20).visible_rows, 1);
+    }
+
+    // --- Grid metrics ------------------------------------------------------
+
+    /// Geometry is fractional; comparing it exactly would test the rounding, not the arithmetic.
+    fn close(actual: f64, expected: f64) -> bool {
+        (actual - expected).abs() < 0.001
+    }
+
+    fn assert_rect(actual: (f64, f64, f64, f64), expected: (f64, f64, f64, f64), what: &str) {
+        assert!(
+            close(actual.0, expected.0)
+                && close(actual.1, expected.1)
+                && close(actual.2, expected.2)
+                && close(actual.3, expected.3),
+            "{what}: got {actual:?}, expected {expected:?}"
+        );
+    }
+
+    #[test]
+    fn a_grid_cell_is_the_documented_size_plus_its_label_line() {
+        // `contracts/config.md`: 240 × 135 logical px (16:9) + label line.
+        let metrics = grid_metrics(HD, 1.0, 6);
+        assert_eq!(metrics.cell_width, GRID_CELL_WIDTH);
+        assert_eq!(metrics.miniature_height, GRID_CELL_HEIGHT);
+        let (_, _, _, cell_height) = metrics.cell_rect(0);
+        assert_eq!(cell_height, GRID_CELL_HEIGHT + GRID_LABEL_HEIGHT);
+        let (_, _, _, label_height) = metrics.label_rect(0);
+        assert_eq!(label_height, GRID_LABEL_HEIGHT, "the label sits below it");
+    }
+
+    #[test]
+    fn grid_cells_keep_their_size_no_matter_how_many_there_are() {
+        // FR-019 in the grid: the overlay scrolls rather than shrinking miniatures.
+        let reference = grid_metrics(HD, 1.0, 1);
+        for count in [2, 6, 20, 100, 1000] {
+            let metrics = grid_metrics(HD, 1.0, count);
+            assert_eq!(metrics.cell_width, reference.cell_width, "{count} entries");
+            assert_eq!(metrics.row_height, reference.row_height, "{count} entries");
+            assert_eq!(
+                metrics.miniature_height, reference.miniature_height,
+                "{count} entries"
+            );
+        }
+    }
+
+    #[test]
+    fn the_grid_fits_as_many_cells_as_the_cap_allows_and_no_more() {
+        let metrics = grid_metrics(HD, 1.0, 40);
+        // 80 % of 1920 is 1536; six 240-wide cells with 12 px gaps and padding come to 1524.
+        assert_eq!(metrics.columns, 6);
+        assert_eq!(metrics.width, 1524);
+        assert!(metrics.width <= 1536, "inside 80 % of 1920");
+        assert!(metrics.height <= 864, "inside 80 % of 1080");
+        assert!(metrics.scrolls(40), "40 entries exceed the cap");
+    }
+
+    #[test]
+    fn the_grid_is_never_wider_than_it_has_entries_to_fill() {
+        for count in 1..=6 {
+            let metrics = grid_metrics(HD, 1.0, count);
+            assert_eq!(metrics.columns, count, "{count} entries");
+            assert_eq!(metrics.visible_rows, 1, "{count} entries fit on one row");
+        }
+    }
+
+    #[test]
+    fn grid_cells_tile_the_surface_without_overlapping() {
+        let metrics = grid_metrics(HD, 1.0, 20);
+        let mut seen: Vec<(u32, u32, u32, u32)> = Vec::new();
+        for slot in 0..metrics.visible_entries() {
+            let cell = metrics.cell_rect(slot);
+            assert!(
+                cell.0 + cell.2 + metrics.padding <= metrics.width,
+                "slot {slot} runs past the right edge: {cell:?} in {:?}",
+                metrics.buffer_size()
+            );
+            assert!(
+                cell.1 + cell.3 + metrics.padding <= metrics.height,
+                "slot {slot} runs past the bottom edge: {cell:?}"
+            );
+            for other in &seen {
+                let separated = cell.0 >= other.0 + other.2
+                    || other.0 >= cell.0 + cell.2
+                    || cell.1 >= other.1 + other.3
+                    || other.1 >= cell.1 + cell.3;
+                assert!(separated, "slot {slot} at {cell:?} overlaps {other:?}");
+            }
+            seen.push(cell);
+        }
+    }
+
+    #[test]
+    fn the_grid_stays_inside_the_cap_at_every_monitor_size_and_scale() {
+        for (size, scale) in [
+            ((1280, 720), 1.0),
+            ((1920, 1080), 1.0),
+            ((2560, 1440), 1.25),
+            ((3840, 2160), 2.0),
+            ((800, 600), 1.0),
+            ((640, 480), 1.0),
+        ] {
+            let logical_monitor = (logical(size.0, scale), logical(size.1, scale));
+            for count in [1, 3, 20, 50] {
+                let metrics = grid_metrics(size, scale, count);
+                let (width, height) = metrics.surface_size();
+                assert!(
+                    width <= logical_monitor.0 * 4 / 5 + 1
+                        && height <= logical_monitor.1 * 4 / 5 + 1,
+                    "{size:?} at scale {scale} with {count} entries: {:?} exceeds 80 % of {logical_monitor:?}",
+                    metrics.surface_size()
+                );
+                assert!(metrics.columns >= 1 && metrics.visible_rows >= 1);
+                assert_eq!(
+                    metrics.cell_width,
+                    grid_metrics(size, scale, 1).cell_width,
+                    "cells never shrink to make {count} of them fit"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_grid_constant_is_multiplied_by_the_monitor_scale() {
+        let one = grid_metrics(HD, 1.0, 6);
+        let two = grid_metrics((3840, 2160), 2.0, 6);
+        assert_eq!(two.cell_width, one.cell_width * 2);
+        assert_eq!(two.miniature_height, one.miniature_height * 2);
+        assert_eq!(two.gap, one.gap * 2);
+        assert_eq!(two.row_height, one.row_height * 2);
+        assert_eq!(
+            two.columns, one.columns,
+            "the same physical size shows the same number of cells"
+        );
+        assert_eq!(two.surface_size(), one.surface_size());
+    }
+
+    #[test]
+    fn a_grid_surface_round_trips_between_the_two_unit_systems() {
+        for scale in [1.0, 1.25, 1.5, 2.0, 3.0] {
+            let metrics = grid_metrics((3840, 2160), scale, 20);
+            let (width, height) = metrics.surface_size();
+            let refitted = refit(metrics, width, height, 20);
+            assert_eq!(refitted.columns, metrics.columns, "scale {scale}");
+            assert_eq!(refitted.visible_rows, metrics.visible_rows, "scale {scale}");
+            assert_eq!(refitted.cell_width, metrics.cell_width, "scale {scale}");
+        }
+    }
+
+    #[test]
+    fn refitting_a_grid_to_a_narrower_surface_shows_fewer_columns_at_the_same_size() {
+        let metrics = grid_metrics(HD, 1.0, 20);
+        assert_eq!(metrics.columns, 6);
+
+        let refitted = refit(metrics, 800, metrics.logical_height, 20);
+        assert_eq!(
+            refitted.cell_width, metrics.cell_width,
+            "cells never shrink"
+        );
+        assert_eq!(refitted.columns, columns_that_fit(800, 240, 12, 12));
+        assert!(
+            refitted.columns < metrics.columns,
+            "a narrower surface holds fewer cells, not smaller ones"
+        );
+    }
+
+    // --- Miniatures (FR-015a, SC-008) --------------------------------------
+
+    /// A 1920×1080 monitor at the origin, and the 240×135 area a miniature maps into.
+    const MONITOR: (u32, u32) = (1920, 1080);
+    const AREA: (f64, f64, f64, f64) = (0.0, 0.0, 240.0, 135.0);
+
+    fn mapped(
+        at: (i32, i32),
+        size: (u32, u32),
+        monitor_position: (i32, i32),
+    ) -> Option<(f64, f64, f64, f64)> {
+        miniature_rect(at, size, monitor_position, MONITOR, AREA)
+    }
+
+    #[test]
+    fn a_window_keeps_its_relative_position_and_proportion() {
+        // FR-015a: the right-hand half of the monitor is the right-hand half of the miniature.
+        assert_rect(
+            mapped((960, 0), (960, 1080), (0, 0)).expect("a window with area maps"),
+            (120.0, 0.0, 120.0, 135.0),
+            "the right half",
+        );
+        assert_rect(
+            mapped((0, 0), (1920, 1080), (0, 0)).expect("a full-screen window maps"),
+            (0.0, 0.0, 240.0, 135.0),
+            "a window filling the monitor fills the miniature",
+        );
+        assert_rect(
+            mapped((480, 270), (960, 540), (0, 0)).expect("a centred window maps"),
+            (60.0, 33.75, 120.0, 67.5),
+            "a quarter-size window centred stays a quarter-size window centred",
+        );
+    }
+
+    #[test]
+    fn a_workspace_bound_to_a_monitor_it_is_not_shown_on_maps_identically() {
+        // SC-008 and US3-AS3: the normalisation subtracts the *workspace's* monitor origin, so a
+        // workspace laid out on a second monitor at x=1920 produces exactly the miniature the same
+        // layout produces on the monitor at the origin — whether or not either is being displayed.
+        let on_the_origin = mapped((960, 0), (960, 1080), (0, 0)).expect("maps");
+        let on_the_second = mapped((1920 + 960, 0), (960, 1080), (1920, 0)).expect("maps");
+        assert_rect(
+            on_the_second,
+            on_the_origin,
+            "the same layout, another monitor",
+        );
+
+        let below =
+            miniature_rect((0, 1080), (1920, 1080), (0, 1080), MONITOR, AREA).expect("maps");
+        assert_rect(
+            below,
+            (0.0, 0.0, 240.0, 135.0),
+            "a monitor stacked vertically",
+        );
+    }
+
+    #[test]
+    fn the_three_window_arrangement_keeps_its_shape() {
+        // US3-AS2: two windows side by side and a third below the second.
+        let left = mapped((0, 0), (960, 1080), (0, 0)).expect("maps");
+        let top_right = mapped((960, 0), (960, 540), (0, 0)).expect("maps");
+        let bottom_right = mapped((960, 540), (960, 540), (0, 0)).expect("maps");
+
+        assert!(left.0 < top_right.0, "the first window is to the left");
+        assert!(
+            close(top_right.0, bottom_right.0) && close(top_right.2, bottom_right.2),
+            "the stacked pair share a column: {top_right:?} against {bottom_right:?}"
+        );
+        assert!(
+            close(bottom_right.1, top_right.1 + top_right.3),
+            "the third sits directly below the second"
+        );
+        assert!(
+            close(left.3, top_right.3 + bottom_right.3),
+            "and the two of them are as tall as the one beside them"
+        );
+    }
+
+    #[test]
+    fn zero_size_windows_are_skipped() {
+        // SC-008 counts one rectangle per window, and a window with no area is not one.
+        assert_eq!(mapped((0, 0), (0, 1080), (0, 0)), None);
+        assert_eq!(mapped((0, 0), (960, 0), (0, 0)), None);
+        assert_eq!(
+            miniature_rect((0, 0), (960, 540), (0, 0), (0, 0), AREA),
+            None,
+            "a monitor with no size cannot normalise anything"
+        );
+    }
+
+    #[test]
+    fn a_window_outside_its_monitor_is_clamped_or_skipped() {
+        let overhanging = mapped((1440, 0), (960, 1080), (0, 0)).expect("partly on screen");
+        assert!(
+            overhanging.0 + overhanging.2 <= AREA.2 + 0.001,
+            "a window overhanging the monitor stops at the miniature's edge: {overhanging:?}"
+        );
+        assert_eq!(
+            mapped((3840, 0), (960, 1080), (0, 0)),
+            None,
+            "a window entirely off its monitor has nothing to draw"
+        );
+    }
+
+    #[test]
+    fn the_miniature_area_takes_the_monitors_aspect_ratio() {
+        // A 4:3 monitor drawn into a 16:9 cell must be letterboxed, or every window in it would be
+        // stretched and FR-015a's "proportion" would be false.
+        let cell = (0, 0, 240, 135);
+        assert_rect(
+            miniature_area(cell, (1920, 1080)),
+            (0.0, 0.0, 240.0, 135.0),
+            "a 16:9 monitor fills a 16:9 cell",
+        );
+        let four_by_three = miniature_area(cell, (1600, 1200));
+        assert!(
+            close(four_by_three.3, 135.0) && close(four_by_three.2, 180.0),
+            "a 4:3 monitor is pillarboxed: {four_by_three:?}"
+        );
+        assert!(
+            close(four_by_three.0, 30.0) && close(four_by_three.1, 0.0),
+            "and centred in the cell: {four_by_three:?}"
+        );
+        assert!(
+            close(four_by_three.2 / four_by_three.3, 1600.0 / 1200.0),
+            "the area has the monitor's aspect ratio"
+        );
+    }
+
+    #[test]
+    fn the_miniature_box_sits_inside_its_cell() {
+        let metrics = grid_metrics(HD, 1.0, 12);
+        for slot in 0..metrics.visible_entries() {
+            let (x, y, width, height) = metrics.cell_rect(slot);
+            let area = metrics.miniature_box(slot, (1920, 1080));
+            assert!(
+                area.0 >= f64::from(x)
+                    && area.1 >= f64::from(y)
+                    && area.0 + area.2 <= f64::from(x + width) + 0.001
+                    && area.1 + area.3 <= f64::from(y + height) + 0.001,
+                "slot {slot}: {area:?} escapes its cell {:?}",
+                (x, y, width, height)
+            );
+            let label = metrics.label_rect(slot);
+            assert!(
+                area.1 + area.3 <= f64::from(label.1) + 0.001,
+                "slot {slot}: the miniature overlaps the label beneath it"
+            );
+        }
     }
 
     // --- Viewport ----------------------------------------------------------
@@ -651,6 +1221,49 @@ mod tests {
                 first, highlight,
                 "highlight {highlight} must be the one row"
             );
+        }
+    }
+
+    #[test]
+    fn the_list_viewport_is_unchanged_by_the_shared_grid_arithmetic() {
+        // One column means `first_visible_entry` is `first_visible`, so US1's behaviour is the
+        // same function it always was.
+        let metrics = list_metrics((1280, 720), 1.0, 20);
+        let mut first = 0;
+        for highlight in (0..20).chain((0..20).rev()) {
+            let expected = first_visible(metrics.visible_rows, 20, highlight, first);
+            first = first_visible_entry(&metrics, 20, highlight, first);
+            assert_eq!(first, expected, "highlight {highlight}");
+        }
+    }
+
+    #[test]
+    fn the_grid_scrolls_by_whole_rows_and_keeps_the_highlight_in_view() {
+        // A cell that changed column as the viewport moved would make the grid unreadable while
+        // navigating, so the first visible entry is always the start of a row.
+        let metrics = grid_metrics(HD, 1.0, 40);
+        let columns = metrics.columns;
+        let visible = metrics.visible_entries();
+        assert!(metrics.scrolls(40));
+
+        let mut first = 0;
+        for highlight in (0..40).chain((0..40).rev()) {
+            first = first_visible_entry(&metrics, 40, highlight, first);
+            assert_eq!(first % columns, 0, "highlight {highlight} split a row");
+            assert!(
+                highlight >= first && highlight < first + visible,
+                "highlight {highlight} outside {first}..{}",
+                first + visible
+            );
+        }
+    }
+
+    #[test]
+    fn a_grid_that_fits_never_scrolls() {
+        let metrics = grid_metrics(HD, 1.0, 12);
+        assert!(!metrics.scrolls(12));
+        for highlight in 0..12 {
+            assert_eq!(first_visible_entry(&metrics, 12, highlight, 0), 0);
         }
     }
 }

@@ -34,7 +34,7 @@ use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_keyboard, wl_output, wl_seat, wl_shm, wl_surface};
 use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
 
-use crate::config::Configuration;
+use crate::config::{Configuration, Presentation};
 use crate::diag::{self, Condition};
 use crate::ordering;
 use crate::session::{self, Session};
@@ -304,7 +304,13 @@ impl App {
             return;
         };
 
-        let metrics = layout::list_metrics(monitor_size, scale, session.entries.len());
+        // The one place the two presentations diverge (FR-016, US3-AS4): a different shape of
+        // overlay is asked for, and everything after this — navigation, commit, cancel — is the
+        // same code either way.
+        let metrics = match self.config.presentation {
+            Presentation::List => layout::list_metrics(monitor_size, scale, session.entries.len()),
+            Presentation::Grid => layout::grid_metrics(monitor_size, scale, session.entries.len()),
+        };
         self.session = Some(session);
         self.map_overlay(metrics);
     }
@@ -380,8 +386,8 @@ impl App {
             return;
         }
 
-        overlay.first_visible = layout::first_visible(
-            overlay.metrics.visible_rows,
+        overlay.first_visible = layout::first_visible_entry(
+            &overlay.metrics,
             session.entries.len(),
             session.highlight,
             overlay.first_visible,
@@ -421,7 +427,7 @@ impl App {
                 }
             };
 
-        if let Err(e) = render::list(
+        if let Err(e) = render::overlay(
             canvas,
             &metrics,
             &session.entries,

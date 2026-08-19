@@ -70,6 +70,7 @@ Deliberately absent, and each for a reason recorded in the spec or the constitut
   | Overlay cap | 80 % of monitor width × 80 % of monitor height | The documented fraction FR-019 requires |
   | List row height | one text line + 8 px padding above and below | Fixed regardless of workspace count |
   | Grid cell | 240 × 135 logical px (16:9) + label line | Fixed; miniatures keep the monitor's aspect ratio |
+  | Grid gap | 12 logical px | Separates cells, and insets a miniature from its highlight |
   | Scroll margin | 1 entry | The highlight never sits flush against a scrolled edge |
 
   All are multiplied by the monitor's `scale`. Entries are never scaled down to make the set fit —
