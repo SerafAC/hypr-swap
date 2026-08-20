@@ -255,6 +255,74 @@ fn swap(world: &World, origin: &Monitor, other: &Monitor, selected: i32) -> Comm
     }
 }
 
+/// Plan the new-workspace shortcut: switch the focused monitor to the lowest unused workspace
+/// number (FR-020, research.md R9).
+///
+/// Returns `None` for the FR-021 no-op — the focused monitor is already showing an empty
+/// workspace, so there is nothing to create and nothing to switch to. Repeat presses therefore
+/// cannot accumulate workspaces (SC-007), and because the guard is a plain `None` rather than a
+/// failure, no diagnostic is produced for it (`contracts/diagnostics.md` lists no condition for
+/// this shortcut).
+///
+/// `None` when no monitor holds focus either: without a focused monitor there is nothing for
+/// `focusworkspaceoncurrentmonitor` to bind the new workspace to.
+#[must_use]
+pub fn new_workspace_plan(world: &World) -> Option<CommandPlan> {
+    let focused = world.focused_monitor()?;
+    let current = world.workspace(focused.active_workspace);
+
+    // FR-021 verbatim. An unknown active workspace is not known to be empty, so it does not
+    // trigger the guard — the shortcut still works if the cached view is behind.
+    if current.is_some_and(|workspace| workspace.window_count == 0) {
+        return None;
+    }
+
+    let selected = lowest_unused(&world.workspaces);
+    let previous = focused.active_workspace;
+    let name = focused.name.clone();
+
+    // `focusworkspaceoncurrentmonitor` creates the workspace implicitly, binds it to the focused
+    // monitor and activates it, all in one dispatch (research.md R9). `workspace <n>` would not:
+    // it pulls a workspace from wherever it already lives.
+    Some(CommandPlan {
+        commands: vec![format!("focusworkspaceoncurrentmonitor {selected}")],
+        expected: ExpectedState {
+            bindings: vec![(selected, name.clone())],
+            active: vec![(name.clone(), selected)],
+            focused: name.clone(),
+        },
+        rollback: RollbackPlan {
+            // One command cannot half-apply, so this is the literal inverse. The new workspace is
+            // left out of the bindings: Hyprland destroys it the moment it is empty and unfocused,
+            // so requiring it to still exist would be requiring the rollback not to have worked.
+            commands: vec![format!("focusworkspaceoncurrentmonitor {previous}")],
+            expected: ExpectedState {
+                bindings: Vec::new(),
+                active: vec![(name.clone(), previous)],
+                focused: name,
+            },
+        },
+    })
+}
+
+/// The lowest positive integer that is not the id of a known workspace (FR-020).
+///
+/// Special and named workspaces carry negative ids in Hyprland, so they fall out of the walk
+/// without needing to be filtered: they can never be the lowest *positive* unused number.
+fn lowest_unused(workspaces: &[Workspace]) -> i32 {
+    let mut ids: Vec<i32> = workspaces.iter().map(|workspace| workspace.id).collect();
+    ids.sort_unstable();
+    // Walking the sorted ids stops at the first gap. A duplicate id cannot advance the candidate
+    // twice, because the second copy no longer matches it.
+    let mut candidate = 1;
+    for id in ids {
+        if id == candidate {
+            candidate += 1;
+        }
+    }
+    candidate
+}
+
 /// Commands that reach `state` from anywhere: bindings, then each monitor's active workspace,
 /// then focus.
 ///
@@ -720,5 +788,146 @@ mod tests {
             plan(&world, "eDP-1", 3).map(|plan| plan.commands),
             Some(vec!["workspace 3".to_owned()])
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // New workspace (FR-020, FR-021, research.md R9)
+    // -----------------------------------------------------------------------
+
+    /// Like [`workspace`], but occupied — which is what lets the FR-021 guard stay shut.
+    fn occupied(id: i32, monitor: &str) -> Workspace {
+        Workspace {
+            window_count: 1,
+            ..workspace(id, monitor)
+        }
+    }
+
+    /// One focused monitor showing workspace 1, with `ids` in use and all of them occupied.
+    fn in_use(ids: &[i32]) -> World {
+        let mut world = World::default();
+        world.rebuild(
+            vec![monitor(0, "eDP-1", 1, true)],
+            ids.iter().map(|id| occupied(*id, "eDP-1")).collect(),
+            vec![],
+        );
+        world
+    }
+
+    #[test]
+    fn the_new_workspace_is_the_lowest_number_not_in_use() {
+        // US4-AS1: 1, 2 and 4 are taken, so the gap at 3 is what the shortcut lands on.
+        let plan = new_workspace_plan(&in_use(&[1, 2, 4])).expect("a plan");
+        assert_eq!(
+            plan.commands,
+            vec!["focusworkspaceoncurrentmonitor 3".to_owned()]
+        );
+    }
+
+    #[test]
+    fn a_contiguous_run_of_workspaces_extends_past_the_end() {
+        let plan = new_workspace_plan(&in_use(&[1, 2, 3])).expect("a plan");
+        assert_eq!(
+            plan.commands,
+            vec!["focusworkspaceoncurrentmonitor 4".to_owned()]
+        );
+    }
+
+    #[test]
+    fn negative_workspace_ids_never_stand_in_the_way_of_the_lowest_number() {
+        // Special and named workspaces are negative, so the search steps over them (research.md
+        // R9): with only workspace -99 known, the new workspace is 1.
+        let mut world = World::default();
+        world.rebuild(
+            vec![monitor(0, "eDP-1", -99, true)],
+            vec![occupied(-99, "eDP-1")],
+            vec![],
+        );
+        assert_eq!(
+            new_workspace_plan(&world).map(|plan| plan.commands),
+            Some(vec!["focusworkspaceoncurrentmonitor 1".to_owned()])
+        );
+    }
+
+    #[test]
+    fn the_new_workspace_is_bound_and_focused_on_the_focused_monitor() {
+        // FR-020: bound to the *focused* monitor, not the first one, and left holding focus.
+        let mut world = World::default();
+        world.rebuild(
+            vec![
+                monitor(0, "eDP-1", 1, false),
+                monitor(1, "HEADLESS-2", 2, true),
+            ],
+            vec![occupied(1, "eDP-1"), occupied(2, "HEADLESS-2")],
+            vec![],
+        );
+        let plan = new_workspace_plan(&world).expect("a plan");
+        assert_eq!(
+            plan.expected,
+            ExpectedState {
+                bindings: vec![(3, "HEADLESS-2".to_owned())],
+                active: vec![("HEADLESS-2".to_owned(), 3)],
+                focused: "HEADLESS-2".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn an_empty_active_workspace_makes_the_shortcut_a_no_op() {
+        // FR-021, US4-AS2, SC-007: the guard is what stops repeat presses accumulating
+        // workspaces. `None` is the whole behaviour — no plan means no dispatch and, because it
+        // is not a failure, no diagnostic either (contracts/diagnostics.md lists no condition).
+        let mut world = World::default();
+        world.rebuild(
+            vec![monitor(0, "eDP-1", 3, true)],
+            vec![
+                occupied(1, "eDP-1"),
+                occupied(2, "eDP-1"),
+                workspace(3, "eDP-1"),
+            ],
+            vec![],
+        );
+        assert_eq!(new_workspace_plan(&world), None);
+    }
+
+    #[test]
+    fn emptiness_is_judged_on_the_focused_monitor_alone() {
+        // The other monitor sitting on an empty workspace says nothing about this gesture.
+        let mut world = World::default();
+        world.rebuild(
+            vec![
+                monitor(0, "eDP-1", 1, true),
+                monitor(1, "HEADLESS-2", 2, false),
+            ],
+            vec![occupied(1, "eDP-1"), workspace(2, "HEADLESS-2")],
+            vec![],
+        );
+        assert_eq!(
+            new_workspace_plan(&world).map(|plan| plan.commands),
+            Some(vec!["focusworkspaceoncurrentmonitor 3".to_owned()])
+        );
+    }
+
+    #[test]
+    fn there_is_no_plan_without_a_focused_monitor() {
+        assert_eq!(new_workspace_plan(&World::default()), None);
+    }
+
+    #[test]
+    fn the_new_workspace_rollback_returns_to_the_previous_one_without_requiring_the_new_one() {
+        // The new workspace is empty by construction, so Hyprland destroys it as the rollback
+        // leaves it — an expectation naming it would fail exactly when the rollback worked.
+        let plan = new_workspace_plan(&in_use(&[1, 2])).expect("a plan");
+        assert_eq!(
+            plan.rollback.commands,
+            vec!["focusworkspaceoncurrentmonitor 1".to_owned()]
+        );
+        assert!(plan.rollback.expected.bindings.is_empty());
+        assert_eq!(plan.rollback.expected.active, vec![("eDP-1".to_owned(), 1)]);
+    }
+
+    #[test]
+    fn creating_a_workspace_is_never_read_as_a_swap() {
+        // One monitor in the expectation, so the commit path reports it as an activation.
+        assert!(!new_workspace_plan(&in_use(&[1])).expect("a plan").is_swap());
     }
 }

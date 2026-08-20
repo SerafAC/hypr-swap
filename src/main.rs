@@ -319,14 +319,32 @@ fn event_loop(
 /// Act on one thing the Wayland shell recorded.
 ///
 /// This is the only place a session's outcome turns into compositor traffic, which is what keeps
-/// the Wayland event handlers free of I/O. The new-workspace path is completed in Phase 6.
+/// the Wayland event handlers free of I/O.
 fn handle_request(ipc: &Ipc, app: &mut App, request: &Request) {
     match request {
         Request::SwitcherPressed => app.switcher_pressed(),
         Request::SwitcherReleased => app.switcher_released(),
         Request::SessionEnded => commit_session(ipc, app),
-        Request::NewWorkspace => {}
+        Request::NewWorkspace => new_workspace(ipc, app),
     }
+}
+
+/// Switch to a new empty workspace on the focused monitor (FR-020, FR-021).
+///
+/// No overlay, no session, and nothing to do on the shortcut's `released` event — the Wayland
+/// shell already drops that one (`contracts/shortcuts.md`). Everything this shortcut decides
+/// lives in `actions::new_workspace_plan`; the only thing left here is the dispatch.
+fn new_workspace(ipc: &Ipc, app: &App) {
+    // `None` is FR-021's no-op: the focused monitor is already showing an empty workspace, so
+    // there is deliberately no dispatch and no diagnostic.
+    let Some(plan) = actions::new_workspace_plan(&app.world) else {
+        return;
+    };
+
+    // One command cannot half-apply, so there is no half-applied state to verify against or roll
+    // back from, and `contracts/diagnostics.md` names no condition for this shortcut: a dispatch
+    // the compositor refuses leaves the session exactly as it was, which is what the user sees.
+    let _ = ipc.dispatch(&plan.commands);
 }
 
 /// Turn a finished session into workspace changes (FR-005, FR-009, FR-011, FR-027).

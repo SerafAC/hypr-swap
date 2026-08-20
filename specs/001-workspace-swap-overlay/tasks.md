@@ -197,14 +197,14 @@ number is active on the current monitor and appears in the overlay on the next i
 
 ### Implementation for User Story 4
 
-- [ ] T075 [US4] Implement `actions::new_workspace_plan(world) -> Option<CommandPlan>` in src/actions.rs — lowest positive integer not among the known workspace ids, dispatched as `focusworkspaceoncurrentmonitor <n>`, returning `None` when the focused monitor's active workspace has `window_count == 0` (FR-020, FR-021, research.md R9)
-- [ ] T076 [US4] Unit tests in src/actions.rs for lowest-unused selection with gaps (1, 2, 4 → 3), the empty-workspace `None` case, and that no diagnostic is produced for the no-op
-- [ ] T077 [US4] Handle the `new-workspace` shortcut in src/main.rs — dispatch the plan, never open an overlay, ignore the `released` event (contracts/shortcuts.md)
+- [X] T075 [US4] Implement `actions::new_workspace_plan(world) -> Option<CommandPlan>` in src/actions.rs — lowest positive integer not among the known workspace ids, dispatched as `focusworkspaceoncurrentmonitor <n>`, returning `None` when the focused monitor's active workspace has `window_count == 0` (FR-020, FR-021, research.md R9)
+- [X] T076 [US4] Unit tests in src/actions.rs for lowest-unused selection with gaps (1, 2, 4 → 3), the empty-workspace `None` case, and that no diagnostic is produced for the no-op
+- [X] T077 [US4] Handle the `new-workspace` shortcut in src/main.rs — dispatch the plan, never open an overlay, ignore the `released` event (contracts/shortcuts.md)
 
 ### Tests for User Story 4 (REQUIRED)
 
-- [ ] T078 [P] [US4] E2E `e2e_new_workspace_lowest_unused` — workspaces 1, 2, 4 in use on a two-output setup, shortcut fired from the second monitor, then confirm the new workspace appears in the overlay; covers FR-020, US4-AS1/AS3 — in tests/e2e_new_workspace.rs
-- [ ] T079 [P] [US4] E2E `e2e_new_workspace_noop_when_empty` — repeat press on the now-empty workspace changes nothing and creates nothing; covers FR-021, US4-AS2, SC-007 — in tests/e2e_new_workspace.rs
+- [X] T078 [P] [US4] E2E `e2e_new_workspace_lowest_unused` — workspaces 1, 2, 4 in use on a two-output setup, shortcut fired from the second monitor, then confirm the new workspace appears in the overlay; covers FR-020, US4-AS1/AS3 — in tests/e2e_new_workspace.rs
+- [X] T079 [P] [US4] E2E `e2e_new_workspace_noop_when_empty` — repeat press on the now-empty workspace changes nothing and creates nothing; covers FR-021, US4-AS2, SC-007 — in tests/e2e_new_workspace.rs
 
 **Checkpoint**: All P1 and P2 stories are independently functional.
 
