@@ -383,6 +383,26 @@ The two rollback tests additionally substitute a **fault-injecting IPC layer** e
 environment variable, because a genuine dispatcher failure cannot be provoked from outside; this is
 the one place an E2E test reaches past the real interface, and it is confined to those tests.
 
+Two further substitutions were added with the User Story 5 scenarios, both concerning *where a
+process looks* rather than what it talks to:
+
+- **Stable socket names for a restarted compositor.** A real Hyprland picks a fresh
+  `HYPRLAND_INSTANCE_SIGNATURE` and a fresh `wayland-N` socket every time it starts, and the daemon
+  reads both once, at start-up. A daemon pointed straight at them could never reconnect to a
+  *restarted* compositor — not because FR-026b fails, but because it would be looking in the wrong
+  place. `e2e_reconnects_after_restart` and `e2e_no_overlay_while_disconnected` therefore give the
+  daemon symlinked paths that the harness re-points across a restart, standing in for the one thing
+  a user's session keeps stable across a compositor crash: where its sockets live. Both the
+  compositor and the restart are real, as is everything the daemon then does through those paths.
+  Re-pointing the Hyprland half alone is also what lets `e2e_no_overlay_while_disconnected` fire the
+  switcher bind *at a disconnected daemon*, which is otherwise impossible: with the compositor gone
+  there is nothing left to press keys against.
+- **A recording `notify-send` on `PATH`.** Raising a desktop notification *is* spawning that binary
+  (`contracts/diagnostics.md`), so a stub first on the daemon's `PATH` observes exactly the
+  externally visible fact, without making the assertion depend on the developer's session bus or
+  notification daemon. FR-032's "no notification service" case is the same substitution with an
+  empty directory instead.
+
 **[spike]** The nested instance must be confirmed to start, accept `output create headless`, and
 accept virtual-keyboard input under the developer's session before the E2E suite is built out;
 this is the first task of the E2E work and gates the rest.

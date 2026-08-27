@@ -45,9 +45,10 @@ A desktop notification accompanies the stderr record **only** for conditions the
 | Unknown key in the configuration file | `WARN` | ❌ |
 | Notification delivery itself failed | `WARN` | ❌ — never recurse |
 
-Notification bodies restate the stderr message, with summaries `hypr-swap: configuration problem`,
-`hypr-swap: shortcut not registered`, `hypr-swap: cannot reach Hyprland`, and
-`hypr-swap: swap failed`.
+Notification bodies restate the stderr record without its level — `<subject>: <message>` — so a
+notification read on its own still names the setting or condition concerned (US5-AS5). The
+summaries are `hypr-swap: configuration problem`, `hypr-swap: shortcut not registered`,
+`hypr-swap: cannot reach Hyprland`, and `hypr-swap: swap failed`.
 
 ## Delivery
 

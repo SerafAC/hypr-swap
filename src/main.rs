@@ -543,7 +543,8 @@ impl Options {
 }
 
 /// Usage text, including the bind lines so a user who has the binary has the instructions
-/// (FR-033). The lines come from `Shortcut`, so they cannot drift from `docs/binds.md`.
+/// (FR-033). The lines come from `Shortcut::suggested_bind`, which is also the text
+/// `docs/binds.md` is asserted to contain, so the two cannot drift (T082, Principle III).
 fn usage() -> String {
     let binds = Shortcut::ALL
         .into_iter()
@@ -576,7 +577,9 @@ BIND THESE IN hyprland.conf (any combination works; these are suggestions):
 {binds}
 
 Use `bind`, not `binde`: a repeating bind fires continuously while held, which
-reads as continuous navigation. Either line may be left out.
+reads as continuous navigation. Either line may be left out. Bound to a bare key
+with no modifier, the overlay stays open and Enter commits. Full notes, including
+the fixed in-overlay keys, are in docs/binds.md.
 
 CONFIGURATION (all keys optional; defaults shown):
     presentation = \"list\"      # \"list\" | \"grid\"

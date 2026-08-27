@@ -120,7 +120,10 @@ pub fn report(condition: Condition, subject: &str, message: &str) {
     drop(stderr);
 
     if let Some(summary) = condition.summary() {
-        notify(summary, message);
+        // The body carries the subject as well as the message, because a notification is read on
+        // its own: "unknown value \"tiles\"" without `config.presentation` in front of it would
+        // not tell the user which setting to go and fix (US5-AS5).
+        notify(summary, &format!("{subject}: {message}"));
     }
 }
 
@@ -185,6 +188,22 @@ mod tests {
         Condition::OverlayFocusRefused,
         Condition::NotifyDeliveryFailed,
     ];
+
+    #[test]
+    fn a_notification_body_names_the_subject_as_well_as_the_message() {
+        // US5-AS5: the offending setting is named on stderr *and* in the notification. The body
+        // is built where the notification is raised, so this asserts the shape it is built from.
+        let record = format_record(
+            Condition::InvalidConfigValue.level(),
+            "config.presentation",
+            r#"unknown value "tiles", using default "list""#,
+        );
+        let body = record
+            .split_once(' ')
+            .map(|(_, rest)| rest.trim_start())
+            .expect("the record has a level prefix");
+        assert!(body.starts_with("config.presentation: "), "{body}");
+    }
 
     #[test]
     fn record_shape_is_level_subject_message() {

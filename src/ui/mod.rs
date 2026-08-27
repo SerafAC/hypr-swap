@@ -34,8 +34,9 @@ use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_keyboard, wl_output, wl_seat, wl_shm, wl_surface};
 use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
 
-use crate::config::{Configuration, Presentation};
+use crate::config::{Configuration, Placement, Presentation};
 use crate::diag::{self, Condition};
+use crate::model::MonitorName;
 use crate::ordering;
 use crate::session::{self, Session};
 use crate::state::World;
@@ -122,8 +123,11 @@ pub struct App {
 
     /// The open session, if any. At most one exists at a time (FR-028).
     session: Option<Session>,
-    /// The mapped overlay. Absent on the fast-tap path, which never shows one (FR-005).
-    overlay: Option<Overlay>,
+    /// The mapped copies of the overlay: one on the focused monitor by default, one per
+    /// connected monitor under `placement = "all"` (FR-017). All of them show the same session,
+    /// so the highlight cannot differ between them. Empty on the fast-tap path, which never
+    /// shows one (FR-005).
+    overlays: Vec<Overlay>,
 
     /// User settings, read once at start-up.
     pub config: Configuration,
@@ -133,9 +137,25 @@ pub struct App {
     pub outbox: Vec<Request>,
 }
 
+/// One overlay still to be mapped: where it goes, how big it is, and whether it is the copy the
+/// session reads the keyboard from.
+struct Target {
+    /// The output to ask for, or `None` to let the compositor pick the focused monitor.
+    output: Option<wl_output::WlOutput>,
+    monitor: MonitorName,
+    metrics: Metrics,
+    exclusive: bool,
+}
+
 /// One mapped layer surface showing the session.
 struct Overlay {
     layer: LayerSurface,
+    /// The monitor this copy is on, for the diagnostic when the compositor withdraws it.
+    monitor: MonitorName,
+    /// Whether this copy is the one holding exclusive keyboard focus. Exactly one is, even under
+    /// `placement = "all"`: the session reads one keyboard, on the monitor the user is looking at
+    /// (FR-002a, FR-017).
+    exclusive: bool,
     /// Declares that this surface's buffer is in device pixels while the surface itself is the
     /// logical size the compositor configured. Without it the buffer would be taken as logical
     /// and the overlay would come out `scale` times too big on a scaled monitor (FR-019).
@@ -208,7 +228,7 @@ pub fn connect(config: Configuration, world: World) -> Result<(Wayland, App), St
         qh: qh.clone(),
         modifiers: Modifiers::default(),
         session: None,
-        overlay: None,
+        overlays: Vec::new(),
         config,
         world,
         outbox: Vec::new(),
@@ -242,7 +262,7 @@ impl App {
     /// Whether an overlay is currently mapped.
     #[must_use]
     pub fn has_overlay(&self) -> bool {
-        self.overlay.is_some()
+        !self.overlays.is_empty()
     }
 
     /// The switcher shortcut fired (FR-001, FR-003, FR-028).
@@ -287,7 +307,8 @@ impl App {
         self.session = None;
     }
 
-    /// Open a session on a snapshot of the world and map its overlay.
+    /// Open a session on a snapshot of the world and map its overlay on every monitor the
+    /// placement setting asks for.
     fn open_session(&mut self) {
         let (entries, highlight) = ordering::entries(&self.world, self.config.order);
         let Some(monitor) = self.world.focused_monitor() else {
@@ -296,7 +317,6 @@ impl App {
             return;
         };
         let origin = monitor.name.clone();
-        let (monitor_size, scale) = (monitor.size, monitor.scale);
 
         let Some(session) = Session::open(entries, highlight, origin) else {
             // Nothing to switch between. Taking the user's keyboard to show an empty box would
@@ -304,28 +324,94 @@ impl App {
             return;
         };
 
-        // The one place the two presentations diverge (FR-016, US3-AS4): a different shape of
-        // overlay is asked for, and everything after this — navigation, commit, cancel — is the
-        // same code either way.
-        let metrics = match self.config.presentation {
-            Presentation::List => layout::list_metrics(monitor_size, scale, session.entries.len()),
-            Presentation::Grid => layout::grid_metrics(monitor_size, scale, session.entries.len()),
-        };
+        let targets = self.targets(&session.origin_monitor, session.entries.len());
         self.session = Some(session);
-        self.map_overlay(metrics);
+        for target in targets {
+            self.map_overlay(target);
+        }
     }
 
-    /// Map the overlay layer surface (FR-002a, FR-018).
+    /// Geometry for one monitor.
+    ///
+    /// The one place the two presentations diverge (FR-016, US3-AS4): a different shape of
+    /// overlay is asked for, and everything after this — navigation, commit, cancel — is the
+    /// same code either way.
+    fn metrics_for(&self, monitor_size: (u32, u32), scale: f32, entry_count: usize) -> Metrics {
+        match self.config.presentation {
+            Presentation::List => layout::list_metrics(monitor_size, scale, entry_count),
+            Presentation::Grid => layout::grid_metrics(monitor_size, scale, entry_count),
+        }
+    }
+
+    /// Which monitors get a copy of the overlay, and which copy takes the keyboard (FR-017).
+    ///
+    /// `placement = "active"` names no output at all: a layer surface with no output goes to the
+    /// monitor holding the focused workspace, which is exactly the setting's definition, and is
+    /// left to the compositor rather than second-guessed. `placement = "all"` has to name each
+    /// output explicitly, because that is the only way to ask for a surface on a monitor that is
+    /// not the focused one.
+    ///
+    /// Only the focused monitor's copy is exclusive. One session, one keyboard, one highlight —
+    /// the other copies are there to be looked at (US5-AS2/AS3). A set that would leave nobody
+    /// holding the keyboard is discarded for the single active-monitor overlay: an unreadable
+    /// gesture would be worse than ignoring the setting, and it is what a compositor that does
+    /// not name its outputs would otherwise produce.
+    fn targets(&self, origin: &MonitorName, entry_count: usize) -> Vec<Target> {
+        if self.config.placement == Placement::AllMonitors {
+            let all: Vec<Target> = self
+                .world
+                .monitors
+                .iter()
+                .filter_map(|monitor| {
+                    Some(Target {
+                        output: Some(self.output_named(&monitor.name)?),
+                        monitor: monitor.name.clone(),
+                        metrics: self.metrics_for(monitor.size, monitor.scale, entry_count),
+                        exclusive: monitor.name == *origin,
+                    })
+                })
+                .collect();
+            if all.iter().any(|target| target.exclusive) {
+                return all;
+            }
+        }
+
+        self.world
+            .focused_monitor()
+            .map(|monitor| Target {
+                output: None,
+                monitor: monitor.name.clone(),
+                metrics: self.metrics_for(monitor.size, monitor.scale, entry_count),
+                exclusive: true,
+            })
+            .into_iter()
+            .collect()
+    }
+
+    /// The `wl_output` the compositor calls `name`, if it has told us its name yet.
+    ///
+    /// Output names are the only thing tying the Wayland side of the client to the monitor names
+    /// Hyprland's IPC reports, which is what lets a per-monitor surface be sized from the
+    /// monitor's own resolution and scale.
+    fn output_named(&self, name: &str) -> Option<wl_output::WlOutput> {
+        self.output_state.outputs().find(|output| {
+            self.output_state
+                .info(output)
+                .and_then(|info| info.name)
+                .is_some_and(|reported| reported == name)
+        })
+    }
+
+    /// Map one overlay layer surface (FR-002a, FR-017, FR-018).
     ///
     /// The **overlay** layer is what puts it above a fullscreen client, and **exclusive**
     /// keyboard interactivity is what lets it observe the modifier release that commits
     /// (research.md R4, R6). The exclusive zone stays at zero: this is a transient overlay, not
     /// a panel, and must not make the compositor reserve space for it.
     ///
-    /// No output is named, so the compositor places the surface on the focused monitor — which
-    /// is exactly `placement = "active"`, the default (FR-017). T080 adds the per-output surfaces
-    /// `placement = "all"` needs.
-    fn map_overlay(&mut self, metrics: Metrics) {
+    /// A copy that is not holding the keyboard asks for `None` interactivity rather than
+    /// `OnDemand`: a passive copy must never take focus away from the one the session is reading.
+    fn map_overlay(&mut self, target: Target) {
         let surface = self.compositor.create_surface(&self.qh);
         // Created before the surface is handed to the layer shell, which takes ownership of it.
         let viewport = self
@@ -336,22 +422,28 @@ impl App {
             surface,
             Layer::Overlay,
             Some(crate::APP_ID),
-            None,
+            target.output.as_ref(),
         );
-        layer.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
+        layer.set_keyboard_interactivity(if target.exclusive {
+            KeyboardInteractivity::Exclusive
+        } else {
+            KeyboardInteractivity::None
+        });
         // Logical pixels: `set_size` is in the compositor's coordinate space, not the buffer's.
         // The scale is applied to the buffer instead, by the viewport set in `draw`.
-        let (surface_width, surface_height) = metrics.surface_size();
+        let (surface_width, surface_height) = target.metrics.surface_size();
         layer.set_size(surface_width, surface_height);
         // Anchored to nothing, so the compositor centres it.
         layer.set_anchor(Anchor::empty());
         layer.set_exclusive_zone(0);
         layer.commit();
 
-        self.overlay = Some(Overlay {
+        self.overlays.push(Overlay {
             layer,
+            monitor: target.monitor,
+            exclusive: target.exclusive,
             viewport,
-            metrics,
+            metrics: target.metrics,
             buffer: None,
             first_visible: 0,
             configured: false,
@@ -359,9 +451,9 @@ impl App {
     }
 
     fn close_overlay(&mut self) {
-        // Dropping the layer surface destroys it, which is also what returns keyboard focus to
+        // Dropping the layer surfaces destroys them, which is also what returns keyboard focus to
         // whatever held it before (FR-002a) — the compositor does that for us.
-        self.overlay = None;
+        self.overlays.clear();
     }
 
     /// Whatever just happened to the session, do what it now implies: repaint while it is open,
@@ -377,9 +469,20 @@ impl App {
         }
     }
 
-    /// Paint the current highlight and commit the surface.
+    /// Paint the current highlight onto every mapped copy.
+    ///
+    /// One session drives them all, so `placement = "all"` cannot show two different highlights
+    /// (FR-017, US5-AS3).
     fn draw(&mut self) {
-        let (Some(session), Some(overlay)) = (self.session.as_ref(), self.overlay.as_mut()) else {
+        for index in 0..self.overlays.len() {
+            self.draw_overlay(index);
+        }
+    }
+
+    /// Paint one copy and commit its surface.
+    fn draw_overlay(&mut self, index: usize) {
+        let (Some(session), Some(overlay)) = (self.session.as_ref(), self.overlays.get_mut(index))
+        else {
             return;
         };
         if !overlay.configured || !session.is_visible() {
@@ -454,11 +557,16 @@ impl App {
         }
     }
 
-    /// Whether `surface` is this session's overlay.
+    /// Which copy of the overlay `surface` is, if it is one of them.
+    fn overlay_index(&self, surface: &wl_surface::WlSurface) -> Option<usize> {
+        self.overlays
+            .iter()
+            .position(|overlay| overlay.layer.wl_surface() == surface)
+    }
+
+    /// Whether `surface` is one of this session's overlays.
     fn is_overlay(&self, surface: &wl_surface::WlSurface) -> bool {
-        self.overlay
-            .as_ref()
-            .is_some_and(|overlay| overlay.layer.wl_surface() == surface)
+        self.overlay_index(surface).is_some()
     }
 
     fn on_shortcut(&mut self, shortcut: Shortcut, pressed: bool) {
@@ -697,13 +805,23 @@ impl LayerShellHandler for App {
     /// than mapping it without. Either way the session cannot do its job, so it is abandoned
     /// with a report rather than left holding a dead surface.
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
-        if !self.is_overlay(layer.wl_surface()) {
+        let Some(index) = self.overlay_index(layer.wl_surface()) else {
+            return;
+        };
+        if !self.overlays[index].exclusive {
+            // A passive `placement = "all"` copy going away — an unplugged monitor, say — costs
+            // the user nothing: the session is still on screen and still reading the keyboard
+            // where it matters, so it keeps running with one fewer copy.
+            self.overlays.remove(index);
             return;
         }
+        let monitor = self.overlays[index].monitor.clone();
         diag::report(
             Condition::OverlayFocusRefused,
             "overlay",
-            "the compositor closed the overlay surface; the session was abandoned",
+            &format!(
+                "the compositor closed the overlay surface on {monitor}; the session was abandoned"
+            ),
         );
         self.abandon_session();
     }
@@ -716,11 +834,11 @@ impl LayerShellHandler for App {
         configure: LayerSurfaceConfigure,
         _: u32,
     ) {
-        if !self.is_overlay(layer.wl_surface()) {
+        let Some(index) = self.overlay_index(layer.wl_surface()) else {
             return;
-        }
+        };
         let entry_count = self.session.as_ref().map_or(0, |s| s.entries.len());
-        if let Some(overlay) = self.overlay.as_mut() {
+        if let Some(overlay) = self.overlays.get_mut(index) {
             // A compositor may hand back a size of its own choosing. Honour it rather than
             // painting outside the surface it agreed to — refitting the row count, never the
             // row size (FR-019). The size is in logical pixels, which is what `refit` takes.
@@ -730,7 +848,8 @@ impl LayerShellHandler for App {
             }
             overlay.configured = true;
         }
-        self.draw();
+        // Only this copy has news; the others are already showing the same highlight.
+        self.draw_overlay(index);
     }
 }
 

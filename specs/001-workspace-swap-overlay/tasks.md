@@ -221,21 +221,21 @@ presentation take effect.
 
 ### Implementation for User Story 5
 
-- [ ] T080 [US5] Implement `placement = "all"` in src/ui/mod.rs — one layer surface per connected monitor driven by a single session so every copy shows the same highlight, with exclusive keyboard interactivity on the focused monitor's surface only (FR-017, US5-AS2/AS3)
-- [ ] T081 [P] [US5] Write docs/binds.md with the exact bind lines, the `bind` vs `binde` rule, the unbound-shortcut guarantee, and the bare-key sticky-mode note (FR-022b, contracts/shortcuts.md)
-- [ ] T082 [P] [US5] Make `--help` in src/main.rs print usage including the bind lines from docs/binds.md so the two never drift (contracts/cli.md, FR-033, Principle III)
-- [ ] T083 [US5] Extend the src/config.rs unit tests to cover the exact stderr subjects (`config.presentation`, `config.placement`, `config.order`) and the notify flag on each fallback, matching contracts/diagnostics.md
+- [X] T080 [US5] Implement `placement = "all"` in src/ui/mod.rs — one layer surface per connected monitor driven by a single session so every copy shows the same highlight, with exclusive keyboard interactivity on the focused monitor's surface only (FR-017, US5-AS2/AS3)
+- [X] T081 [P] [US5] Write docs/binds.md with the exact bind lines, the `bind` vs `binde` rule, the unbound-shortcut guarantee, and the bare-key sticky-mode note (FR-022b, contracts/shortcuts.md)
+- [X] T082 [P] [US5] Make `--help` in src/main.rs print usage including the bind lines from docs/binds.md so the two never drift (contracts/cli.md, FR-033, Principle III)
+- [X] T083 [US5] Extend the src/config.rs unit tests to cover the exact stderr subjects (`config.presentation`, `config.placement`, `config.order`) and the notify flag on each fallback, matching contracts/diagnostics.md
 
 ### Tests for User Story 5 (REQUIRED)
 
-- [ ] T084 [P] [US5] E2E `e2e_placement_all_monitors` — `placement = "all"` with two outputs, asserting a `hypr-swap` layer on each and the same highlight; covers FR-017, US5-AS2/AS3 — in tests/e2e_config.rs
-- [ ] T085 [P] [US5] E2E `e2e_defaults_without_config` — no configuration file present; covers FR-023, SC-006, US5-AS4 — in tests/e2e_config.rs
-- [ ] T086 [P] [US5] E2E `e2e_invalid_config_falls_back` — `presentation = "tiles"` with `order = "compositor"` honoured; covers FR-024, FR-029, FR-030, US5-AS5 — in tests/e2e_config.rs
-- [ ] T087 [P] [US5] E2E `e2e_unbound_shortcut_is_harmless` — only the new-workspace bind present; covers FR-022b, US5-AS6 — in tests/e2e_config.rs
-- [ ] T088 [P] [US5] E2E `e2e_no_compositor_at_start` — no `HYPRLAND_INSTANCE_SIGNATURE`, expecting the stderr record, the notification, and exit 3; covers FR-025 — in tests/e2e_config.rs
-- [ ] T089 [P] [US5] E2E `e2e_reconnects_after_restart` — kill and restart the nested Hyprland, asserting the shortcuts work again within 10 s, the history is rebuilt, and no notification was raised; covers FR-026a, FR-026b, FR-026c, FR-031, SC-009 — in tests/e2e_config.rs
-- [ ] T090 [P] [US5] E2E `e2e_no_notification_daemon` — no notification service reachable, asserting one `WARN notify:` line and normal operation; covers FR-032 — in tests/e2e_config.rs
-- [ ] T100 [P] [US5] E2E `e2e_no_overlay_while_disconnected` — with the compositor connection down, firing the switcher shortcut maps no layer surface and consumes no CPU spinning; covers FR-026d — in tests/e2e_config.rs
+- [X] T084 [P] [US5] E2E `e2e_placement_all_monitors` — `placement = "all"` with two outputs, asserting a `hypr-swap` layer on each and the same highlight; covers FR-017, US5-AS2/AS3 — in tests/e2e_config.rs
+- [X] T085 [P] [US5] E2E `e2e_defaults_without_config` — no configuration file present; covers FR-023, SC-006, US5-AS4 — in tests/e2e_config.rs
+- [X] T086 [P] [US5] E2E `e2e_invalid_config_falls_back` — `presentation = "tiles"` with `order = "compositor"` honoured; covers FR-024, FR-029, FR-030, US5-AS5 — in tests/e2e_config.rs
+- [X] T087 [P] [US5] E2E `e2e_unbound_shortcut_is_harmless` — only the new-workspace bind present; covers FR-022b, US5-AS6 — in tests/e2e_config.rs
+- [X] T088 [P] [US5] E2E `e2e_no_compositor_at_start` — no `HYPRLAND_INSTANCE_SIGNATURE`, expecting the stderr record, the notification, and exit 3; covers FR-025 — in tests/e2e_config.rs
+- [X] T089 [P] [US5] E2E `e2e_reconnects_after_restart` — kill and restart the nested Hyprland, asserting the shortcuts work again within 10 s, the history is rebuilt, and no notification was raised; covers FR-026a, FR-026b, FR-026c, FR-031, SC-009 — in tests/e2e_config.rs
+- [X] T090 [P] [US5] E2E `e2e_no_notification_daemon` — no notification service reachable, asserting one `WARN notify:` line and normal operation; covers FR-032 — in tests/e2e_config.rs
+- [X] T100 [P] [US5] E2E `e2e_no_overlay_while_disconnected` — with the compositor connection down, firing the switcher shortcut maps no layer surface and consumes no CPU spinning; covers FR-026d — in tests/e2e_config.rs
 
 **Checkpoint**: Every user story is complete and independently testable.
 

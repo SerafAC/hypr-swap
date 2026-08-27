@@ -14,3 +14,4 @@
 pub mod clients;
 pub mod harness;
 pub mod keyboard;
+pub mod notify;

@@ -144,7 +144,25 @@ pub struct Nested {
     pub wayland_display: String,
     pub signature: String,
     pub ipc: Ipc,
+    /// A stable view of this instance's sockets, so a daemon can outlive a restart of it — see
+    /// [`Nested::stable_env`].
+    stable: Stable,
     _lock: MutexGuard<'static, ()>,
+}
+
+/// Fixed socket locations that follow whichever nested compositor is currently running.
+///
+/// A real Hyprland picks a fresh `HYPRLAND_INSTANCE_SIGNATURE` and a fresh `wayland-N` socket
+/// every time it starts, and the daemon reads both once, at start-up. A daemon pointed straight
+/// at them could therefore never reconnect to a *restarted* compositor — not because FR-026b does
+/// not work, but because it would be looking in the wrong place. These three names are symlinks
+/// the harness re-points across a restart, standing in for the one thing a user's session keeps
+/// stable across a compositor crash: where its sockets live. Everything the daemon then does
+/// through them — Wayland, IPC, shortcut registration — is the real interface, unaltered.
+struct Stable {
+    runtime: PathBuf,
+    signature: String,
+    display: String,
 }
 
 impl Nested {
@@ -173,43 +191,28 @@ impl Nested {
         }
 
         let runtime = runtime_dir();
-
-        // The nested instance must not inherit the host's signature, or `hyprctl` inside it would
-        // address the developer's session.
-        let child = Command::new("Hyprland")
-            .arg("-c")
-            .arg(&config)
-            .env_remove("HYPRLAND_INSTANCE_SIGNATURE")
-            .current_dir(&directory)
-            .stdout(log_file(&directory))
-            .stderr(log_file(&directory))
-            .spawn()
-            .expect("Hyprland is installed and on PATH");
-
-        // Each instance writes its pid and its wayland socket to `hyprland.lock`, so the instance
-        // is identified by the pid this harness itself spawned. Diffing socket names instead is
-        // unreliable: a compositor that was killed leaves its socket behind for the next one to
-        // reuse (research.md R14).
-        let pid = child.id();
+        let (child, instance) = spawn_compositor(&directory, &config, &runtime);
         let Instance {
             signature,
             wayland_display,
-        } = wait_for_value(START_TIMEOUT, || find_instance(&runtime, pid)).unwrap_or_else(|| {
-            panic!(
-                "the nested compositor never registered an instance; log:\n{}",
-                read_log(&directory)
-            )
-        });
+        } = instance;
 
         let ipc = Ipc::new(&runtime, &signature);
+        let stable = Stable {
+            runtime: directory.join("runtime"),
+            signature: "hypr-swap-e2e-stable".to_owned(),
+            display: "wayland-stable".to_owned(),
+        };
         let nested = Self {
             child,
             directory,
             wayland_display,
             signature,
             ipc,
+            stable,
             _lock: lock,
         };
+        nested.link_stable();
         // The compositor answers its socket a moment before it has finished setting up outputs.
         nested.wait_until("the nested compositor reports a monitor", || {
             !nested.monitors().is_empty()
@@ -223,6 +226,89 @@ impl Nested {
             .env("WAYLAND_DISPLAY", &self.wayland_display)
             .env("HYPRLAND_INSTANCE_SIGNATURE", &self.signature)
             .env("XDG_CONFIG_HOME", self.directory.join("config"));
+    }
+
+    /// The same, but through the stable socket names — the environment a daemon that has to
+    /// survive a restart of this compositor is given.
+    pub fn stable_env(&self, command: &mut Command) {
+        command
+            .env("XDG_RUNTIME_DIR", &self.stable.runtime)
+            .env("WAYLAND_DISPLAY", &self.stable.display)
+            .env("HYPRLAND_INSTANCE_SIGNATURE", &self.stable.signature)
+            .env("XDG_CONFIG_HOME", self.directory.join("config"));
+    }
+
+    /// Point the stable names at whichever instance is running now.
+    #[allow(clippy::missing_panics_doc)]
+    fn link_stable(&self) {
+        let runtime = runtime_dir();
+        std::fs::create_dir_all(self.stable.runtime.join("hypr"))
+            .expect("create the stable runtime directory");
+        // A runtime directory is expected to be private to its owner; libwayland complains
+        // otherwise.
+        let _ = std::fs::set_permissions(
+            &self.stable.runtime,
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        );
+        relink(
+            &runtime.join("hypr").join(&self.signature),
+            &self
+                .stable
+                .runtime
+                .join("hypr")
+                .join(&self.stable.signature),
+        );
+        relink(
+            &runtime.join(&self.wayland_display),
+            &self.stable.runtime.join(&self.stable.display),
+        );
+    }
+
+    /// Take the Hyprland IPC sockets away from a daemon using the stable names, without touching
+    /// the compositor itself.
+    ///
+    /// This is the one disconnection that can be staged while the compositor is still there to
+    /// press keys against, which is what FR-026d needs: the daemon tears its whole client down —
+    /// surfaces, shortcuts and all — and the user's bind then has nothing to deliver to.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn sever_ipc(&self) {
+        relink(
+            &self.directory.join("no-such-instance"),
+            &self
+                .stable
+                .runtime
+                .join("hypr")
+                .join(&self.stable.signature),
+        );
+    }
+
+    /// Undo [`Self::sever_ipc`].
+    pub fn restore_ipc(&self) {
+        self.link_stable();
+    }
+
+    /// Kill this compositor and start a fresh one in its place, re-pointing the stable names at
+    /// it — the crash-and-restart FR-026a/FR-026b exist for.
+    ///
+    /// Everything the old instance held is gone: its workspaces, its windows, and the `Client`
+    /// handles a test is holding for them.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn restart(&mut self) {
+        self.kill();
+        let runtime = runtime_dir();
+        let (child, instance) = spawn_compositor(
+            &self.directory,
+            &self.directory.join("hyprland.conf"),
+            &runtime,
+        );
+        self.child = child;
+        self.signature = instance.signature;
+        self.wayland_display = instance.wayland_display;
+        self.ipc = Ipc::new(&runtime, &self.signature);
+        self.link_stable();
+        self.wait_until("the restarted compositor reports a monitor", || {
+            !self.monitors().is_empty()
+        });
     }
 
     /// Add a headless output — the documented substitute for a second physical monitor.
@@ -495,6 +581,29 @@ impl Nested {
         daemon
     }
 
+    /// Start the application under test against the stable socket names, so it can outlive a
+    /// [`Self::restart`] or a [`Self::sever_ipc`].
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn start_daemon_stable(&self, environment: &[(&str, &str)]) -> Daemon {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_hypr-swap"));
+        self.stable_env(&mut command);
+        for (name, value) in environment {
+            command.env(name, value);
+        }
+        let child = command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the application under test is built");
+        let daemon = Daemon { child };
+        self.wait_until("the daemon registers its shortcuts", || {
+            !self.registered_shortcuts().is_empty()
+        });
+        daemon
+    }
+
     /// Kill the compositor from underneath the application, for the reconnection tests. Abrupt
     /// on purpose: this is the crash FR-026a exists for.
     pub fn kill(&mut self) {
@@ -533,6 +642,36 @@ pub struct Daemon {
 }
 
 impl Daemon {
+    #[must_use]
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// Whether the process is still running — a lost connection must never end it (FR-025).
+    #[allow(clippy::missing_panics_doc)]
+    pub fn is_running(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
+
+    /// Total CPU time the daemon has used, in clock ticks, from `/proc/<pid>/stat`.
+    ///
+    /// The only externally visible difference between "waiting out a backoff delay" and "retrying
+    /// in a hot loop" is this number, which is what FR-026d's "MUST NOT consume resources by
+    /// retrying without delay" comes down to.
+    #[must_use]
+    pub fn cpu_ticks(&self) -> u64 {
+        let stat =
+            std::fs::read_to_string(format!("/proc/{}/stat", self.child.id())).unwrap_or_default();
+        // Fields 14 and 15 (1-based) are utime and stime; the comm field may contain spaces and
+        // is bracketed, so counting starts after its closing parenthesis.
+        let Some(rest) = stat.rsplit_once(')').map(|(_, rest)| rest) else {
+            return 0;
+        };
+        let fields: Vec<&str> = rest.split_whitespace().collect();
+        let at = |index: usize| fields.get(index).and_then(|f| f.parse::<u64>().ok());
+        at(11).unwrap_or_default() + at(12).unwrap_or_default()
+    }
+
     /// Stop the daemon the way a session manager would, and return its exit code.
     #[allow(clippy::missing_panics_doc)]
     pub fn terminate(mut self) -> Option<i32> {
@@ -596,6 +735,45 @@ fn generate_config(setup: &Setup) -> String {
     config.push_str(&setup.compositor_config);
     config.push('\n');
     config
+}
+
+/// Start one nested Hyprland against `config` and wait until it has registered its instance.
+///
+/// Each instance writes its pid and its wayland socket to `hyprland.lock`, so the instance is
+/// identified by the pid this harness itself spawned. Diffing socket names instead is unreliable:
+/// a compositor that was killed leaves its socket behind for the next one to reuse
+/// (research.md R14).
+fn spawn_compositor(directory: &Path, config: &Path, runtime: &Path) -> (Child, Instance) {
+    // The nested instance must not inherit the host's signature, or `hyprctl` inside it would
+    // address the developer's session.
+    let child = Command::new("Hyprland")
+        .arg("-c")
+        .arg(config)
+        .env_remove("HYPRLAND_INSTANCE_SIGNATURE")
+        .current_dir(directory)
+        .stdout(log_file(directory))
+        .stderr(log_file(directory))
+        .spawn()
+        .expect("Hyprland is installed and on PATH");
+
+    let pid = child.id();
+    let instance =
+        wait_for_value(START_TIMEOUT, || find_instance(runtime, pid)).unwrap_or_else(|| {
+            panic!(
+                "the nested compositor never registered an instance; log:\n{}",
+                read_log(directory)
+            )
+        });
+    (child, instance)
+}
+
+/// Replace `link` with a symlink to `target`, creating its parent if need be.
+fn relink(target: &Path, link: &Path) {
+    if let Some(parent) = link.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::remove_file(link);
+    std::os::unix::fs::symlink(target, link).expect("create the stable symlink");
 }
 
 fn scratch_directory() -> PathBuf {
