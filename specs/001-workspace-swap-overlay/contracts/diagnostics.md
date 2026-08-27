@@ -38,6 +38,7 @@ A desktop notification accompanies the stderr record **only** for conditions the
 | Invalid configuration value (FR-024) | `WARN` | ✅ |
 | Failure to register a named shortcut | `ERROR` | ✅ |
 | Cannot reach the compositor at start-up (FR-025) | `ERROR` | ✅ |
+| Invalid command line (FR-033) | `ERROR` | ❌ — the user is at the terminal they typed it in |
 | Swap failed and was rolled back (FR-013b) | `ERROR` | ✅ |
 | Rollback itself failed (FR-013c) | `ERROR` | ✅ |
 | Connection lost / retrying / reconnected (FR-026a) | `INFO` | ❌ — self-recovering (FR-031) |

@@ -110,8 +110,10 @@ suppresses *all* the user's binds while open, which is a heavier hammer than the
 
 ### Spike outcome — **PASS**, no fallback needed [verified]
 
-Run with `examples/spike_modifiers.rs` against a nested Hyprland (`bind = ALT, F12, global,
-hypr-swap-spike:probe`), driving itself through `virtual-keyboard-unstable-v1`. Observed timeline
+Run as `examples/spike_modifiers.rs` against a nested Hyprland (`bind = ALT, F12, global,
+hypr-swap-spike:probe`), driving itself through `virtual-keyboard-unstable-v1`. The spike was
+deleted in T096 once the findings below were recorded here — it was throwaway by design, and the
+behaviour it proved is now asserted continuously by the E2E suite (Principle II). Observed timeline
 for hold-ALT → tap-F12 → release-ALT:
 
 | t | Event |

@@ -33,6 +33,8 @@ pub const KEY_LEFT: u32 = 105;
 pub const KEY_RIGHT: u32 = 106;
 pub const KEY_UP: u32 = 103;
 pub const KEY_DOWN: u32 = 108;
+/// A key with no modifier of its own, for the sticky-mode bind (FR-022c).
+pub const KEY_F12: u32 = 88;
 
 /// xkb modifier masks, matching the depressed masks Hyprland reports.
 pub const MOD_SHIFT: u32 = 1 << 0;

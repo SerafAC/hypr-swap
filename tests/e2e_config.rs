@@ -17,7 +17,9 @@ use std::time::{Duration, Instant};
 
 use e2e::clients;
 use e2e::harness::{Nested, OVERLAY_LEVEL, Setup};
-use e2e::keyboard::{KEY_ESC, KEY_LEFTALT, KEY_LEFTMETA, KEY_N, KEY_TAB, Keyboard};
+use e2e::keyboard::{
+    KEY_ENTER, KEY_ESC, KEY_F12, KEY_LEFTALT, KEY_LEFTMETA, KEY_N, KEY_TAB, Keyboard,
+};
 use e2e::notify::NotifyLog;
 
 use hypr_swap::config::Order;
@@ -25,6 +27,7 @@ use hypr_swap::ordering;
 use hypr_swap::state::World;
 use hypr_swap::ui::layout;
 use hypr_swap::ui::shortcuts::Shortcut;
+use hypr_swap::{APP_ID, VERSION};
 
 /// Long enough for the overlay to map and take keyboard focus between taps.
 const SETTLE: Duration = Duration::from_millis(200);
@@ -630,4 +633,253 @@ fn e2e_no_notification_daemon() {
     // The underlying diagnostics still reach stderr every time (contracts/diagnostics.md).
     assert!(stderr.contains("WARN  config.presentation:"), "{stderr}");
     assert!(stderr.contains("WARN  config.placement:"), "{stderr}");
+}
+
+// ---------------------------------------------------------------------------
+// Sticky mode
+// ---------------------------------------------------------------------------
+
+#[test]
+fn e2e_sticky_mode_commits_on_enter() {
+    // FR-022c: bound to a key carrying no modifier there is no release to commit on, so the
+    // overlay must stay up after the shortcut is released and commit on Enter instead — with the
+    // same navigation and the same cancel key as every other mode.
+    let nested = Nested::start_with(
+        &Setup::documented()
+            .with_binds(&[Shortcut::NewWorkspace])
+            .with_compositor_config("bind = , F12, global, hypr-swap:switcher\n"),
+    );
+    let _one = clients::spawn_on(&nested, 1, "sticky-1");
+    let _two = clients::spawn_on(&nested, 2, "sticky-2");
+    let _three = clients::spawn_on(&nested, 3, "sticky-3");
+    nested.dispatch("workspace 1");
+    nested.wait_until("the scenario starts on workspace 1", || {
+        nested.active_workspace() == 1
+    });
+
+    let daemon = nested.start_daemon();
+    let mut keyboard = Keyboard::attach(&nested.wayland_display);
+
+    // Tap and let go. Held with a modifier this gesture would commit on the release; with no
+    // modifier in the bind, the release must leave the overlay standing.
+    keyboard.tap(KEY_F12);
+    keyboard.settle();
+    nested.wait_until("the overlay opens", || {
+        !nested.overlay_monitors().is_empty()
+    });
+    quiesce();
+    assert!(
+        !nested.overlay_monitors().is_empty(),
+        "FR-022c: no modifier release can ever arrive, so the overlay stays open"
+    );
+    assert_eq!(
+        nested.active_workspace(),
+        1,
+        "and nothing is committed while it stands"
+    );
+
+    // The cancel key behaves as it does everywhere else (FR-006).
+    keyboard.tap(KEY_ESC);
+    keyboard.settle();
+    nested.wait_until("Escape closes the overlay", || {
+        nested.overlay_monitors().is_empty()
+    });
+    assert_eq!(nested.active_workspace(), 1, "cancelling commits nothing");
+
+    // Open again and navigate. Nothing has been activated since the daemon started, so the MRU
+    // order is still the compositor's and the overlay opens on entry 1 — workspace 2. One repeat
+    // trigger advances it to workspace 3 (FR-003, FR-028).
+    keyboard.tap(KEY_F12);
+    keyboard.settle();
+    nested.wait_until("the overlay reopens", || {
+        !nested.overlay_monitors().is_empty()
+    });
+    keyboard.tap(KEY_F12);
+    keyboard.settle();
+    std::thread::sleep(SETTLE);
+
+    keyboard.tap(KEY_ENTER);
+    keyboard.settle();
+    nested.wait_until("Enter commits the highlighted entry", || {
+        nested.active_workspace() == 3
+    });
+    nested.wait_until("and the overlay closes with it", || {
+        nested.overlay_monitors().is_empty()
+    });
+
+    let stderr = daemon.stderr();
+    assert!(
+        !stderr.contains("ERROR"),
+        "sticky mode is ordinary operation, not a failure: {stderr}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Process interface
+// ---------------------------------------------------------------------------
+
+#[test]
+fn e2e_second_instance_refuses_to_start() {
+    // FR-025a: registering the same shortcut ids twice is not an error at the protocol level, so
+    // the second process has to notice the collision itself and refuse, rather than sit there
+    // competing for deliveries with the instance already running.
+    let notify = NotifyLog::new();
+    let nested = Nested::start();
+    let _one = clients::spawn_on(&nested, 1, "first-1");
+    let _two = clients::spawn_on(&nested, 2, "first-2");
+    nested.dispatch("workspace 1");
+    nested.wait_until("the scenario starts on workspace 1", || {
+        nested.active_workspace() == 1
+    });
+
+    let _first = nested.start_daemon();
+    assert_eq!(
+        nested.registered_shortcuts().len(),
+        2,
+        "the first instance holds both names"
+    );
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_hypr-swap"));
+    nested.env(&mut command);
+    let output = command
+        .env("PATH", notify.path())
+        .stdin(Stdio::null())
+        .output()
+        .expect("the application under test is built");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "contracts/cli.md: exit 3 rather than run as a second instance"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("ERROR shortcut:") && stderr.contains("already registered"),
+        "the record names the collision: {stderr}"
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "standard output is unused (contracts/cli.md)"
+    );
+
+    // FR-030: the user has to act on this one — two daemons is a configuration mistake.
+    let raised = notify.wait_for(1);
+    assert_eq!(raised.len(), 1, "exactly one notification: {raised:?}");
+    assert!(
+        raised[0].contains("hypr-swap: shortcut not registered"),
+        "with the documented summary: {raised:?}"
+    );
+
+    // The instance that was already running is untouched by the one that refused to start.
+    let mut keyboard = Keyboard::attach(&nested.wayland_display);
+    gesture(&nested, &mut keyboard, 1);
+    nested.wait_until("the first instance still switches", || {
+        nested.active_workspace() == 2
+    });
+}
+
+#[test]
+fn e2e_version_and_help() {
+    // FR-033: two options that print and exit successfully without becoming a daemon, and help
+    // text carrying the bind lines — so a user who has the binary has the binding instructions
+    // (FR-022b). No compositor is involved: all three cases answer before one is looked for.
+    let notify = NotifyLog::new();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_hypr-swap"))
+            .args(args)
+            .env("PATH", notify.path())
+            .stdin(Stdio::null())
+            .output()
+            .expect("the application under test is built")
+    };
+
+    let version = run(&["--version"]);
+    assert_eq!(version.status.code(), Some(0), "contracts/cli.md: exit 0");
+    assert_eq!(
+        String::from_utf8_lossy(&version.stdout).trim(),
+        format!("{APP_ID} {VERSION}"),
+        "--version prints the version and nothing else"
+    );
+
+    let help = run(&["--help"]);
+    assert_eq!(help.status.code(), Some(0), "contracts/cli.md: exit 0");
+    let text = String::from_utf8_lossy(&help.stdout);
+    for shortcut in Shortcut::ALL {
+        assert!(
+            text.contains(&shortcut.suggested_bind()),
+            "the usage text carries {:?}: {text}",
+            shortcut.suggested_bind()
+        );
+    }
+
+    // An unusable command line is a usage error, not a compositor problem. It must not put
+    // "cannot reach Hyprland" on the user's screen for a mistyped flag (FR-030).
+    let bad = run(&["--bogus"]);
+    assert_eq!(
+        bad.status.code(),
+        Some(2),
+        "contracts/cli.md: exit 2 on an invalid command line"
+    );
+    let stderr = String::from_utf8_lossy(&bad.stderr);
+    assert!(
+        stderr.contains(r#"ERROR usage: unknown argument "--bogus""#),
+        "the record names the argument: {stderr}"
+    );
+    assert!(
+        stderr.contains("USAGE:"),
+        "and the usage text follows it: {stderr}"
+    );
+    quiesce();
+    assert!(
+        notify.raised().is_empty(),
+        "a command-line mistake raises no desktop notification: {:?}",
+        notify.raised()
+    );
+}
+
+#[test]
+fn e2e_explicit_config_path_is_used_and_must_exist() {
+    // FR-034: a configuration can be exercised without touching the user's own. The file named is
+    // really the one read, and — unlike the default location, where absence is normal (FR-023) —
+    // naming one that does not exist is an error.
+    let nested = Nested::start();
+
+    let absent = std::env::temp_dir().join(format!("hypr-swap-absent-{}.toml", std::process::id()));
+    let _ = std::fs::remove_file(&absent);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_hypr-swap"));
+    nested.env(&mut command);
+    let output = command
+        .arg("--config")
+        .arg(&absent)
+        .stdin(Stdio::null())
+        .output()
+        .expect("the application under test is built");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "contracts/cli.md: exit 2 when --config names a file that does not exist"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&absent.display().to_string()),
+        "the record names the file it could not use: {stderr}"
+    );
+
+    // Named and present, it is the file the daemon actually reads. This setup writes nothing to
+    // the default location, so a diagnostic about `presentation` can only have come from here.
+    let explicit =
+        std::env::temp_dir().join(format!("hypr-swap-explicit-{}.toml", std::process::id()));
+    std::fs::write(&explicit, "presentation = \"tiles\"\n").expect("write the configuration");
+    let daemon = nested.start_daemon_with(&[
+        "--config",
+        explicit.to_str().expect("a UTF-8 temporary path"),
+    ]);
+    quiesce();
+    let stderr = daemon.stderr();
+    let _ = std::fs::remove_file(&explicit);
+    assert!(
+        stderr.contains("WARN  config.presentation:"),
+        "the explicitly named file was the one read: {stderr}"
+    );
 }

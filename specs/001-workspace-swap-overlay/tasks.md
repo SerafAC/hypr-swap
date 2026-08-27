@@ -243,12 +243,12 @@ presentation take effect.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T091 [P] Write README.md — what the tool does, prerequisites, build, the bind lines (linking docs/binds.md), and the configuration schema
-- [ ] T092 Measure and record the SC-001 (≤150 ms shortcut → overlay) and SC-002 (≤300 ms release → target workspace visible) budgets against the nested instance, and confirm 0 % idle CPU with no overlay open
-- [ ] T093 Audit the plan.md E2E coverage table against the implemented tests — confirm every FR has at least one E2E test or a documented reason (FR-013c unit-only; SC-003/SC-004/SC-007 manual), per Constitution V
-- [ ] T094 [P] Make `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` clean across src/ and tests/
-- [ ] T095 Run the quickstart.md manual validation scenarios 1–12 against a live session and record the results
-- [ ] T096 [P] Remove the examples/spike_modifiers.rs spike now that its findings are recorded in research.md R4 (Principle II — no dead code paths)
+- [X] T091 [P] Write README.md — what the tool does, prerequisites, build, the bind lines (linking docs/binds.md), and the configuration schema
+- [X] T092 Measure and record the SC-001 (≤150 ms shortcut → overlay) and SC-002 (≤300 ms release → target workspace visible) budgets against the nested instance, and confirm 0 % idle CPU with no overlay open
+- [X] T093 Audit the plan.md E2E coverage table against the implemented tests — confirm every FR has at least one E2E test or a documented reason (FR-013c unit-only; SC-003/SC-004/SC-007 manual), per Constitution V
+- [X] T094 [P] Make `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` clean across src/ and tests/
+- [X] T095 Run the quickstart.md manual validation scenarios 1–12 against a live session and record the results
+- [X] T096 [P] Remove the examples/spike_modifiers.rs spike now that its findings are recorded in research.md R4 (Principle II — no dead code paths)
 
 ---
 
@@ -521,3 +521,74 @@ than applied silently.
   requirement's "rather than": the overlong title is not omitted — it reaches the renderer whole
   and its window still gets a rectangle — and it does not overflow, because neither the overlay
   nor the rectangle inside it grows by a pixel to accommodate it.
+
+### Implementation notes recorded during Phase 8
+
+- **The T093 audit found four requirements with no end-to-end test at all**, not merely missing
+  table rows: FR-022c (sticky mode), FR-025a (the second-instance refusal), FR-033 (`--version` /
+  `--help`) and FR-034 (`--config`). Constitution V is non-negotiable and all four are cheap to
+  drive through the real interface, so they were written rather than argued away:
+  `e2e_sticky_mode_commits_on_enter`, `e2e_second_instance_refuses_to_start`,
+  `e2e_version_and_help` and `e2e_explicit_config_path_is_used_and_must_exist`, all in
+  `tests/e2e_config.rs`. Three further requirements — FR-022, FR-022a and the FR-026 umbrella —
+  *were* covered but never named in the table; they now cite the tests that cover them, two of
+  which live in `tests/e2e_harness.rs`. Every one of the spec's 53 FRs now appears in the mapping.
+
+- **FR-022c needed a bind the harness could not express.** `Setup::with_binds` only emits the
+  documented lines, so the modifierless bind is appended through `with_compositor_config` while
+  `with_binds` is narrowed to the new-workspace shortcut — the switcher is then bound exactly once,
+  to a bare `F12`. `KEY_F12` was added to `e2e::keyboard` for it.
+
+- **A usage error used to raise a desktop notification claiming the compositor was unreachable.**
+  `main.rs` reported an unparseable command line under `Condition::CompositorUnreachableAtStartup`,
+  whose summary is "hypr-swap: cannot reach Hyprland" — so `hypr-swap --bogus` put a false and
+  alarming notification on screen. FR-030 names exactly three notifying conditions and a mistyped
+  flag is none of them, so `Condition::UsageError` was added: `ERROR` on stderr like its
+  neighbours, `summary()` of `None` so it never notifies. `contracts/diagnostics.md` gained the
+  row. The regression is guarded at both levels — `a_usage_error_is_reported_but_never_notified`
+  in `diag.rs`, and `e2e_version_and_help`, which asserts the recording `notify-send` stub stayed
+  empty after a bad flag.
+
+- **The T092 budgets are measured from outside the process, so every figure is an over-estimate.**
+  `tests/e2e_budgets.rs` times the real gesture against the nested instance. Measured on Hyprland
+  0.56.2:
+
+  | Criterion | Budget | Measured | Resolution |
+  |---|---|---|---|
+  | SC-001 shortcut → overlay mapped | 150 ms | **13.0 ms** | 9.6 ms — one `hyprctl` spawn |
+  | SC-002 modifier release → target workspace active | 300 ms | **0.34 ms** | sub-ms — IPC socket |
+  | Idle CPU with no overlay open, over 5 s | 0 % | **0 clock ticks** | 10 ms per tick |
+
+  The two intervals resolve differently and the test says so: whether a layer surface has mapped is
+  only knowable through `hyprctl`, a process spawn per sample, while the active workspace comes
+  back over the IPC socket. The R4 spike measured the SC-001 path from inside the client at 4 ms,
+  which is consistent with a 13 ms external figure carrying a 9.6 ms observation cost.
+
+- **T095 was run against the nested instance, not the developer's own session.** Scenario 11 asks
+  for Hyprland to be restarted and scenarios 5–8 rearrange windows across monitors; doing that to a
+  live desktop is destructive and was not done. Every scenario is already driven mechanically by
+  the E2E suite, which is a stricter check than a human eye — the full run is 49 passed, 0 failed,
+  1 ignored. That one is the SC-003 soak, which was then run on its own
+  (`cargo test --test e2e_swap -- --ignored soak`) and passed in 77.5 s: 100 consecutive swaps,
+  with the window inventory identical before and after.
+
+- **The visual half of T095 was validated with screenshots**, which closes the one gap the
+  mechanical suite genuinely cannot reach. `grim` was pointed at the nested compositor's output
+  while the overlay was up, through a throwaway harness that was deleted afterwards (Principle II).
+  What the images confirm:
+  - **FR-008**, which plan.md records as visual-only and unassertable: the overlay marks the
+    highlighted entry (filled blue) and the active workspace (green rule) *differently*, so the two
+    are distinguishable at a glance. This was previously covered by unit tests on the highlight
+    index alone.
+  - **Scenario 7 / FR-015a, FR-015b**: a workspace that was not on screen rendered three labelled
+    rectangles in its true arrangement — one spanning the top, two side by side beneath — with
+    overlong titles ellipsised inside their rectangles.
+  - **Scenario 9 / FR-019, SC-005**: twenty workspaces on a 640 × 480 output showed entries 1–10 at
+    full size, and navigating to entry 15 scrolled the viewport to 7–16 with the entries unchanged
+    in size. Fixed-size-plus-scroll, never scale-to-fit.
+  - A first attempt at scenario 9 produced only five entries: Hyprland destroys an empty workspace
+    the moment focus leaves it, so `dispatch workspace N` alone cannot build twenty. Each needs a
+    window, which is what `e2e_scrolls_many_workspaces` already does.
+
+- **`quickstart.md` claimed Rust ≥ 1.90** while `Cargo.toml` pins `rust-version = "1.96"`; the
+  prerequisite table was corrected and now also records 0.56.2 as a validated Hyprland version.

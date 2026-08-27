@@ -8,8 +8,8 @@ listed in [plan.md](./plan.md).
 
 | Requirement | Check | Notes |
 |---|---|---|
-| Hyprland ≥ 0.55 | `hyprctl version` | Validated on 0.55.4 |
-| Rust ≥ 1.90 | `cargo --version` | Edition 2024 |
+| Hyprland ≥ 0.55 | `hyprctl version` | Validated on 0.55.4 and 0.56.2 |
+| Rust ≥ 1.96 | `cargo --version` | Edition 2024; `Cargo.toml` sets `rust-version` |
 | cairo + pango development files | `pkg-config --modversion cairo pango pangocairo` | System libraries |
 | `foot` | `command -v foot` | E2E test client only |
 | `notify-send` | `command -v notify-send` | Optional — absence is a supported configuration (FR-032) |

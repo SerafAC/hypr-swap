@@ -107,10 +107,10 @@ transaction layer). Both were resolved in Phase 0 without new abstractions.
 
 | E2E test | Drives | Covers |
 |---|---|---|
-| `e2e_activate_same_monitor` | bind → hold, tap, release | FR-001, FR-002, FR-005, FR-009, US1-AS4 |
+| `e2e_activate_same_monitor` | bind → hold, tap, release | FR-001, FR-002, FR-005, FR-009, FR-022a, US1-AS4 |
 | `e2e_mru_order_and_highlight` | overlay open on MRU default | FR-008a, FR-008b, FR-008d, US1-AS1/2 |
 | `e2e_configured_order` | `order = "compositor"` | FR-008a, FR-008b, US1-AS3, US5-AS7 |
-| `e2e_external_switch_tracked` | compositor keybind, then overlay | FR-008c, US1-AS9 |
+| `e2e_external_switch_tracked` | compositor keybind, then overlay | FR-008c, FR-026, US1-AS9 |
 | `e2e_cancel_leaves_state` | Escape while held | FR-006, US1-AS5/6 |
 | `e2e_navigation_wraps_and_reverses` | Tab past end, Shift+Tab | FR-003, FR-004, FR-004a, US1-AS8 |
 | `e2e_select_active_is_noop` | select current workspace | FR-011, US1-AS7 |
@@ -132,6 +132,10 @@ transaction layer). Both were resolved in Phase 0 without new abstractions.
 | `e2e_defaults_without_config` | no config file | FR-023, SC-006, US5-AS4 |
 | `e2e_invalid_config_falls_back` | bad value in TOML | FR-024, FR-029, FR-030, US5-AS5 |
 | `e2e_unbound_shortcut_is_harmless` | only one bind present | FR-022b, US5-AS6 |
+| `e2e_sticky_mode_commits_on_enter` | switcher bound to a modifierless key | FR-022c |
+| `e2e_second_instance_refuses_to_start` | a daemon already holding the names | FR-025a |
+| `e2e_version_and_help` | `--version`, `--help`, an unknown flag | FR-033, FR-030 (no notification) |
+| `e2e_explicit_config_path_is_used_and_must_exist` | `--config` present, then absent | FR-034 |
 | `e2e_no_compositor_at_start` | no `HYPRLAND_INSTANCE_SIGNATURE` | FR-025 |
 | `e2e_reconnects_after_restart` | kill and restart nested Hyprland | FR-026a, FR-026b, FR-026c, SC-009 |
 | `e2e_repeat_trigger_advances` | shortcut fired while open | FR-003, FR-028 |
@@ -143,6 +147,8 @@ transaction layer). Both were resolved in Phase 0 without new abstractions.
 | `e2e_grid_commit_matches_list` | `presentation = "grid"`, navigate and release | FR-016, US3-AS4 |
 | `e2e_no_overlay_while_disconnected` | shortcut fired with the compositor gone | FR-026d |
 | `e2e_monitor_removed_degrades` | destroy a headless output while the overlay is open | FR-027, US2 edge case |
+| `the_application_registers_both_named_shortcuts` | a started daemon, seen through `hyprctl globalshortcuts` | FR-022 |
+| `a_held_modifier_with_taps_is_delivered_as_one_gesture` | hold, tap, tap, release through the virtual keyboard | FR-022a |
 
 Requirements deliberately not E2E-covered: **FR-013c** (rollback itself fails) is unit-tested
 against an injected double failure, because provoking it end-to-end would require corrupting the
@@ -210,12 +216,15 @@ tests/
 ├── e2e/
 │   ├── harness.rs           # nested Hyprland lifecycle, headless outputs, IPC assertions
 │   ├── keyboard.rs          # virtual-keyboard-unstable-v1 injection helper
-│   └── clients.rs           # spawns `foot` toplevels with known titles/geometry
+│   ├── clients.rs           # spawns `foot` toplevels with known titles/geometry
+│   └── notify.rs            # recording `notify-send` stub on the daemon's PATH
+├── e2e_harness.rs           # the harness's own self-tests
 ├── e2e_switcher.rs          # US1 scenarios
 ├── e2e_swap.rs              # US2 scenarios
 ├── e2e_presentation.rs      # US3 scenarios
 ├── e2e_new_workspace.rs     # US4 scenarios
-└── e2e_config.rs            # US5, diagnostics, robustness scenarios
+├── e2e_config.rs            # US5, process interface, diagnostics, robustness scenarios
+└── e2e_budgets.rs           # SC-001/SC-002 latency and the idle-cost claim
 
 docs/
 └── binds.md                 # the documented bind lines (FR-022b), generated from contracts

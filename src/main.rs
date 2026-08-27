@@ -44,7 +44,7 @@ fn main() -> ExitCode {
         // `--version` / `--help` printed their output and are a successful run.
         Ok(None) => return ExitCode::from(EXIT_OK),
         Err(message) => {
-            diag::report(Condition::CompositorUnreachableAtStartup, "usage", &message);
+            diag::report(Condition::UsageError, "usage", &message);
             eprintln!("{}", usage());
             return ExitCode::from(EXIT_USAGE);
         }

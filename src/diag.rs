@@ -45,6 +45,9 @@ pub enum Condition {
     SecondInstance,
     /// The compositor could not be reached at start-up (FR-025).
     CompositorUnreachableAtStartup,
+    /// The command line could not be parsed (FR-033). Never notified: the user is at the terminal
+    /// they typed it in, and FR-030 reserves notifications for the three conditions listed there.
+    UsageError,
     /// Connection lost, retrying, or reconnected — self-recovering, so never notified (FR-031).
     CompositorConnection,
     /// A swap failed and was rolled back (FR-013b).
@@ -69,6 +72,7 @@ impl Condition {
             Self::ShortcutRegistrationFailed
             | Self::SecondInstance
             | Self::CompositorUnreachableAtStartup
+            | Self::UsageError
             | Self::SwapRolledBack
             | Self::RollbackFailed
             | Self::OverlayFocusRefused => Level::Error,
@@ -87,7 +91,8 @@ impl Condition {
             }
             Self::CompositorUnreachableAtStartup => Some("hypr-swap: cannot reach Hyprland"),
             Self::SwapRolledBack | Self::RollbackFailed => Some("hypr-swap: swap failed"),
-            Self::UnknownConfigKey
+            Self::UsageError
+            | Self::UnknownConfigKey
             | Self::CompositorConnection
             | Self::SelectionTargetVanished
             | Self::OverlayFocusRefused
@@ -175,12 +180,13 @@ fn report_spawn_failure(error: &std::io::Error) {
 mod tests {
     use super::*;
 
-    const ALL: [Condition; 11] = [
+    const ALL: [Condition; 12] = [
         Condition::InvalidConfigValue,
         Condition::UnknownConfigKey,
         Condition::ShortcutRegistrationFailed,
         Condition::SecondInstance,
         Condition::CompositorUnreachableAtStartup,
+        Condition::UsageError,
         Condition::CompositorConnection,
         Condition::SwapRolledBack,
         Condition::RollbackFailed,
@@ -244,6 +250,7 @@ mod tests {
             Condition::CompositorUnreachableAtStartup.level(),
             Level::Error
         );
+        assert_eq!(Condition::UsageError.level(), Level::Error);
         assert_eq!(Condition::SwapRolledBack.level(), Level::Error);
         assert_eq!(Condition::RollbackFailed.level(), Level::Error);
         assert_eq!(Condition::OverlayFocusRefused.level(), Level::Error);
@@ -264,6 +271,18 @@ mod tests {
                 Condition::SwapRolledBack,
                 Condition::RollbackFailed,
             ]
+        );
+    }
+
+    #[test]
+    fn a_usage_error_is_reported_but_never_notified() {
+        // FR-030 names exactly three notifying conditions and a bad command line is none of them.
+        // Reporting it as CompositorUnreachableAtStartup — which is what it used to share — put
+        // "cannot reach Hyprland" on the user's screen for a mistyped flag.
+        assert!(!Condition::UsageError.notifies());
+        assert_ne!(
+            Condition::UsageError.summary(),
+            Condition::CompositorUnreachableAtStartup.summary()
         );
     }
 

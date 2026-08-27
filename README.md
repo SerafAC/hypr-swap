@@ -8,11 +8,6 @@ workspaces trade places: the one you were on moves there, the one you picked com
 and becomes active. A second hotkey drops you onto the lowest-numbered unused workspace on the
 current monitor.
 
-> **Status**: in development. The daemon skeleton, compositor IPC, and state tracking are in
-> place; the overlay itself is being built. See
-> [`specs/001-workspace-swap-overlay/tasks.md`](specs/001-workspace-swap-overlay/tasks.md) for
-> progress.
-
 ## Features
 
 - **Hold-and-release switching** — the overlay stays up while the modifier is held and commits the
@@ -59,10 +54,12 @@ bind = SUPER, N, global, hypr-swap:new-workspace
 ```
 
 Use `bind`, not `binde`. Either line may be left out. Verify registration with
-`hyprctl globalshortcuts`.
+`hyprctl globalshortcuts`. The key combinations above are suggestions — any combination works, and
+[`docs/binds.md`](docs/binds.md) is the full reference for what each line does and why.
 
-If the switcher is bound to a key with no modifier, the overlay falls back to sticky mode: it
-stays open, `Enter` commits, `Escape` cancels.
+A modifier in the switcher bind is what makes hold-and-release work. Bound to a bare key with no
+modifier there is no release to commit on, so the overlay falls back to **sticky mode**: it stays
+open, navigation works as usual, `Enter` commits and `Escape` cancels.
 
 ### In-overlay keys (fixed)
 
