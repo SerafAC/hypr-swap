@@ -20,6 +20,7 @@ use pangocairo::functions::{create_layout, show_layout};
 
 use crate::config::Presentation;
 use crate::diag;
+use crate::icons::{Drawn, IconStore, decode};
 use crate::ordering::{Entry, EntryWindow};
 use crate::theme::{Colour, Style};
 use crate::ui::layout::{self, Metrics};
@@ -40,6 +41,14 @@ const GAP_PERCENT: u32 = 120;
 /// What an empty workspace's miniature says, so it reads as empty rather than as broken (FR-007,
 /// US3-AS5).
 const EMPTY_LABEL: &str = "empty";
+
+/// U+FFFC OBJECT REPLACEMENT CHARACTER: the stand-in one icon occupies in the row's text.
+///
+/// The row stays a single pango layout, and each icon is a character in it with a shaped
+/// attribute reserving its box. That is what keeps pango's own ellipsisation — the property
+/// FR-036 relies on for "exactly one line" and FR-036a for "truncates visibly" — working with
+/// icons in the line rather than around them (research.md R23).
+const ICON_MARK: &str = "\u{FFFC}";
 
 /// The stride one row of the overlay occupies, in bytes.
 ///
@@ -65,6 +74,7 @@ pub fn stride_for(width: u32) -> Result<i32, cairo::Error> {
 pub fn overlay(
     canvas: &mut [u8],
     style: &Style,
+    icons: &IconStore,
     metrics: &Metrics,
     entries: &[Entry],
     first_visible: usize,
@@ -90,7 +100,15 @@ pub fn overlay(
     };
     {
         let cairo = Context::new(&surface)?;
-        paint(&cairo, style, metrics, entries, first_visible, highlight)?;
+        paint(
+            &cairo,
+            style,
+            icons,
+            metrics,
+            entries,
+            first_visible,
+            highlight,
+        )?;
     }
     surface.flush();
     drop(surface);
@@ -108,6 +126,7 @@ pub fn overlay(
 pub fn paint(
     cairo: &Context,
     style: &Style,
+    icons: &IconStore,
     metrics: &Metrics,
     entries: &[Entry],
     first_visible: usize,
@@ -123,35 +142,59 @@ pub fn paint(
         };
         let index = first_visible + slot;
         let selected = index == highlight;
-        let presentation = match metrics.presentation {
-            Presentation::List => {
-                paint_row(cairo, style, metrics, entry, slot, selected)?;
-                "list"
-            }
+        let (presentation, painted) = match metrics.presentation {
+            Presentation::List => (
+                "list",
+                paint_row(cairo, style, icons, metrics, entry, slot, selected)?,
+            ),
             Presentation::Grid => {
                 paint_cell(cairo, style, metrics, entry, slot, selected)?;
-                "grid"
+                ("grid", Painted::default())
             }
         };
         if record {
-            diag::paint(index, presentation, &drawn(entry, selected));
+            diag::paint(index, presentation, &drawn(entry, selected, &painted));
         }
     }
     Ok(())
 }
 
+/// What painting one entry actually produced, beyond the pixels — the evidence a visual
+/// requirement is met (research.md R22).
+///
+/// Collected whether or not the gate is open, because it is three counters and a `Vec` that is
+/// only filled when the gate asks for it; branching on the gate inside the paint path would put
+/// the check in the inner loop instead of once per paint.
+#[derive(Debug, Default)]
+struct Painted {
+    /// One entry per icon actually drawn, naming the file it came from or `placeholder`.
+    icons: Vec<String>,
+    /// Icons whose reserved slot fell past the line's ellipsis and so were not drawn (FR-036a).
+    shed: usize,
+    /// Whether pango truncated the line, i.e. whether the row shows an ellipsis (FR-036a).
+    ellipsized: bool,
+    /// Device pixels the icons took from the text on this row — the measure of "names truncate
+    /// sooner than the same row without icons" (FR-036a).
+    icon_width: u32,
+}
+
 /// What one painted entry is recorded as, under the environment gate (research.md R22).
 ///
 /// This feature's requirements are visual, and screenshot comparison stays rejected, so what the
-/// renderer *did* is the only evidence an E2E test can assert on. Says what the entry was and how
-/// it was drawn; the icon stories add to this rather than replacing it.
-fn drawn(entry: &Entry, selected: bool) -> String {
+/// renderer *did* is the only evidence an E2E test can assert on. Says what the entry was, how it
+/// was drawn, and which icon file answered for each of its windows.
+fn drawn(entry: &Entry, selected: bool, painted: &Painted) -> String {
     format!(
-        "label={:?} windows={} active={} highlighted={}",
+        "label={:?} windows={} active={} highlighted={} icons=[{}] shed={} ellipsized={} \
+         icon_width={}",
         entry.label,
         entry.windows.len(),
         entry.is_active,
-        selected
+        selected,
+        painted.icons.join(" "),
+        painted.shed,
+        painted.ellipsized,
+        painted.icon_width,
     )
 }
 
@@ -175,15 +218,20 @@ fn backdrop(cairo: &Context, style: &Style, metrics: &Metrics) -> Result<(), cai
     cairo.fill()
 }
 
-/// One row of the flat list: the workspace name, then the titles of its windows (FR-014).
+/// One row of the flat list: the workspace name, then each window's icon and title (FR-014,
+/// FR-035, FR-036).
+///
+/// Returns what was drawn, for the paint record (research.md R22).
 fn paint_row(
     cairo: &Context,
     style: &Style,
+    icons: &IconStore,
     metrics: &Metrics,
     entry: &Entry,
     slot: usize,
     selected: bool,
-) -> Result<(), cairo::Error> {
+) -> Result<Painted, cairo::Error> {
+    let mut painted = Painted::default();
     let row_height = f64::from(metrics.row_height);
     let radius = row_height * style.geometry.corner_radius;
     let (x, y, width, height) = rect_of(metrics.cell_rect(slot));
@@ -205,31 +253,142 @@ fn paint_row(
     let text_left = x + mark * 2.0;
     let text_width = width - (text_left - x);
     if text_width <= 0.0 {
-        return Ok(());
+        return Ok(painted);
     }
 
     // A single ellipsised line, which is what keeps a row exactly one line tall no matter how many
     // windows a workspace holds (FR-019) and truncates visibly rather than overflowing when it
-    // does not fit (FR-015b).
+    // does not fit (FR-015b). The icons live *inside* that line rather than beside it, so the
+    // names ellipsise around them (FR-036a, research.md R23).
     let font_size = f64::from(metrics.text_height) * style.text_size;
-    let layout = line(
+    let reserve = icons.enabled().then(|| {
+        (
+            f64::from(metrics.icon_slot()),
+            f64::from(metrics.icon_advance()),
+        )
+    });
+    let (layout, slots) = line(
         cairo,
         style,
         text_width,
         font_size,
-        &row_markup(style, entry, selected),
+        &row_markup(style, entry, selected, reserve.is_some()),
+        reserve,
     );
 
     // Centre the line in the row using pango's own measurement rather than the nominal height, so
     // a font with unusual metrics still sits straight.
     let (_, extents) = layout.pixel_extents();
-    cairo.move_to(
-        text_left,
-        y + (row_height - f64::from(extents.height())) / 2.0,
-    );
+    let top = y + (row_height - f64::from(extents.height())) / 2.0;
+    cairo.move_to(text_left, top);
     set_colour(cairo, primary_text(style, selected));
     show_layout(cairo, &layout);
+
+    painted.ellipsized = layout.is_ellipsized();
+    if let Some((icon_slot, advance)) = reserve {
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_precision_loss,
+            clippy::cast_sign_loss
+        )]
+        {
+            painted.icon_width = (advance * entry.windows.len() as f64) as u32;
+        }
+        paint_row_icons(
+            cairo,
+            icons,
+            &layout,
+            &slots,
+            entry,
+            (text_left, top),
+            (icon_slot, f64::from(extents.width())),
+            primary_text(style, selected),
+            &mut painted,
+        )?;
+    }
+    Ok(painted)
+}
+
+/// Draw each window's icon into the slot pango reserved for it (research.md R23, FR-035).
+///
+/// `slots` are the byte offsets of the reserved characters, in the same order as `entry.windows`,
+/// and `origin` is where the layout was drawn. An icon whose slot fell past the line's ellipsis is
+/// skipped rather than drawn on top of it: the row must stay one visibly-truncated line, and
+/// FR-036a is explicit that names truncate sooner rather than the row overflowing.
+#[allow(clippy::too_many_arguments)]
+fn paint_row_icons(
+    cairo: &Context,
+    icons: &IconStore,
+    layout: &pango::Layout,
+    slots: &[usize],
+    entry: &Entry,
+    origin: (f64, f64),
+    sizes: (f64, f64),
+    tint: Colour,
+    painted: &mut Painted,
+) -> Result<(), cairo::Error> {
+    let (left, top) = origin;
+    let (icon_slot, line_width) = sizes;
+    for (window, at) in entry.windows.iter().zip(slots) {
+        let Ok(index) = i32::try_from(*at) else {
+            painted.shed += 1;
+            continue;
+        };
+        let position = layout.index_to_pos(index);
+        let (offset_x, offset_y) = (
+            f64::from(position.x()) / f64::from(pango::SCALE),
+            f64::from(position.y()) / f64::from(pango::SCALE),
+        );
+        // Past the ellipsis: pango laid the character out beyond what it actually drew, so the
+        // icon has nowhere to go (FR-036a).
+        if offset_x < 0.0 || offset_x + icon_slot > line_width {
+            painted.shed += 1;
+            continue;
+        }
+
+        let drawn = icons.get(&window.class);
+        blit(
+            cairo,
+            drawn,
+            (left + offset_x, top + offset_y, icon_slot, icon_slot),
+            tint,
+        )?;
+        painted.icons.push(drawn.source.to_owned());
+    }
     Ok(())
+}
+
+/// Blit one icon into a rectangle, fitted without distortion (FR-039).
+///
+/// A program's own artwork is drawn exactly as supplied; only the placeholder is recoloured, and
+/// it is drawn as a mask so it takes the theme's primary text colour (FR-051).
+fn blit(
+    cairo: &Context,
+    drawn: Drawn<'_>,
+    rect: (f64, f64, f64, f64),
+    tint: Colour,
+) -> Result<(), cairo::Error> {
+    let Some(surface) = drawn.surface else {
+        return Ok(());
+    };
+    let source = decode::size_of(surface);
+    let Some((x, y, width, height)) = decode::place(source, rect) else {
+        return Ok(());
+    };
+
+    cairo.save()?;
+    cairo.translate(x, y);
+    cairo.scale(width / source.0, height / source.1);
+    if drawn.placeholder {
+        // The mask uses the surface's alpha and the current source colour, which is exactly
+        // FR-051's "the placeholder follows the theme's primary text colour".
+        set_colour(cairo, tint);
+        cairo.mask_surface(surface, 0.0, 0.0)?;
+    } else {
+        cairo.set_source_surface(surface, 0.0, 0.0)?;
+        cairo.paint()?;
+    }
+    cairo.restore()
 }
 
 /// One grid cell: a schematic miniature of the workspace's layout with its name underneath
@@ -345,7 +504,14 @@ fn paint_window(
     if text_width <= 0.0 {
         return Ok(());
     }
-    let layout = line(cairo, style, text_width, font_size, &escape(&window.label));
+    let (layout, _) = line(
+        cairo,
+        style,
+        text_width,
+        font_size,
+        &escape(&window.label),
+        None,
+    );
     let (_, extents) = layout.pixel_extents();
     cairo.move_to(x + inset, y + (height - f64::from(extents.height())) / 2.0);
     set_colour(cairo, style.palette.text);
@@ -370,8 +536,22 @@ fn paint_empty(cairo: &Context, style: &Style, metrics: &Metrics, area: (f64, f6
     show_layout(cairo, &layout);
 }
 
-/// One ellipsised line of pango markup, `width` device pixels wide (FR-015b).
-fn line(cairo: &Context, style: &Style, width: f64, font_size: f64, markup: &str) -> pango::Layout {
+/// One ellipsised line of pango markup, `width` device pixels wide (FR-015b), with a box
+/// reserved for each [`ICON_MARK`] in it when `reserve` is given.
+///
+/// Returns the byte offset of each reserved box in the laid-out text, so the caller can ask
+/// `index_to_pos` where pango actually put it (research.md R23).
+///
+/// `reserve` is `(slot, advance)` in device pixels: the icon's own square, and the width it costs
+/// the line including the gap that separates it from the name it precedes.
+fn line(
+    cairo: &Context,
+    style: &Style,
+    width: f64,
+    font_size: f64,
+    markup: &str,
+    reserve: Option<(f64, f64)>,
+) -> (pango::Layout, Vec<usize>) {
     let layout = create_layout(cairo);
 
     // An absent family is the platform's business to substitute, and nothing is reported about it
@@ -385,11 +565,52 @@ fn line(cairo: &Context, style: &Style, width: f64, font_size: f64, markup: &str
     layout.set_single_paragraph_mode(true);
     #[allow(clippy::cast_possible_truncation)]
     layout.set_width((width * f64::from(pango::SCALE)) as i32);
-    layout.set_markup(markup);
-    layout
+
+    // With nothing to reserve the layout is the markup and nothing else, which is every path this
+    // module had before icons existed and every path the grid still takes.
+    let Some((slot, advance)) = reserve else {
+        layout.set_markup(markup);
+        return (layout, Vec::new());
+    };
+    // `set_markup` and `set_attributes` are exclusive — the second discards the first — so the
+    // markup is parsed by hand and the shapes are merged into the attribute list it yields
+    // (research.md R23).
+    let Ok((attributes, text, _)) = pango::parse_markup(markup, '\0') else {
+        layout.set_markup(markup);
+        return (layout, Vec::new());
+    };
+
+    let units = |value: f64| {
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            (value * f64::from(pango::SCALE)) as i32
+        }
+    };
+    // Both rectangles are relative to the text's baseline, so the box hangs above it by its own
+    // height and the icon sits on the line rather than under it. The ink box is the icon itself;
+    // the logical box is what it costs the line, which is what makes the names ellipsise sooner
+    // (FR-036a).
+    let ink = pango::Rectangle::new(0, -units(slot), units(slot), units(slot));
+    let logical = pango::Rectangle::new(0, -units(slot), units(advance), units(slot));
+
+    let slots: Vec<usize> = text.match_indices(ICON_MARK).map(|(at, _)| at).collect();
+    for at in &slots {
+        let mut shape = pango::AttrShape::new(&ink, &logical);
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            shape.set_start_index(*at as u32);
+            shape.set_end_index((*at + ICON_MARK.len()) as u32);
+        }
+        attributes.insert(shape);
+    }
+
+    layout.set_text(&text);
+    layout.set_attributes(Some(&attributes));
+    (layout, slots)
 }
 
-/// The same, centred in its width — how a miniature's label sits under it.
+/// The same, centred in its width and with nothing reserved — how a miniature's label sits under
+/// it.
 fn centred(
     cairo: &Context,
     style: &Style,
@@ -397,24 +618,29 @@ fn centred(
     font_size: f64,
     markup: &str,
 ) -> pango::Layout {
-    let layout = line(cairo, style, width, font_size, markup);
+    let (layout, _) = line(cairo, style, width, font_size, markup, None);
     layout.set_alignment(Alignment::Center);
     layout
 }
 
-/// `<b>name</b>  title · title`, with everything the compositor reported escaped.
-fn row_markup(style: &Style, entry: &Entry, selected: bool) -> String {
+/// `<b>name</b>  ⬚title · ⬚title`, with everything the compositor reported escaped.
+///
+/// With `icons` set, each window's title is preceded by an [`ICON_MARK`] — the character whose box
+/// the icon is later drawn into (FR-036, research.md R23). The workspace name gets none: it is not
+/// a window, and FR-036 puts an icon before a *window's* name.
+fn row_markup(style: &Style, entry: &Entry, selected: bool, icons: bool) -> String {
     let dim = if selected {
         style.palette.text_dim_highlighted
     } else {
         style.palette.text_dim
     };
+    let mark = if icons { ICON_MARK } else { "" };
     let mut markup = format!("<b>{}</b>", escape(&entry.label));
     if !entry.windows.is_empty() {
         let titles = entry
             .windows
             .iter()
-            .map(|window| escape(&window.label))
+            .map(|window| format!("{mark}{}", escape(&window.label)))
             .collect::<Vec<_>>()
             .join("  ·  ");
         // Writing into a `String` cannot fail, so the result is genuinely nothing to handle.

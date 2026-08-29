@@ -32,6 +32,13 @@ use crate::theme::Geometry;
 /// it.
 pub const SCROLL_MARGIN: usize = 1;
 
+/// The space between a window's icon and the name it precedes, as a fraction of the icon slot.
+///
+/// Not a setting either, and for the same reason as [`SCROLL_MARGIN`]: it has no meaning apart
+/// from the slot it separates, and FR-047 does not list it. Expressed as a fraction so it follows
+/// the themed text height along with the slot itself (FR-052).
+const ICON_GAP: f64 = 0.3;
+
 /// The buffer size and the entry geometry for one overlay, in device pixels — plus the surface
 /// size the compositor is asked for, in logical pixels.
 ///
@@ -86,6 +93,39 @@ pub struct Metrics {
 }
 
 impl Metrics {
+    /// The square one window's icon is drawn in, device pixels (FR-035, FR-052).
+    ///
+    /// It is exactly [`Self::text_height`], which is the whole of FR-052: the slot follows the
+    /// themed text height, so raising `text_line_height` raises the icons with it and a scaled
+    /// monitor gets a proportionally larger icon to rasterise into (FR-039).
+    ///
+    /// Note what this is *not* a function of: the number of icons on a row, whether icons are
+    /// enabled, or anything else about the entries. Nothing above depends on it either — the row
+    /// height, the entry count and the visible-entry count are all settled before an icon is
+    /// considered, which is how FR-036's "icons change none of those" is guaranteed structurally
+    /// rather than by arithmetic that happens to agree.
+    #[must_use]
+    pub fn icon_slot(&self) -> u32 {
+        self.text_height
+    }
+
+    /// The horizontal space one icon costs a row: its slot plus the gap separating it from the
+    /// name it precedes, device pixels (FR-036a).
+    ///
+    /// This is what makes a row of many windows truncate its names sooner than the same row
+    /// without icons: the icons occupy real width in the line, and pango ellipsises the text
+    /// around them.
+    #[must_use]
+    pub fn icon_advance(&self) -> u32 {
+        let slot = f64::from(self.icon_slot());
+        // Rounded up, so an icon and its gap never overlap the glyph after them by a fraction of
+        // a pixel at an awkward scale.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        {
+            (slot * (1.0 + ICON_GAP)).ceil() as u32
+        }
+    }
+
     /// How many entries are on screen at once.
     #[must_use]
     pub fn visible_entries(&self) -> usize {
@@ -1261,5 +1301,98 @@ mod tests {
         for highlight in 0..12 {
             assert_eq!(first_visible_entry(&metrics, 12, highlight, 0), 0);
         }
+    }
+
+    // --- T040: the icon slot (FR-036, FR-052, SC-015) ------------------------
+
+    #[test]
+    fn the_icon_slot_is_the_themed_text_height() {
+        // FR-052, stated as directly as it can be: the slot *is* the text height, so there is no
+        // second rule that could drift from it.
+        let metrics = list_metrics(&G, HD, 1.0, 5);
+        assert_eq!(metrics.icon_slot(), metrics.text_height);
+        assert_eq!(metrics.icon_slot(), G.text_line_height);
+    }
+
+    #[test]
+    fn raising_the_themed_text_height_raises_the_icons_with_it() {
+        // FR-052's purpose: a user who makes the overlay bigger to read it gets bigger icons too,
+        // not the same small icons beside larger type.
+        let bigger = Geometry {
+            text_line_height: G.text_line_height * 2,
+            ..G
+        };
+        let plain = list_metrics(&G, HD, 1.0, 5);
+        let raised = list_metrics(&bigger, HD, 1.0, 5);
+
+        assert_eq!(raised.icon_slot(), plain.icon_slot() * 2);
+        assert_eq!(raised.icon_advance(), plain.icon_advance() * 2);
+    }
+
+    #[test]
+    fn the_icon_slot_scales_with_the_monitor() {
+        // FR-039: a scaled monitor asks for a larger icon rather than upscaling a small one, and
+        // the slot is what the rasteriser is told to render into.
+        let plain = list_metrics(&G, HD, 1.0, 5);
+        let scaled = list_metrics(&G, (3840, 2160), 2.0, 5);
+        assert_eq!(scaled.icon_slot(), plain.icon_slot() * 2);
+    }
+
+    #[test]
+    fn an_icon_costs_a_row_its_slot_plus_a_gap() {
+        // FR-036a: icons occupy real horizontal space, which is what makes names truncate sooner.
+        let metrics = list_metrics(&G, HD, 1.0, 5);
+        assert!(
+            metrics.icon_advance() > metrics.icon_slot(),
+            "an icon flush against the name it precedes would be unreadable"
+        );
+        assert!(
+            metrics.icon_advance() < metrics.icon_slot() * 2,
+            "the gap is a separator, not a second icon's worth of space"
+        );
+    }
+
+    #[test]
+    fn the_grid_gets_the_same_slot_as_the_list() {
+        // Both presentations size an icon from the same text height, so a program's icon is the
+        // same size in either (FR-035, FR-052).
+        let list = list_metrics(&G, HD, 1.0, 8);
+        let grid = grid_metrics(&G, HD, 1.0, 8);
+        assert_eq!(list.icon_slot(), grid.icon_slot());
+    }
+
+    #[test]
+    fn nothing_about_a_row_or_the_viewport_depends_on_icons() {
+        // FR-036 and SC-015, proved structurally: `Metrics` has no icon input at all, so the row
+        // height, the entry count and the visible-entry count are literally the same values the
+        // pre-feature build computed. This test is the assertion that no future edit sneaks an
+        // icon term into any of them — it reads the whole shape and compares it against the
+        // documented pre-feature numbers.
+        for count in [1, 3, 20, 100] {
+            let metrics = list_metrics(&G, HD, 1.0, count);
+            assert_eq!(
+                metrics.row_height,
+                G.text_line_height + G.row_padding * 2,
+                "{count} entries: the row is still one text line plus its padding"
+            );
+            assert_eq!(
+                metrics.height,
+                metrics.row_height * metrics.visible_rows as u32 + metrics.padding * 2,
+                "{count} entries: the overlay is still exactly its rows plus padding"
+            );
+            assert_eq!(metrics.visible_entries(), metrics.visible_rows);
+            assert_eq!(
+                metrics.cell_rect(0).3,
+                metrics.row_height,
+                "{count} entries: a row's drawn height is its full pitch"
+            );
+        }
+
+        let grid = grid_metrics(&G, HD, 1.0, 20);
+        assert_eq!(
+            grid.row_height,
+            grid.miniature_height + GRID_LABEL_HEIGHT + grid.gap,
+            "the grid cell is unchanged too"
+        );
     }
 }

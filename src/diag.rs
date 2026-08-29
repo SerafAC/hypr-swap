@@ -60,15 +60,24 @@ pub enum Condition {
     OverlayFocusRefused,
     /// Delivering a notification failed — reported on stderr only, never notified (FR-032).
     NotifyDeliveryFailed,
+    /// An icon file exists but is malformed or unreadable (FR-044).
+    ///
+    /// Never notified: the overlay is perfectly usable with the placeholder in that slot, so
+    /// FR-030's "the user must act on it" test is not met — but it is worth a record, because a
+    /// broken file in an icon set is a real fault the user would otherwise only see as a
+    /// mysteriously generic icon. Reported once per program and then cached, so the record cannot
+    /// repeat on every overlay opening (FR-044).
+    IconUnreadable,
 }
 
 impl Condition {
     #[must_use]
     pub fn level(self) -> Level {
         match self {
-            Self::InvalidConfigValue | Self::UnknownConfigKey | Self::NotifyDeliveryFailed => {
-                Level::Warn
-            }
+            Self::InvalidConfigValue
+            | Self::UnknownConfigKey
+            | Self::NotifyDeliveryFailed
+            | Self::IconUnreadable => Level::Warn,
             Self::ShortcutRegistrationFailed
             | Self::SecondInstance
             | Self::CompositorUnreachableAtStartup
@@ -96,7 +105,8 @@ impl Condition {
             | Self::CompositorConnection
             | Self::SelectionTargetVanished
             | Self::OverlayFocusRefused
-            | Self::NotifyDeliveryFailed => None,
+            | Self::NotifyDeliveryFailed
+            | Self::IconUnreadable => None,
         }
     }
 

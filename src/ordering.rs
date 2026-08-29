@@ -12,6 +12,10 @@ use crate::state::World;
 pub struct EntryWindow {
     /// The window's title, or its class when the title is empty.
     pub label: String,
+    /// The program that owns the window, as the compositor reports it — the key the icon cache
+    /// is built on (FR-040, research.md R21). Carried here rather than looked up at paint time
+    /// so the renderer never reaches back into the world.
+    pub class: String,
     /// Layout coordinates, global — miniatures subtract the entry's monitor origin.
     pub at: (i32, i32),
     pub size: (u32, u32),
@@ -120,6 +124,7 @@ fn entry(world: &World, id: i32) -> Option<Entry> {
             .filter(|window| window.is_listed())
             .map(|window| EntryWindow {
                 label: window.label().to_owned(),
+                class: window.class.clone(),
                 at: window.at,
                 size: window.size,
                 floating: window.floating,

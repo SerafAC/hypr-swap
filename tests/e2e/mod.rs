@@ -16,3 +16,4 @@ pub mod fixtures;
 pub mod harness;
 pub mod keyboard;
 pub mod notify;
+pub mod overlay;

@@ -263,6 +263,12 @@ fn event_loop(
                             // will report it on the next read.
                             if refresh(&ipc, &mut app.world).is_err() {
                                 stop.stop();
+                            } else {
+                                // The path a newly-opened window arrives on, and so the one place
+                                // an icon can be resolved before any overlay could draw it
+                                // (FR-043, research.md R27). Classes already cached cost a hash
+                                // lookup each, which is why this can sit on a hot event.
+                                app.ensure_icons();
                             }
                         }
                     }

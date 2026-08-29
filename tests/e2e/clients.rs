@@ -51,8 +51,25 @@ impl Drop for Client {
 /// If `foot` is not installed, or the window never appears.
 #[must_use]
 pub fn spawn(nested: &Nested, title: &str) -> Client {
+    spawn_as(nested, None, title)
+}
+
+/// The same, with a chosen window class — the identity icon resolution is keyed on (FR-040,
+/// research.md R21).
+///
+/// `foot`'s `--app-id` becomes the toplevel's `app_id`, which is what Hyprland reports as a
+/// window's `class`, so this is how a test stands in for "a window of program X" without
+/// installing program X. `None` leaves `foot`'s own class, for the tests that do not care.
+///
+/// # Panics
+/// If `foot` is not installed, or the window never appears.
+#[must_use]
+pub fn spawn_as(nested: &Nested, class: Option<&str>, title: &str) -> Client {
     let mut command = Command::new("foot");
     nested.env(&mut command);
+    if let Some(class) = class {
+        command.arg("--app-id").arg(class);
+    }
     let child = command
         .arg("--title")
         .arg(title)
@@ -91,11 +108,17 @@ pub fn spawn(nested: &Nested, title: &str) -> Client {
 /// Spawn a window on a named workspace, switching there first and leaving the compositor on it.
 #[must_use]
 pub fn spawn_on(nested: &Nested, workspace: i32, title: &str) -> Client {
+    spawn_as_on(nested, None, workspace, title)
+}
+
+/// The same, with a chosen window class (FR-040).
+#[must_use]
+pub fn spawn_as_on(nested: &Nested, class: Option<&str>, workspace: i32, title: &str) -> Client {
     nested.dispatch(&format!("workspace {workspace}"));
     nested.wait_until("the workspace is active", || {
         nested.active_workspace() == workspace
     });
-    spawn(nested, title)
+    spawn_as(nested, class, title)
 }
 
 /// The titles of the mapped windows on a workspace, in the compositor's order — what the flat

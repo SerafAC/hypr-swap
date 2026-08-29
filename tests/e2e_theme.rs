@@ -9,109 +9,12 @@
 mod e2e;
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
-use e2e::clients;
 use e2e::harness::{Nested, Setup};
-use e2e::keyboard::{KEY_ESC, KEY_LEFTALT, KEY_TAB, Keyboard};
+use e2e::keyboard::Keyboard;
+use e2e::overlay::{GRID, baseline, measure, paint_records, pinned_panel, stage_scenario};
 
 use hypr_swap::diag::PAINT_RECORDS_VAR;
-
-/// The same panel the baseline was recorded on, so the numbers are comparable at all
-/// (`tests/fixtures/baseline/README.md`).
-const PANEL_MODE: &str = "1920x1080@60,auto,1";
-
-const SETTLE: Duration = Duration::from_millis(200);
-
-/// The application configuration that selects the grid presentation (FR-016).
-const GRID: &str = "presentation = \"grid\"\n";
-
-/// The committed pre-feature baseline for one presentation.
-fn baseline(name: &str) -> serde_json::Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join("baseline")
-        .join(name);
-    let source =
-        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    serde_json::from_str(&source).expect("the baseline is valid JSON")
-}
-
-/// Pin the focused output to the mode the baseline was recorded on.
-fn pinned_panel(nested: &Nested) -> String {
-    let panel = nested.add_headless_output();
-    nested.hyprctl(&["keyword", "monitor", &format!("{panel},{PANEL_MODE}")]);
-    nested.dispatch(&format!("focusmonitor {panel}"));
-    nested.wait_until("the pinned panel is focused at 1920x1080 scale 1", || {
-        nested.monitors().iter().any(|monitor| {
-            monitor.name == panel
-                && monitor.focused
-                && monitor.size == (1920, 1080)
-                && (monitor.scale - 1.0).abs() < 0.01
-        })
-    });
-    panel
-}
-
-/// The scenario the baseline was recorded against: four workspaces, one of them crowded.
-fn stage_scenario(nested: &Nested, panel: &str) -> Vec<clients::Client> {
-    let mut windows = Vec::new();
-    for (workspace, titles) in [
-        (1, &["alpha-window"][..]),
-        (2, &["beta-window", "gamma-window"][..]),
-        (3, &[][..]),
-        (
-            4,
-            &[
-                "crowded-window-one",
-                "crowded-window-two",
-                "crowded-window-three",
-                "crowded-window-four",
-                "crowded-window-five",
-            ][..],
-        ),
-    ] {
-        nested.dispatch(&format!("moveworkspacetomonitor {workspace} {panel}"));
-        for title in titles {
-            windows.push(clients::spawn_on(nested, workspace, title));
-        }
-    }
-    nested.dispatch("workspace 1");
-    nested.wait_until("the scenario starts on workspace 1", || {
-        nested.active_workspace() == 1
-    });
-    windows
-}
-
-/// The paint records the daemon emitted, in the order it emitted them.
-fn paint_records(stderr: &str) -> Vec<String> {
-    stderr
-        .lines()
-        .filter_map(|line| line.split_once("paint: "))
-        .map(|(_, record)| record.to_owned())
-        .collect()
-}
-
-/// Open the overlay, measure it, close it — and return the surface geometry the compositor
-/// reported while it was up.
-fn measure(nested: &Nested, keyboard: &mut Keyboard) -> (i32, i32, u32, u32) {
-    keyboard.hold(KEY_LEFTALT);
-    keyboard.tap_while_held(KEY_TAB);
-    keyboard.settle();
-    std::thread::sleep(SETTLE);
-    nested.wait_until("the overlay maps", || !nested.overlay_surfaces().is_empty());
-
-    let geometry = nested.overlay_xywh().expect("the overlay surface");
-
-    keyboard.tap_while_held(KEY_ESC);
-    keyboard.release(KEY_LEFTALT);
-    keyboard.settle();
-    nested.wait_until("the overlay unmaps", || {
-        nested.overlay_surfaces().is_empty()
-    });
-    geometry
-}
 
 /// The foundational phase's checkpoint: every colour and dimension now comes from a resolved
 /// `Style`, and the overlay is unchanged (FR-049a, SC-018).

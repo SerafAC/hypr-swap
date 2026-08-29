@@ -36,6 +36,7 @@ use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
 
 use crate::config::{Configuration, Placement, Presentation};
 use crate::diag::{self, Condition};
+use crate::icons::{IconStore, iconset};
 use crate::model::MonitorName;
 use crate::ordering;
 use crate::session::{self, Session};
@@ -133,6 +134,13 @@ pub struct App {
     pub config: Configuration,
     /// The cached compositor view, kept current by `main.rs` from the event socket.
     pub world: World,
+    /// Every program's icon, decoded ahead of time (FR-042, FR-043).
+    ///
+    /// It lives here rather than in `main.rs` because this is the state that dies with the
+    /// connection: dropping the client drops the cache along with the world and the surfaces,
+    /// which is FR-043b's "discarded when the compositor connection is lost" and `CLAUDE.md`'s
+    /// "reconnection is teardown" in one place (research.md R28).
+    pub icons: IconStore,
     /// Work for `main.rs`, drained after every dispatch.
     pub outbox: Vec<Request>,
 }
@@ -229,16 +237,65 @@ pub fn connect(config: Configuration, world: World) -> Result<(Wayland, App), St
         modifiers: Modifiers::default(),
         session: None,
         overlays: Vec::new(),
+        icons: icon_store(&config, &world),
         config,
         world,
         outbox: Vec::new(),
     };
+    // Resolved once, before anything can open an overlay (FR-043, research.md R27). The windows
+    // that already existed at start-up are exactly the ones the first overlay would otherwise
+    // have to draw with a placeholder.
+    app.ensure_icons();
     app.register_shortcuts(&qh);
 
     Ok((Wayland { connection, queue }, app))
 }
 
+/// Build the icon cache for this connected lifetime (FR-043b, research.md R27, R28).
+///
+/// The slot size is the themed text height (FR-052) times the **largest** monitor scale present,
+/// so a vector icon is rasterised finely enough for the sharpest monitor the overlay can appear on
+/// and is scaled down elsewhere rather than up (FR-039). Taken once, here, because the cache holds
+/// one decode per program by requirement (FR-042) and a per-monitor variant would be a second one.
+fn icon_store(config: &Configuration, world: &World) -> IconStore {
+    if !config.icons {
+        // FR-056: with icons off, nothing is scanned, nothing is decoded, and no space is
+        // reserved — the store exists only so the paint path has one shape to ask.
+        return IconStore::disabled();
+    }
+    let scale = world
+        .monitors
+        .iter()
+        .map(|monitor| monitor.scale)
+        .fold(1.0_f32, f32::max);
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
+    let slot = ((config.style.geometry.text_line_height as f32) * scale).round() as u32;
+    // The set the user named, or the standard default. Following the *desktop's* configured set
+    // is FR-057's remaining half and lands with the rest of that story.
+    IconStore::new(
+        slot.max(1),
+        config.icon_set.as_deref().unwrap_or(iconset::DEFAULT_SET),
+    )
+}
+
 impl App {
+    /// Resolve an icon for every program with a window open, skipping those already cached.
+    ///
+    /// Called at start-up and on the world-rebuild path — the two points research.md R27 names —
+    /// and never from the paint path, so opening the overlay only reads (FR-043).
+    pub fn ensure_icons(&mut self) {
+        self.icons.ensure(
+            self.world
+                .windows
+                .iter()
+                .map(|window| window.class.as_str()),
+        );
+    }
+
     /// Register both named shortcuts (FR-022), and again after every reconnect (FR-026b).
     ///
     /// The protocol reports a duplicate `app_id` + `id` as a fatal protocol error rather than a
@@ -535,6 +592,7 @@ impl App {
         if let Err(e) = render::overlay(
             canvas,
             &self.config.style,
+            &self.icons,
             &metrics,
             &session.entries,
             overlay.first_visible,
