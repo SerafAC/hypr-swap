@@ -17,6 +17,7 @@ use e2e::harness::{Daemon, Nested, Setup};
 use e2e::keyboard::Keyboard;
 use e2e::overlay::{
     GRID, baseline, field, icons_of, measure, paint_records, pinned_panel, rects_of,
+    stage_classified,
 };
 
 use hypr_swap::diag::PAINT_RECORDS_VAR;
@@ -37,6 +38,9 @@ struct Run {
     stderr: String,
     /// The overlay's `xywh` as `hyprctl layers` reported it while it was up.
     geometry: (i32, i32, u32, u32),
+    /// Whether the daemon was still alive after the last opening — sampled before its stderr is
+    /// read, because reading stops it (FR-024's "and keeps running").
+    running: bool,
 }
 
 impl Run {
@@ -130,9 +134,12 @@ fn run_shaped(
         geometry = measure(&nested, &mut keyboard);
     }
 
+    let mut daemon = daemon;
+    let running = daemon.is_running();
     Run {
         stderr: daemon.stderr(),
         geometry,
+        running,
     }
 }
 
@@ -779,6 +786,212 @@ fn e2e_no_icon_cache_on_disk() {
         "FR-043b: the application wrote into the icon set it read from"
     );
     let _ = std::fs::remove_dir_all(&cache);
+}
+
+// --- T087: icons off is the pre-feature overlay (FR-056, SC-019, US6-AS1) ---
+
+/// US6-AS1, SC-019: with `icons = false` and the default theme, the overlay is the one that
+/// existed before this feature — in both presentations.
+///
+/// "Pixel-identical" is asserted through the two interfaces research.md R22 allows, since R14
+/// rejected screenshot comparison: the surface geometry `hyprctl layers` reports, compared against
+/// the baseline recorded from the pre-feature build in T001, and the paint records, which must
+/// name no icon and reserve no room for one. Every window is spawned under a class the fixtures
+/// *can* resolve, so the absence of icons is the setting doing its work rather than a lookup
+/// quietly failing.
+///
+/// Staged with the baseline's own helper rather than through [`run_with`], because the baseline
+/// scenario includes an empty workspace and only that helper creates one.
+///
+/// Together with `e2e_default_appearance_unchanged`, which pins the colours, this is what closes
+/// SC-018's claim that icons are the only difference this feature makes.
+#[test]
+fn e2e_icons_disabled_matches_pre_feature() {
+    for presentation in ["list", "grid"] {
+        let recorded = baseline(&format!("{presentation}.json"));
+        let fixtures = Fixtures::stage();
+        let app_config = format!(
+            "icons = false\n{}",
+            if presentation == "grid" { GRID } else { "" }
+        );
+
+        let nested = Nested::start_with(&Setup::documented().with_app_config(&app_config));
+        let panel = pinned_panel(&nested);
+        let _windows = stage_classified(&nested, &panel, Some(fixtures::ALPHA_CLASS));
+
+        let daemon = start(&nested, &fixtures, &[]);
+        let mut keyboard = Keyboard::attach(&nested.wayland_display);
+        let geometry = measure(&nested, &mut keyboard);
+        let stderr = daemon.stderr();
+
+        let expected = &recorded["surface"];
+        assert_eq!(
+            (
+                i64::from(geometry.0),
+                i64::from(geometry.1),
+                i64::from(geometry.2),
+                i64::from(geometry.3),
+            ),
+            (
+                expected["x_on_monitor"].as_i64().expect("x_on_monitor"),
+                expected["y_on_monitor"].as_i64().expect("y_on_monitor"),
+                expected["w"].as_i64().expect("w"),
+                expected["h"].as_i64().expect("h"),
+            ),
+            "with icons off the {presentation} overlay is not where the pre-feature one was"
+        );
+
+        let entries = recorded["scenario"]["entries"]
+            .as_array()
+            .expect("the baseline records the entries");
+        let visible = usize::try_from(
+            recorded["metrics"]["visible_entries"]
+                .as_u64()
+                .expect("the baseline records the visible entry count"),
+        )
+        .expect("a plausible entry count");
+        let on_screen = visible.min(entries.len());
+
+        let records = paint_records(&stderr);
+        assert!(
+            records.len() >= on_screen,
+            "fewer records than entries on screen:\n{stderr}"
+        );
+        let pass = &records[records.len() - on_screen..];
+
+        for (index, record) in pass.iter().enumerate() {
+            let entry = &entries[index];
+            let label = entry["label"].as_str().expect("a label");
+            let windows = entry["windows"].as_array().expect("windows").len();
+            assert!(
+                record.starts_with(&format!("entry {index} {presentation}:")),
+                "record {index} names the wrong entry or presentation: {record}"
+            );
+            assert!(
+                record.contains(&format!("label={label:?}")),
+                "record {index} drew {record}, expected the baseline's {label:?}"
+            );
+            assert!(
+                record.contains(&format!("windows={windows}")),
+                "record {index} drew {record}, expected {windows} windows"
+            );
+            assert!(
+                icons_of(record).is_empty(),
+                "an icon was drawn with icons off: {record}"
+            );
+            assert_eq!(
+                field(record, "icon_width"),
+                Some("0"),
+                "room was reserved for an icon that is never drawn: {record}"
+            );
+            assert_eq!(
+                field(record, "shed"),
+                Some("0"),
+                "with icons off there is nothing to shed: {record}"
+            );
+            assert!(
+                !rects_of(record).iter().any(|rect| rect.contains("icon")),
+                "a miniature rectangle reserved room for an icon: {record}"
+            );
+        }
+
+        // And nothing was looked up either: FR-056 suppresses the resolution as well as the paint.
+        assert!(
+            !stderr.contains(" icon."),
+            "the icon set was searched with icons off:\n{stderr}"
+        );
+    }
+}
+
+// --- T088: the icon set is selectable (FR-057, US6-AS3) ---------------------
+
+/// US6-AS3: `icon_set` naming the second installed set draws that set's artwork.
+///
+/// Both fixture sets carry the same icon names, so the only thing that can distinguish them is the
+/// file each icon actually came from — which is exactly what the paint record names.
+#[test]
+fn e2e_icon_set_selected() {
+    let fixtures = Fixtures::stage();
+    let app_config = format!("icon_set = \"{}\"\n", fixtures::SECOND_SET);
+    let run = run_with(&fixtures, &app_config, ONE_EACH, 1, &[]);
+    let pass = run.last_pass(2);
+
+    for (index, (set, directory, file)) in [
+        (fixtures::SECOND_SET, "scalable/apps", "fixture-alpha.svg"),
+        (fixtures::SECOND_SET, "48x48/apps", "fixture-beta.png"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let expected = fixtures.icon(set, directory, file).display().to_string();
+        assert_eq!(
+            icons_of(&pass[index]),
+            vec![expected.as_str()],
+            "entry {index} did not draw the named set's icon: {}",
+            pass[index]
+        );
+    }
+
+    // The set the user did *not* name contributed nothing, so this is a real selection rather than
+    // both sets happening to answer.
+    let other = format!("/{}/", fixtures::SET);
+    for record in &pass {
+        assert!(
+            !record.contains(&other),
+            "an icon came from the set that was not selected: {record}"
+        );
+    }
+    assert!(run.running, "the daemon stopped");
+}
+
+// --- T089: an unknown set is reported and falls back (FR-057, US6-AS4) ------
+
+/// US6-AS4: a set that is not installed is reported, the default is used instead, every other
+/// setting still applies, and the daemon keeps running (FR-024).
+#[test]
+fn e2e_unknown_icon_set_falls_back() {
+    let fixtures = Fixtures::stage();
+    // The grid alongside it, so "every other setting still applies" is asserted rather than
+    // assumed: a fallback that discarded the rest of the configuration would draw the list.
+    let run = run_with(
+        &fixtures,
+        &format!("icon_set = \"NoSuchSet\"\n{GRID}"),
+        ONE_EACH,
+        1,
+        &[],
+    );
+
+    assert!(
+        run.stderr.contains("WARN  config.icon_set:"),
+        "the unknown set was not reported:\n{}",
+        run.stderr
+    );
+    assert!(
+        run.stderr.contains("NoSuchSet") && run.stderr.contains("hicolor"),
+        "the report does not say what was wrong and what was used instead:\n{}",
+        run.stderr
+    );
+
+    let pass = run.last_pass(2);
+    assert!(
+        pass.iter().all(|record| record.contains(" grid:")),
+        "the presentation setting was dropped along with the icon set: {pass:?}"
+    );
+    // Nothing in the staged root is installed under `hicolor`, so the fallback set resolves
+    // nothing and every window is the placeholder — which is FR-041's normal outcome, not a
+    // failure, and leaves every name readable.
+    for record in &pass {
+        for icon in icons_of(record) {
+            assert_eq!(
+                icon, PLACEHOLDER_SOURCE,
+                "an icon resolved from a set that is not installed: {record}"
+            );
+        }
+    }
+    assert!(
+        run.running,
+        "the daemon stopped over a configuration value it was meant to fall back from"
+    );
 }
 
 /// Every path under `root`, relative and sorted — enough to notice a file appearing.

@@ -95,25 +95,31 @@ pub struct IconStore {
 }
 
 impl IconStore {
-    /// Build a store that resolves into a `slot`-device-pixel square from `set`.
+    /// Build a store that resolves into a `slot`-device-pixel square.
+    ///
+    /// `configured` is the `icon_set` setting: a name the user gave, or `None` to follow the
+    /// desktop's own set (FR-057). Choosing between those is
+    /// [`iconset::select`]'s rule, and this is the one place it runs — the diagnostic it may
+    /// produce is reported here because this is where the filesystem the rule asks about is
+    /// finally in view.
     ///
     /// The desktop-entry index and the icon set are both read here, once: this is the expensive
     /// part, and it happens at start-up rather than in the paint path (research.md R27).
     #[must_use]
-    pub fn new(slot: u32, set: &str) -> Self {
+    pub fn new(slot: u32, configured: Option<&str>) -> Self {
         let roots = data_roots();
-        Self::with_roots(slot, set, &roots)
+        let (set, diagnostic) = iconset::select(configured, &themed_roots(&roots), &config_roots());
+        if let Some(diagnostic) = diagnostic {
+            diagnostic.report();
+        }
+        Self::with_roots(slot, &set, &roots)
     }
 
-    /// The same, against explicit data roots — the seam the unit tests below use so no assertion
-    /// depends on what the developer has installed (research.md R22).
+    /// The same, against explicit data roots and an already-chosen set — the seam the unit tests
+    /// below use so no assertion depends on what the developer has installed (research.md R22).
     #[must_use]
     pub fn with_roots(slot: u32, set: &str, roots: &[PathBuf]) -> Self {
-        let themed: Vec<PathBuf> = roots
-            .iter()
-            .map(|root| root.join("icons"))
-            .chain(home().map(|home| home.join(".icons")))
-            .collect();
+        let themed = themed_roots(roots);
         // Unthemed directories: bare `name.png` files belonging to no set. `/usr/share/pixmaps`
         // is the one everybody has, and it arrives here as `$XDG_DATA_DIRS`'s `/usr/share`
         // rather than as a hard-coded path, so a test that empties the environment really is
@@ -264,6 +270,35 @@ fn data_roots() -> Vec<PathBuf> {
             PathBuf::from("/usr/local/share"),
             PathBuf::from("/usr/share"),
         ],
+    };
+
+    home.into_iter().chain(dirs).collect()
+}
+
+/// The roots holding icon *sets*, in search order (`contracts/icon-lookup.md`).
+///
+/// Shared by the store and by the set-selection rule, so "where a set could be installed" has one
+/// definition rather than one per caller.
+fn themed_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
+    roots
+        .iter()
+        .map(|root| root.join("icons"))
+        .chain(home().map(|home| home.join(".icons")))
+        .collect()
+}
+
+/// The configuration directories, in search order — where the desktop records its icon set
+/// (FR-057). The `$XDG_CONFIG_*` counterpart of [`data_roots`], and empty-means-empty for the
+/// same reason.
+fn config_roots() -> Vec<PathBuf> {
+    let home = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| home().map(|home| home.join(".config")));
+
+    let dirs = match std::env::var_os("XDG_CONFIG_DIRS") {
+        Some(value) => std::env::split_paths(&value).collect(),
+        None => vec![PathBuf::from("/etc/xdg")],
     };
 
     home.into_iter().chain(dirs).collect()

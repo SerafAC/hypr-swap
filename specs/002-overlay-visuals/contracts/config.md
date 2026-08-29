@@ -47,8 +47,16 @@ daemon performs no desktop-entry scan and no icon-set lookup at all.
 ### `icon_set`
 
 Names an installed icon set. Omitted, the application follows the desktop's configured set; if that
-is not discoverable, it uses the standard default set (FR-057). A named set that is not installed is
-reported and falls back to the same default while every other setting still applies (FR-024).
+is not discoverable, it uses the standard default set, `hicolor` (FR-057). A named set that is not
+installed is reported and falls back to the same default while every other setting still applies
+(FR-024).
+
+The desktop's set is read from `gtk-4.0/settings.ini`, then `gtk-3.0/settings.ini`, under each
+configuration root (`$XDG_CONFIG_HOME` then `$XDG_CONFIG_DIRS`), taking `gtk-icon-theme-name` from
+the `[Settings]` group. That is the file the tools people use to set an icon set on a bare Wayland
+session write; `gsettings` is deliberately not consulted, since a minimal session need not have a
+running dconf. A desktop naming a set that is not installed falls back silently — unlike a name the
+user gave here, which is reported.
 
 This is **not** the overlay theme. `icon_set` selects whose program artwork is drawn; `theme` selects
 the overlay's own colours. Neither affects the other (FR-057).

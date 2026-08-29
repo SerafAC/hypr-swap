@@ -260,15 +260,15 @@ is a shipping judgement, not a prerequisite.
 
 ### Implementation for User Story 6
 
-- [ ] T084 [US6] Honour `icons = false` in src/ui/render.rs and src/main.rs — no icons, no placeholders, no reserved space, and no desktop-entry scan or icon-set lookup performed at all (FR-056)
-- [ ] T085 [US6] Apply `icon_set` in src/icons/iconset.rs — the configured set, else the desktop's configured set, else the standard default, with an unknown name reported and falling back while every other setting still applies (FR-057)
-- [ ] T086 [P] [US6] Unit tests in src/icons/iconset.rs for set selection and its fallback chain, and in src/icons/mod.rs for the store staying empty when icons are disabled (FR-056, FR-057)
+- [X] T084 [US6] Honour `icons = false` in src/ui/render.rs and src/main.rs — no icons, no placeholders, no reserved space, and no desktop-entry scan or icon-set lookup performed at all (FR-056)
+- [X] T085 [US6] Apply `icon_set` in src/icons/iconset.rs — the configured set, else the desktop's configured set, else the standard default, with an unknown name reported and falling back while every other setting still applies (FR-057)
+- [X] T086 [P] [US6] Unit tests in src/icons/iconset.rs for set selection and its fallback chain, and in src/icons/mod.rs for the store staying empty when icons are disabled (FR-056, FR-057)
 
 ### Tests for User Story 6 (REQUIRED)
 
-- [ ] T087 [P] [US6] E2E test `e2e_icons_disabled_matches_pre_feature` in tests/e2e_icons.rs — `icons = false` with the default theme reproduces the pre-feature overlay exactly in both presentations (FR-056, SC-019, US6-AS1)
-- [ ] T088 [P] [US6] E2E test `e2e_icon_set_selected` in tests/e2e_icons.rs — `icon_set` naming the second fixture set draws that set's icons (FR-057, US6-AS3)
-- [ ] T089 [P] [US6] E2E test `e2e_unknown_icon_set_falls_back` in tests/e2e_icons.rs — an absent set is reported, falls back to the default, and the daemon keeps running (FR-057, US6-AS4)
+- [X] T087 [P] [US6] E2E test `e2e_icons_disabled_matches_pre_feature` in tests/e2e_icons.rs — `icons = false` with the default theme reproduces the pre-feature overlay exactly in both presentations (FR-056, SC-019, US6-AS1)
+- [X] T088 [P] [US6] E2E test `e2e_icon_set_selected` in tests/e2e_icons.rs — `icon_set` naming the second fixture set draws that set's icons (FR-057, US6-AS3)
+- [X] T089 [P] [US6] E2E test `e2e_unknown_icon_set_falls_back` in tests/e2e_icons.rs — an absent set is reported, falls back to the default, and the daemon keeps running (FR-057, US6-AS4)
 
 **Checkpoint**: All six stories complete.
 

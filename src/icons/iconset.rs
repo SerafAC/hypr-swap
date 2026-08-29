@@ -12,6 +12,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::diag::{Condition, Diagnostic};
+
 /// The set every inheritance chain ends at, by specification. It is the one set a freedesktop
 /// desktop is required to have, which is what makes it a safe terminator.
 pub const DEFAULT_SET: &str = "hicolor";
@@ -20,6 +22,97 @@ pub const DEFAULT_SET: &str = "hicolor";
 /// (FR-040a). Anything else in a set is invisible to the lookup, which FR-040a defines as
 /// unresolvable rather than as an error.
 const EXTENSIONS: [&str; 2] = ["png", "svg"];
+
+/// Where a desktop records the icon set it is configured for, relative to a configuration root
+/// (FR-057).
+///
+/// GTK's `settings.ini` is the file that carries this on a Wayland session with no full desktop
+/// environment behind it — which is what a Hyprland session is — and it is what the tools people
+/// actually use to set an icon set there (`nwg-look` and its kin) write. Newest generation first,
+/// so a machine configured for both is read the way GTK itself reads it.
+///
+/// Nothing else is consulted. `gsettings` would mean either a dependency or shelling out, and a
+/// running dconf besides, none of which a minimal session is obliged to have — and FR-057 already
+/// says what to do when the desktop's set is not discoverable: use the standard default. The
+/// user who lands there names the set they want, which is the other half of the same requirement.
+const DESKTOP_SET_FILES: [&str; 2] = ["gtk-4.0/settings.ini", "gtk-3.0/settings.ini"];
+
+/// The group and key inside those files holding the set's name.
+const DESKTOP_SET_GROUP: &str = "Settings";
+const DESKTOP_SET_KEY: &str = "gtk-icon-theme-name";
+
+/// The set the desktop is configured for, if that is discoverable at all (FR-057).
+///
+/// `config_roots` are the configuration directories in search order, injected rather than read
+/// from the environment here so the rule is unit-testable against a staged root.
+#[must_use]
+pub fn desktop_set(config_roots: &[PathBuf]) -> Option<String> {
+    for root in config_roots {
+        for relative in DESKTOP_SET_FILES {
+            let mut path = root.clone();
+            for component in relative.split('/') {
+                path.push(component);
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let name = parse_ini(&text)
+                .iter()
+                .find(|(group, _)| group == DESKTOP_SET_GROUP)
+                .and_then(|(_, keys)| lookup_key(keys, DESKTOP_SET_KEY))
+                // GTK writes the value bare; a hand-edited file may have quoted it.
+                .map(|value| value.trim_matches('"').trim().to_owned())
+                .filter(|value| !value.is_empty());
+            if name.is_some() {
+                return name;
+            }
+        }
+    }
+    None
+}
+
+/// Whether a set of this name is installed under any of the themed roots.
+///
+/// A directory is enough: `index.theme` is missing from plenty of real sets, and [`IconSet::load`]
+/// already copes with that. Requiring one here would report a set the lookup can perfectly well
+/// draw from as absent.
+#[must_use]
+pub fn is_installed(name: &str, themed: &[PathBuf]) -> bool {
+    !name.is_empty() && themed.iter().any(|root| root.join(name).is_dir())
+}
+
+/// Which set to draw from, and anything worth telling the user about it (FR-057).
+///
+/// The chain is the requirement's, in order: the set the user configured, else the desktop's
+/// configured set, else the standard default. A name the user gave that is not installed is
+/// reported and falls back to that same default; a *desktop* set that is not installed is not
+/// reported, because the user did not ask for it and cannot be expected to fix it.
+///
+/// The diagnostic is returned rather than printed, like every other configuration problem, so the
+/// whole rule is unit-testable without capturing stderr (`diag::Diagnostic`).
+#[must_use]
+pub fn select(
+    configured: Option<&str>,
+    themed: &[PathBuf],
+    config_roots: &[PathBuf],
+) -> (String, Option<Diagnostic>) {
+    if let Some(name) = configured {
+        if is_installed(name, themed) {
+            return (name.to_owned(), None);
+        }
+        return (
+            DEFAULT_SET.to_owned(),
+            Some(Diagnostic::new(
+                Condition::InvalidConfigValue,
+                "config.icon_set",
+                format!("no icon set named {name:?} is installed; using {DEFAULT_SET}"),
+            )),
+        );
+    }
+
+    let desktop = desktop_set(config_roots).filter(|name| is_installed(name, themed));
+    (desktop.unwrap_or_else(|| DEFAULT_SET.to_owned()), None)
+}
 
 /// How a directory's `Size` relates to the sizes it actually holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -429,7 +522,8 @@ fn lookup_key<'a>(keys: &'a [(String, String)], key: &str) -> Option<&'a str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_SET, Directory, IconSet, Kind, SetIndex};
+    use super::{DEFAULT_SET, Directory, IconSet, Kind, SetIndex, desktop_set, select};
+    use crate::diag::Condition;
     use std::path::PathBuf;
 
     // --- T031: directory scoring, filesystem-free (research.md R20) ----------
@@ -645,6 +739,18 @@ mod tests {
         fn roots(&self) -> Vec<PathBuf> {
             vec![self.0.clone()]
         }
+
+        /// Write the desktop's own icon-set setting into one GTK generation's `settings.ini`,
+        /// so the discovery rule is exercised against a real file rather than a parsed string.
+        fn gtk(&self, generation: &str, name: &str) {
+            let directory = self.0.join(format!("gtk-{generation}.0"));
+            std::fs::create_dir_all(&directory).expect("a staged GTK configuration directory");
+            std::fs::write(
+                directory.join("settings.ini"),
+                format!("[Settings]\ngtk-theme-name=Adwaita\ngtk-icon-theme-name={name}\n"),
+            )
+            .expect("a staged settings.ini");
+        }
     }
 
     impl Drop for Root {
@@ -847,5 +953,121 @@ mod tests {
         assert_eq!(set.lookup(&file.display().to_string(), 20), Some(file));
         assert_eq!(set.lookup("/nowhere/at/all.png", 20), None);
         assert_eq!(set.lookup("", 20), None);
+    }
+
+    // --- T085/T086: which set to draw from (FR-057) --------------------------
+
+    /// The name the user configured wins outright, and says nothing.
+    #[test]
+    fn a_configured_set_that_is_installed_is_the_one_used() {
+        let root = Root::new();
+        root.set("Chosen", INDEX_48);
+        root.set(DEFAULT_SET, INDEX_48);
+        // A desktop set is present and installed, precisely so this proves the configured name
+        // beats it rather than merely agreeing with it.
+        root.set("Desktop", INDEX_48);
+        root.gtk("3", "Desktop");
+
+        let (set, diagnostic) = select(Some("Chosen"), &root.roots(), &root.roots());
+        assert_eq!(set, "Chosen");
+        assert_eq!(diagnostic, None, "a set that is there is not worth a word");
+    }
+
+    /// US6-AS4, FR-057: a named set that is not installed is reported and falls back, naming the
+    /// setting, what was wrong with it, and the value used instead (FR-059).
+    #[test]
+    fn a_configured_set_that_is_not_installed_is_reported_and_falls_back() {
+        let root = Root::new();
+        root.set(DEFAULT_SET, INDEX_48);
+
+        let (set, diagnostic) = select(Some("NoSuchSet"), &root.roots(), &root.roots());
+        assert_eq!(set, DEFAULT_SET);
+
+        let diagnostic = diagnostic.expect("an absent set the user asked for is reported");
+        assert_eq!(diagnostic.condition, Condition::InvalidConfigValue);
+        assert_eq!(diagnostic.subject, "config.icon_set");
+        assert!(
+            diagnostic.message.contains("NoSuchSet") && diagnostic.message.contains(DEFAULT_SET),
+            "the record names the set asked for and the one used: {}",
+            diagnostic.message
+        );
+    }
+
+    /// FR-057's default: nothing configured, so the desktop's own set is followed.
+    #[test]
+    fn with_nothing_configured_the_desktops_set_is_followed() {
+        let root = Root::new();
+        root.set("Desktop", INDEX_48);
+        root.set(DEFAULT_SET, INDEX_48);
+        root.gtk("3", "Desktop");
+
+        let (set, diagnostic) = select(None, &root.roots(), &root.roots());
+        assert_eq!(set, "Desktop");
+        assert_eq!(diagnostic, None);
+    }
+
+    /// Two generations configured, read the way GTK itself reads them.
+    #[test]
+    fn the_desktops_set_is_read_from_the_newest_generation_first() {
+        let root = Root::new();
+        root.set("Newer", INDEX_48);
+        root.set("Older", INDEX_48);
+        root.gtk("4", "Newer");
+        root.gtk("3", "Older");
+
+        assert_eq!(desktop_set(&root.roots()).as_deref(), Some("Newer"));
+    }
+
+    /// A hand-edited `settings.ini` may have quoted the value; GTK writes it bare.
+    #[test]
+    fn a_quoted_desktop_setting_is_read_without_its_quotes() {
+        let root = Root::new();
+        root.gtk("3", "\"Quoted\"");
+        assert_eq!(desktop_set(&root.roots()).as_deref(), Some("Quoted"));
+    }
+
+    /// The desktop naming a set that is not installed is the user's desktop being wrong about
+    /// itself, which they did not ask us for and cannot fix from our configuration: fall back in
+    /// silence, unlike the configured-name case above.
+    #[test]
+    fn a_desktop_set_that_is_not_installed_falls_back_without_a_word() {
+        let root = Root::new();
+        root.set(DEFAULT_SET, INDEX_48);
+        root.gtk("3", "Uninstalled");
+
+        let (set, diagnostic) = select(None, &root.roots(), &root.roots());
+        assert_eq!(set, DEFAULT_SET);
+        assert_eq!(diagnostic, None);
+    }
+
+    /// FR-057's last resort: nothing configured and nothing discoverable.
+    #[test]
+    fn nothing_configured_and_no_desktop_setting_is_the_standard_default() {
+        let root = Root::new();
+        root.set(DEFAULT_SET, INDEX_48);
+
+        assert_eq!(desktop_set(&root.roots()), None);
+        let (set, diagnostic) = select(None, &root.roots(), &root.roots());
+        assert_eq!(set, DEFAULT_SET);
+        assert_eq!(diagnostic, None);
+    }
+
+    /// The whole chain in one place, so the order FR-057 states is asserted as an order rather
+    /// than as three unrelated cases.
+    #[test]
+    fn the_fallback_chain_is_configured_then_desktop_then_default() {
+        let root = Root::new();
+        for name in ["Configured", "Desktop", DEFAULT_SET] {
+            root.set(name, INDEX_48);
+        }
+        root.gtk("3", "Desktop");
+
+        let chosen = |configured| select(configured, &root.roots(), &root.roots()).0;
+        assert_eq!(chosen(Some("Configured")), "Configured");
+        assert_eq!(chosen(None), "Desktop");
+
+        // Strip the desktop's answer away and the next link takes over.
+        std::fs::remove_dir_all(root.0.join("gtk-3.0")).expect("drop the desktop setting");
+        assert_eq!(chosen(None), DEFAULT_SET);
     }
 }

@@ -36,7 +36,7 @@ use wayland_client::{Connection, EventQueue, Proxy, QueueHandle};
 
 use crate::config::{Configuration, Placement, Presentation};
 use crate::diag::{self, Condition};
-use crate::icons::{IconStore, iconset};
+use crate::icons::IconStore;
 use crate::model::MonitorName;
 use crate::ordering;
 use crate::session::{self, Session};
@@ -274,12 +274,10 @@ fn icon_store(config: &Configuration, world: &World) -> IconStore {
         clippy::cast_sign_loss
     )]
     let slot = ((config.style.geometry.text_line_height as f32) * scale).round() as u32;
-    // The set the user named, or the standard default. Following the *desktop's* configured set
-    // is FR-057's remaining half and lands with the rest of that story.
-    IconStore::new(
-        slot.max(1),
-        config.icon_set.as_deref().unwrap_or(iconset::DEFAULT_SET),
-    )
+    // The set the user named, or — with nothing named — the desktop's own, falling back to the
+    // standard default when neither is discoverable (FR-057). The rule itself lives in
+    // `icons/iconset.rs`, which is also where its diagnostic comes from.
+    IconStore::new(slot.max(1), config.icon_set.as_deref())
 }
 
 impl App {
