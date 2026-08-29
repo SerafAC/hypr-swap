@@ -161,6 +161,16 @@ pub fn icons_of(record: &str) -> Vec<&str> {
         .collect()
 }
 
+/// What each window rectangle in a grid miniature had room for, in the order they were drawn —
+/// `icon+title`, `icon`, `title` or `none` (FR-038, research.md R22).
+#[must_use]
+pub fn rects_of(record: &str) -> Vec<&str> {
+    field(record, "rects")
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect()
+}
+
 /// Open the overlay, read the compositor while it is up, then cancel it.
 ///
 /// The one place the open-inspect-close gesture is written, so a test that wants to see the

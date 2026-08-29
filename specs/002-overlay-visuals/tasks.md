@@ -178,14 +178,14 @@ truncated rather than overflowing.
 
 ### Implementation for User Story 3
 
-- [ ] T063 [US3] Add the miniature icon rectangle and the content-shedding thresholds to src/ui/layout.rs — title dropped first, then the icon, so a rectangle shows icon and title, or icon alone, or neither, and is always drawn (FR-038)
-- [ ] T064 [P] [US3] Unit tests in src/ui/layout.rs for the shedding order — the two thresholds, all three resulting states, and the rectangle still being produced in every case, including a single fullscreen window whose icon is not scaled up to fill it (FR-038, spec Edge Cases)
-- [ ] T065 [US3] Paint the icon inside each window rectangle in src/ui/render.rs, leaving every rectangle's position, size and proportion untouched (FR-037, FR-015a)
+- [X] T063 [US3] Add the miniature icon rectangle and the content-shedding thresholds to src/ui/layout.rs — title dropped first, then the icon, so a rectangle shows icon and title, or icon alone, or neither, and is always drawn (FR-038)
+- [X] T064 [P] [US3] Unit tests in src/ui/layout.rs for the shedding order — the two thresholds, all three resulting states, and the rectangle still being produced in every case, including a single fullscreen window whose icon is not scaled up to fill it (FR-038, spec Edge Cases)
+- [X] T065 [US3] Paint the icon inside each window rectangle in src/ui/render.rs, leaving every rectangle's position, size and proportion untouched (FR-037, FR-015a)
 
 ### Tests for User Story 3 (REQUIRED)
 
-- [ ] T066 [P] [US3] E2E test `e2e_icons_in_grid_miniatures` in tests/e2e_icons.rs — grid presentation, each rectangle showing its program's icon with its title still truncated visibly (FR-037, US3-AS1/AS2)
-- [ ] T067 [P] [US3] E2E test `e2e_miniature_drops_title_then_icon` in tests/e2e_icons.rs — a workspace of many small windows produces rectangles in all three states, in the documented order (FR-038, US3-AS3)
+- [X] T066 [P] [US3] E2E test `e2e_icons_in_grid_miniatures` in tests/e2e_icons.rs — grid presentation, each rectangle showing its program's icon with its title still truncated visibly (FR-037, US3-AS1/AS2)
+- [X] T067 [P] [US3] E2E test `e2e_miniature_drops_title_then_icon` in tests/e2e_icons.rs — a workspace of many small windows produces rectangles in all three states, in the documented order (FR-038, US3-AS3)
 
 **Checkpoint**: Icons are complete in both presentations.
 

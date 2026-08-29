@@ -39,6 +39,60 @@ pub const SCROLL_MARGIN: usize = 1;
 /// the themed text height along with the slot itself (FR-052).
 const ICON_GAP: f64 = 0.3;
 
+/// The size a window's title is drawn at inside a miniature rectangle, as a fraction of that
+/// rectangle's height.
+///
+/// Not settable, and for the third time for the same reason as [`SCROLL_MARGIN`]: the numbers
+/// below describe when content stops being legible, which is a property of eyes rather than of
+/// taste, and FR-047 does not list them.
+const MINIATURE_FONT_FRACTION: f64 = 0.42;
+
+/// The smallest a miniature's window title may be drawn, device pixels.
+///
+/// Below this a title is illegible rather than merely small, and drawing it would only smear the
+/// rectangle it belongs to (FR-015b, FR-038).
+pub const MINIATURE_MIN_TEXT_HEIGHT: f64 = 9.0;
+
+/// The narrowest a title is worth laying out, in multiples of its own size — below this the line
+/// is an ellipsis and nothing else, which is not a truncated title but a smudge (FR-038).
+const MINIATURE_MIN_TITLE_WIDTH: f64 = 2.0;
+
+/// An icon's size inside a miniature rectangle, as a fraction of that rectangle's shorter side.
+const MINIATURE_ICON_FRACTION: f64 = 0.6;
+
+/// The smallest an icon may be drawn in a miniature, device pixels — below this it is a smudge
+/// rather than a recognisable program, so it is shed (FR-038).
+const MINIATURE_MIN_ICON: f64 = 8.0;
+
+/// Content's inset from a miniature rectangle's edge, as a fraction of the rectangle's width.
+const MINIATURE_INSET: f64 = 0.06;
+
+/// Where one window's title goes inside its miniature rectangle.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TitleBox {
+    /// The box to lay the title out in — `(x, y, width, height)`, device pixels. The renderer
+    /// centres the line it measures inside this box rather than being told a baseline, so a font
+    /// with unusual metrics still sits straight.
+    pub rect: (f64, f64, f64, f64),
+    /// The size to draw it at, device pixels.
+    pub font_size: f64,
+}
+
+/// What one window rectangle in a miniature has room for, and where that content goes (FR-037,
+/// FR-038).
+///
+/// Both fields are absent on a rectangle too small for either, which is a state the renderer must
+/// still draw the rectangle for: FR-038 sheds *content*, never the rectangle, whose position and
+/// proportion are what FR-015a is about.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct MiniatureContent {
+    /// The square the window's icon is drawn in, device pixels — `None` when the icon was shed,
+    /// or when icons are off altogether (FR-056).
+    pub icon: Option<(f64, f64, f64, f64)>,
+    /// Where the window's title goes — `None` when the title was shed.
+    pub title: Option<TitleBox>,
+}
+
 /// The buffer size and the entry geometry for one overlay, in device pixels — plus the surface
 /// size the compositor is asked for, in logical pixels.
 ///
@@ -123,6 +177,72 @@ impl Metrics {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         {
             (slot * (1.0 + ICON_GAP)).ceil() as u32
+        }
+    }
+
+    /// What one window rectangle in a miniature has room for, and where that content goes
+    /// (FR-037, FR-038).
+    ///
+    /// `rect` is the rectangle [`miniature_rect`] mapped a window to, and `text_cap` the largest a
+    /// title is ever drawn at — the themed text height, so a miniature's titles never outgrow the
+    /// list's. `icons` is whether icons are shown at all (FR-056).
+    ///
+    /// Content is shed in FR-038's order, the title first and then the icon, and that order is
+    /// **structural rather than arithmetical**: the title is offered only where the icon already
+    /// fits, so no rectangle can keep its title and drop its icon however the thresholds are later
+    /// tuned. The three states a shrinking rectangle passes through are therefore exactly icon and
+    /// title, icon alone, neither — with the fourth combination reachable only by turning icons
+    /// off, where there is no icon to shed in the first place.
+    ///
+    /// What this does *not* decide is whether the rectangle itself is drawn. It always is
+    /// (FR-015a); this only fills it.
+    #[must_use]
+    pub fn miniature_content(
+        &self,
+        rect: (f64, f64, f64, f64),
+        text_cap: f64,
+        icons: bool,
+    ) -> MiniatureContent {
+        let (x, y, width, height) = rect;
+        if width <= 0.0 || height <= 0.0 {
+            return MiniatureContent::default();
+        }
+
+        // A square on the rectangle's shorter side, never larger than the slot the same icon gets
+        // in the list (FR-052) — which is what stops a lone fullscreen window's rectangle being
+        // filled edge to edge by one enormous icon while every other miniature shows a small one.
+        let side = (width.min(height) * MINIATURE_ICON_FRACTION).min(f64::from(self.icon_slot()));
+        let icon_fits = icons && side >= MINIATURE_MIN_ICON;
+
+        let font_size = (height * MINIATURE_FONT_FRACTION).min(text_cap);
+        let inset = (width * MINIATURE_INSET).min(font_size * 0.5);
+        // The icon costs the title the same slot-plus-gap it costs a row in the list (FR-036a).
+        let advance = if icon_fits {
+            side * (1.0 + ICON_GAP)
+        } else {
+            0.0
+        };
+        let text_width = width - inset * 2.0 - advance;
+        let title_fits = (icon_fits || !icons)
+            && font_size >= MINIATURE_MIN_TEXT_HEIGHT
+            && text_width >= font_size * MINIATURE_MIN_TITLE_WIDTH;
+
+        MiniatureContent {
+            icon: icon_fits.then(|| {
+                let top = y + (height - side) / 2.0;
+                // Beside the title where there is one; centred where the icon is alone, since an
+                // icon pinned to the left edge of an otherwise empty rectangle reads as a mistake
+                // rather than as a deliberately reduced label.
+                if title_fits {
+                    (x + inset, top, side, side)
+                } else {
+                    (x + (width - side) / 2.0, top, side, side)
+                }
+            }),
+            title: title_fits.then_some(TitleBox {
+                rect: (x + inset + advance, y, text_width, height),
+                font_size,
+            }),
         }
     }
 
@@ -1394,5 +1514,263 @@ mod tests {
             grid.miniature_height + GRID_LABEL_HEIGHT + grid.gap,
             "the grid cell is unchanged too"
         );
+    }
+
+    // --- T064: shedding content inside a miniature (FR-037, FR-038) ----------
+
+    /// The grid every shedding test measures against.
+    fn grid() -> Metrics {
+        grid_metrics(&G, HD, 1.0, 12)
+    }
+
+    /// The largest a miniature title is drawn at — the themed text height, which at the default
+    /// text size is the text line itself.
+    fn cap() -> f64 {
+        f64::from(G.text_line_height)
+    }
+
+    /// Which of FR-038's states a rectangle ended in, named as the requirement names them.
+    fn state(content: &MiniatureContent) -> &'static str {
+        match (content.icon.is_some(), content.title.is_some()) {
+            (true, true) => "icon+title",
+            (true, false) => "icon",
+            (false, true) => "title",
+            (false, false) => "none",
+        }
+    }
+
+    #[test]
+    fn a_roomy_rectangle_shows_its_icon_beside_its_title() {
+        let metrics = grid();
+        let rect = (10.0, 20.0, 120.0, 68.0);
+        let content = metrics.miniature_content(rect, cap(), true);
+        let icon = content.icon.expect("a rectangle this size holds an icon");
+        let title = content.title.expect("and its title alongside it (FR-037)");
+
+        assert!(
+            close(icon.2, icon.3),
+            "the icon keeps its square slot: {icon:?}"
+        );
+        assert!(
+            icon.0 + icon.2 <= title.rect.0 + 0.001,
+            "the title starts after the icon rather than under it: {icon:?} against {:?}",
+            title.rect
+        );
+        assert!(
+            icon.0 >= rect.0 - 0.001
+                && icon.1 >= rect.1 - 0.001
+                && icon.0 + icon.2 <= rect.0 + rect.2 + 0.001
+                && icon.1 + icon.3 <= rect.1 + rect.3 + 0.001,
+            "the icon escapes the window rectangle it belongs to: {icon:?} in {rect:?}"
+        );
+        assert!(
+            title.rect.0 + title.rect.2 <= rect.0 + rect.2 + 0.001,
+            "and neither does the title: {:?} in {rect:?}",
+            title.rect
+        );
+        assert!(
+            title.font_size <= cap(),
+            "a miniature title never outgrows the themed text height (FR-046)"
+        );
+    }
+
+    #[test]
+    fn a_shrinking_rectangle_sheds_its_title_and_then_its_icon() {
+        // FR-038 in one sweep: a rectangle of a fixed shape shrunk from a whole miniature down to
+        // a sliver passes through all three states, in the documented order, and through no
+        // others — no flapping back and forth at a threshold, and never a title without an icon.
+        let metrics = grid();
+        let mut seen: Vec<&'static str> = Vec::new();
+        let mut width = 240.0_f64;
+        while width >= 2.0 {
+            let rect = (0.0, 0.0, width, width * 9.0 / 16.0);
+            let content = metrics.miniature_content(rect, cap(), true);
+            let now = state(&content);
+            if seen.last() != Some(&now) {
+                seen.push(now);
+            }
+            assert!(
+                content.title.is_none() || content.icon.is_some(),
+                "width {width}: kept the title and shed the icon, which is FR-038's order backwards"
+            );
+            width -= 0.5;
+        }
+        assert_eq!(
+            seen,
+            vec!["icon+title", "icon", "none"],
+            "the three states, once each, in FR-038's order"
+        );
+    }
+
+    #[test]
+    fn a_title_is_shed_at_the_size_it_stops_being_legible() {
+        // The first threshold, isolated: a rectangle wide enough that only its height decides.
+        let metrics = grid();
+        let legible = metrics.miniature_content((0.0, 0.0, 400.0, 24.0), cap(), true);
+        let illegible = metrics.miniature_content((0.0, 0.0, 400.0, 20.0), cap(), true);
+
+        assert_eq!(state(&legible), "icon+title");
+        assert_eq!(
+            state(&illegible),
+            "icon",
+            "a title below the legible size is dropped rather than drawn as a smear (FR-015b)"
+        );
+        assert!(
+            legible.title.expect("legible").font_size >= MINIATURE_MIN_TEXT_HEIGHT,
+            "and what is kept is kept because it is legible"
+        );
+    }
+
+    #[test]
+    fn an_icon_is_shed_at_the_size_it_stops_being_recognisable() {
+        // The second threshold, isolated: a square rectangle, too small for a title either way,
+        // so the icon is the only thing left to shed.
+        let metrics = grid();
+        assert_eq!(
+            state(&metrics.miniature_content((0.0, 0.0, 15.0, 15.0), cap(), true)),
+            "icon"
+        );
+        assert_eq!(
+            state(&metrics.miniature_content((0.0, 0.0, 12.0, 12.0), cap(), true)),
+            "none",
+            "below its own minimum the icon goes too, leaving the rectangle empty (FR-038)"
+        );
+    }
+
+    #[test]
+    fn an_icon_alone_is_centred_in_its_rectangle() {
+        let metrics = grid();
+        let rect = (30.0, 40.0, 20.0, 20.0);
+        let icon = metrics
+            .miniature_content(rect, cap(), true)
+            .icon
+            .expect("a rectangle this size still holds an icon");
+        assert!(
+            close(icon.0 - rect.0, rect.0 + rect.2 - (icon.0 + icon.2)),
+            "an icon with no title beside it sits in the middle: {icon:?} in {rect:?}"
+        );
+    }
+
+    #[test]
+    fn a_rectangle_too_small_for_any_content_is_still_a_rectangle() {
+        // FR-038's "MUST still be drawn in every case", from the other side: the window whose
+        // rectangle sheds everything still *has* a rectangle, in its own position and proportion.
+        let metrics = grid();
+        let rect = mapped((0, 0), (38, 21), (0, 0)).expect("a tiny window still maps");
+        assert_eq!(state(&metrics.miniature_content(rect, cap(), true)), "none");
+        assert!(
+            rect.2 > 0.0 && rect.3 > 0.0,
+            "the rectangle survives what it cannot hold: {rect:?}"
+        );
+
+        // And a degenerate rectangle is answered rather than panicked over.
+        assert_eq!(
+            metrics.miniature_content((0.0, 0.0, 0.0, 0.0), cap(), true),
+            MiniatureContent::default()
+        );
+    }
+
+    #[test]
+    fn a_fullscreen_windows_icon_is_not_scaled_up_to_fill_it() {
+        // FR-052 and the spec's edge case: the icon follows the themed text height, so the one
+        // window on an otherwise empty workspace gets the same icon every other window gets
+        // rather than a mural.
+        let metrics = grid();
+        let whole = metrics
+            .miniature_content((0.0, 0.0, 240.0, 135.0), cap(), true)
+            .icon
+            .expect("a fullscreen window's rectangle holds an icon");
+        let quarter = metrics
+            .miniature_content((0.0, 0.0, 120.0, 67.5), cap(), true)
+            .icon
+            .expect("and so does a quarter of one");
+
+        assert!(
+            close(whole.2, f64::from(metrics.icon_slot())),
+            "the icon is the themed slot, not a fraction of the rectangle: {whole:?}"
+        );
+        assert!(
+            close(whole.2, quarter.2),
+            "the same icon at two rectangle sizes: {whole:?} against {quarter:?}"
+        );
+        assert!(
+            whole.2 * 4.0 < 240.0,
+            "an icon filling the rectangle would hide the layout the miniature is for"
+        );
+    }
+
+    #[test]
+    fn the_miniature_icon_is_the_size_the_list_draws_the_same_icon_at() {
+        // A program's icon is the same size in either presentation, because both take it from the
+        // one slot (FR-035, FR-052).
+        let metrics = grid();
+        let icon = metrics
+            .miniature_content((0.0, 0.0, 240.0, 135.0), cap(), true)
+            .icon
+            .expect("an icon");
+        assert!(close(
+            icon.2,
+            f64::from(list_metrics(&G, HD, 1.0, 5).icon_slot())
+        ));
+    }
+
+    #[test]
+    fn with_icons_off_the_title_keeps_the_space_they_would_have_taken() {
+        // FR-056: icons off reserves nothing, so the miniature is exactly what it was before this
+        // feature — a rectangle with its title in it.
+        let metrics = grid();
+        let rect = (0.0, 0.0, 120.0, 68.0);
+        let with = metrics.miniature_content(rect, cap(), true);
+        let without = metrics.miniature_content(rect, cap(), false);
+
+        assert_eq!(state(&without), "title");
+        let (crowded, roomy) = (
+            with.title.expect("the icon leaves room for a title here"),
+            without.title.expect("and so does its absence"),
+        );
+        assert!(
+            roomy.rect.2 > crowded.rect.2,
+            "the title did not get the icon's space back: {:?} against {:?}",
+            roomy.rect,
+            crowded.rect
+        );
+        assert!(
+            roomy.rect.0 < crowded.rect.0,
+            "and it starts where it used to rather than where the icon left it"
+        );
+        assert!(close(roomy.font_size, crowded.font_size));
+    }
+
+    #[test]
+    fn content_never_escapes_the_rectangle_it_belongs_to() {
+        // Whatever is drawn is drawn *inside* the window's rectangle, so one window's icon can
+        // never smear across its neighbour's (FR-037, FR-015a).
+        let metrics = grid();
+        for width in [3.0_f64, 9.0, 14.0, 30.0, 61.0, 100.0, 240.0] {
+            for aspect in [0.2_f64, 0.5625, 1.0, 3.0] {
+                let rect = (5.0, 7.0, width, width * aspect);
+                let content = metrics.miniature_content(rect, cap(), true);
+                let inside = |box_: (f64, f64, f64, f64)| {
+                    box_.0 >= rect.0 - 0.001
+                        && box_.1 >= rect.1 - 0.001
+                        && box_.0 + box_.2 <= rect.0 + rect.2 + 0.001
+                        && box_.1 + box_.3 <= rect.1 + rect.3 + 0.001
+                };
+                if let Some(icon) = content.icon {
+                    assert!(inside(icon), "icon {icon:?} escapes {rect:?}");
+                }
+                if let Some(title) = content.title {
+                    assert!(
+                        inside(title.rect),
+                        "title {:?} escapes {rect:?}",
+                        title.rect
+                    );
+                    assert!(
+                        title.rect.2 > 0.0,
+                        "a title box with no width is not a title"
+                    );
+                }
+            }
+        }
     }
 }

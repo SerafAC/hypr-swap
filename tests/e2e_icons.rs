@@ -15,7 +15,9 @@ use e2e::clients;
 use e2e::fixtures::{self, Fixtures};
 use e2e::harness::{Daemon, Nested, Setup};
 use e2e::keyboard::Keyboard;
-use e2e::overlay::{baseline, field, icons_of, measure, paint_records, pinned_panel};
+use e2e::overlay::{
+    GRID, baseline, field, icons_of, measure, paint_records, pinned_panel, rects_of,
+};
 
 use hypr_swap::diag::PAINT_RECORDS_VAR;
 use hypr_swap::icons::PLACEHOLDER_SOURCE;
@@ -78,6 +80,29 @@ fn run_with(
     openings: usize,
     extra_env: &[(&str, &str)],
 ) -> Run {
+    run_shaped(
+        fixtures,
+        app_config,
+        windows,
+        openings,
+        extra_env,
+        |_, _| {},
+    )
+}
+
+/// The same, with a chance to reshape the windows the compositor placed before the daemon starts.
+///
+/// The grid's shedding tests are about what happens at particular rectangle *sizes*, and a tiling
+/// layout's sizes are the compositor's business rather than the test's — so those tests take the
+/// windows the harness spawned and size them by hand here.
+fn run_shaped(
+    fixtures: &Fixtures,
+    app_config: &str,
+    windows: &[Staged<'_>],
+    openings: usize,
+    extra_env: &[(&str, &str)],
+    shape: impl FnOnce(&Nested, &[clients::Client]),
+) -> Run {
     let nested = Nested::start_with(&Setup::documented().with_app_config(app_config));
     let panel = pinned_panel(&nested);
 
@@ -95,6 +120,7 @@ fn run_with(
     nested.wait_until("the scenario starts on workspace 1", || {
         nested.active_workspace() == 1
     });
+    shape(&nested, &staged);
 
     let daemon = start(&nested, fixtures, extra_env);
     let mut keyboard = Keyboard::attach(&nested.wayland_display);
@@ -182,6 +208,168 @@ fn e2e_icons_in_flat_list() {
             "nothing was shed: {record}"
         );
     }
+}
+
+// --- T066/T067: icons in the grid miniatures (FR-037, FR-038, US3) ----------
+
+/// Every window rectangle in a miniature carries its program's icon alongside its title, and a
+/// title too long for its rectangle is truncated visibly rather than dropped (US3-AS1/AS2).
+#[test]
+fn e2e_icons_in_grid_miniatures() {
+    // Long enough that no rectangle in a 240-pixel cell could ever hold it, so the truncation
+    // half of US3-AS2 is exercised rather than assumed.
+    const LONG: &str = "an alpha window whose title runs on far past anything a miniature \
+                        rectangle could hold, and then further still";
+
+    let (fixtures, run) = run(
+        &config(GRID),
+        &[
+            (fixtures::ALPHA_CLASS, LONG, 1),
+            (fixtures::BETA_CLASS, "beta-window", 2),
+        ],
+    );
+    let pass = run.last_pass(2);
+
+    let alpha = fixtures
+        .icon(fixtures::SET, "scalable/apps", "fixture-alpha.svg")
+        .display()
+        .to_string();
+    let beta = fixtures
+        .icon(fixtures::SET, "48x48/apps", "fixture-beta.png")
+        .display()
+        .to_string();
+
+    assert!(
+        pass.iter().all(|record| record.contains(" grid:")),
+        "these are the grid's records, not the list's: {pass:?}"
+    );
+    assert_eq!(
+        icons_of(&pass[0]),
+        vec![alpha.as_str()],
+        "the rectangle in workspace 1's miniature draws its own program's icon: {}",
+        pass[0]
+    );
+    assert_eq!(
+        icons_of(&pass[1]),
+        vec![beta.as_str()],
+        "and so does the other program's, in the other miniature: {}",
+        pass[1]
+    );
+
+    for record in &pass {
+        let windows: usize = field(record, "windows")
+            .and_then(|value| value.parse().ok())
+            .expect("every record names its window count");
+        assert_eq!(
+            rects_of(record),
+            vec!["icon+title"; windows],
+            "every rectangle holds both its icon and its title at this size (FR-037): {record}"
+        );
+        assert_eq!(
+            icons_of(record).len(),
+            windows,
+            "one icon per window, none left iconless: {record}"
+        );
+        assert_eq!(
+            field(record, "shed"),
+            Some("0"),
+            "nothing was shed from a rectangle this size: {record}"
+        );
+    }
+
+    assert_eq!(
+        field(&pass[0], "ellipsized"),
+        Some("true"),
+        "FR-015b: the overlong title is truncated with a visible indication rather than \
+         overflowing its rectangle or being dropped for the icon: {}",
+        pass[0]
+    );
+    assert_eq!(
+        field(&pass[1], "ellipsized"),
+        Some("false"),
+        "and a title that fits is not truncated: {}",
+        pass[1]
+    );
+}
+
+/// A workspace whose windows are of very different sizes produces rectangles in all three of
+/// FR-038's states — and never the fourth, which would be the shedding order backwards (US3-AS3).
+#[test]
+fn e2e_miniature_drops_title_then_icon() {
+    // The three sizes, in the monitor's own pixels. A 1920×1080 workspace maps into a 218×123
+    // miniature, so these become roughly 114×68, 46×46 and 11×7 — one rectangle comfortably
+    // holding both, one with room for the icon alone, and one too small for either.
+    const SIZES: [(u32, u32); 3] = [(1000, 600), (400, 400), (96, 64)];
+
+    let fixtures = Fixtures::stage();
+    let run = run_shaped(
+        &fixtures,
+        &config(GRID),
+        &[
+            (fixtures::ALPHA_CLASS, "roomy-window", 1),
+            (fixtures::ALPHA_CLASS, "cramped-window", 1),
+            (fixtures::ALPHA_CLASS, "shrunken-window", 1),
+        ],
+        1,
+        &[],
+        |nested, staged| {
+            // Floated and sized by hand: under a tiling layout the sizes would be Hyprland's
+            // decision, and this test is about the renderer's behaviour at three known sizes.
+            for (client, (width, height)) in staged.iter().zip(SIZES) {
+                nested.dispatch(&format!("setfloating address:{}", client.address));
+                nested.dispatch(&format!(
+                    "resizewindowpixel exact {width} {height},address:{}",
+                    client.address
+                ));
+            }
+            nested.wait_until("the windows are the sizes the scenario asked for", || {
+                let reported = nested.clients();
+                staged.iter().zip(SIZES).all(|(client, size)| {
+                    reported
+                        .iter()
+                        .find(|window| window.address == client.address)
+                        .is_some_and(|window| window.size == size)
+                })
+            });
+        },
+    );
+
+    let pass = run.last_pass(1);
+    let record = &pass[0];
+    let states = rects_of(record);
+
+    assert_eq!(
+        states.len(),
+        3,
+        "FR-038: every window still gets a rectangle, whatever it had room for: {record}"
+    );
+    for state in ["icon+title", "icon", "none"] {
+        assert!(
+            states.contains(&state),
+            "no rectangle ended up in the {state:?} state, so the shedding order is untested: \
+             {record}"
+        );
+    }
+    assert!(
+        !states.contains(&"title"),
+        "a rectangle kept its title and shed its icon, which is FR-038's order backwards: {record}"
+    );
+
+    // The rest of the record agrees with those states: an icon was drawn for each rectangle that
+    // kept one, and each rectangle that did not is counted as having shed it.
+    assert_eq!(
+        icons_of(record).len(),
+        states
+            .iter()
+            .filter(|state| state.starts_with("icon"))
+            .count(),
+        "the icons drawn and the rectangles that kept one disagree: {record}"
+    );
+    assert_eq!(
+        field(record, "shed").and_then(|value| value.parse::<usize>().ok()),
+        Some(states.iter().filter(|state| **state == "none").count()),
+        "the shed count and the rectangles that dropped their icon disagree: {record}"
+    );
 }
 
 // --- T045: the placeholder (FR-041, US1-AS4) --------------------------------

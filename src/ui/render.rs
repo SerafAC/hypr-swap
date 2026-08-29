@@ -29,10 +29,6 @@ use crate::ui::layout::{self, Metrics};
 /// translucent over whatever it covers.
 pub const FORMAT: Format = Format::ARgb32;
 
-/// The em size of a title inside a miniature, as a fraction of the rectangle holding it — and the
-/// height below which a rectangle is too small to letter at all.
-const MINIATURE_FONT_FRACTION: f64 = 0.42;
-const MINIATURE_MIN_TEXT_HEIGHT: f64 = 9.0;
 /// Outline width of a window rectangle, as a fraction of the miniature's height.
 const MINIATURE_EDGE: f64 = 0.008;
 /// Space between the workspace name and the first window title, as a percentage of the em — the
@@ -149,10 +145,7 @@ pub fn paint(
         let selected = index == highlight;
         let painted = match metrics.presentation {
             Presentation::List => paint_row(cairo, style, icons, metrics, entry, slot, selected)?,
-            Presentation::Grid => {
-                paint_cell(cairo, style, metrics, entry, slot, selected)?;
-                Painted::default()
-            }
+            Presentation::Grid => paint_cell(cairo, style, icons, metrics, entry, slot, selected)?,
         };
         if record {
             diag::paint(index, presentation, &drawn(entry, selected, &painted));
@@ -183,6 +176,24 @@ struct Painted {
     /// Device pixels the icons took from the text on this row — the measure of "names truncate
     /// sooner than the same row without icons" (FR-036a).
     icon_width: u32,
+    /// One entry per window rectangle drawn in a miniature, naming what that rectangle had room
+    /// for, in the order the rectangles were drawn (FR-038).
+    ///
+    /// The grid's counterpart to `ellipsized`: FR-038's shedding is a decision about content that
+    /// leaves no trace in the geometry, so what the rectangle *held* is the only evidence of it.
+    rects: Vec<&'static str>,
+}
+
+/// What one window rectangle in a miniature ended up holding, as the paint record names it
+/// (FR-038, research.md R22).
+fn held(content: &layout::MiniatureContent) -> &'static str {
+    match (content.icon.is_some(), content.title.is_some()) {
+        (true, true) => "icon+title",
+        (true, false) => "icon",
+        // Reachable only with icons turned off, where there is no icon to shed (FR-056).
+        (false, true) => "title",
+        (false, false) => "none",
+    }
 }
 
 /// What one painted entry is recorded as, under the environment gate (research.md R22).
@@ -193,7 +204,7 @@ struct Painted {
 fn drawn(entry: &Entry, selected: bool, painted: &Painted) -> String {
     format!(
         "label={:?} windows={} active={} highlighted={} icons=[{}] shed={} ellipsized={} \
-         icon_width={}",
+         icon_width={} rects=[{}]",
         entry.label,
         entry.windows.len(),
         entry.is_active,
@@ -202,6 +213,7 @@ fn drawn(entry: &Entry, selected: bool, painted: &Painted) -> String {
         painted.shed,
         painted.ellipsized,
         painted.icon_width,
+        painted.rects.join(" "),
     )
 }
 
@@ -400,14 +412,18 @@ fn blit(
 
 /// One grid cell: a schematic miniature of the workspace's layout with its name underneath
 /// (FR-015, FR-015a).
+///
+/// Returns what was drawn, for the paint record (research.md R22).
 fn paint_cell(
     cairo: &Context,
     style: &Style,
+    icons: &IconStore,
     metrics: &Metrics,
     entry: &Entry,
     slot: usize,
     selected: bool,
-) -> Result<(), cairo::Error> {
+) -> Result<Painted, cairo::Error> {
+    let mut painted = Painted::default();
     let radius = f64::from(metrics.gap.max(1)) * 0.6;
     let (x, y, width, height) = rect_of(metrics.cell_rect(slot));
 
@@ -442,7 +458,16 @@ fn paint_cell(
         let tiled = entry.windows.iter().filter(|window| !window.floating);
         let floating = entry.windows.iter().filter(|window| window.floating);
         for window in tiled.chain(floating) {
-            paint_window(cairo, style, metrics, entry, window, area)?;
+            paint_window(
+                cairo,
+                style,
+                icons,
+                metrics,
+                entry,
+                window,
+                area,
+                &mut painted,
+            )?;
         }
     }
 
@@ -459,18 +484,21 @@ fn paint_cell(
         set_colour(cairo, primary_text(style, selected));
         show_layout(cairo, &layout);
     }
-    Ok(())
+    Ok(painted)
 }
 
 /// One window inside a miniature: a rectangle in the position and proportion it occupies on its
-/// workspace, labelled with its title (FR-015a, FR-015b).
+/// workspace, holding its program's icon and its title (FR-015a, FR-015b, FR-037, FR-038).
+#[allow(clippy::too_many_arguments)]
 fn paint_window(
     cairo: &Context,
     style: &Style,
+    icons: &IconStore,
     metrics: &Metrics,
     entry: &Entry,
     window: &EntryWindow,
     area: (f64, f64, f64, f64),
+    painted: &mut Painted,
 ) -> Result<(), cairo::Error> {
     // A window with no area cannot be drawn as a proportion of anything, so `miniature_rect`
     // declines it and it is skipped rather than painted as a degenerate sliver (SC-008).
@@ -498,31 +526,45 @@ fn paint_window(
     cairo.set_line_width((area.3 * MINIATURE_EDGE).max(1.0));
     cairo.stroke()?;
 
-    // Below a certain size a title is illegible rather than merely small, and drawing it would
-    // only smear the rectangle it belongs to. FR-015b is about truncation, which pango does for
-    // every size above that.
-    let font_size = height * MINIATURE_FONT_FRACTION;
-    if font_size < MINIATURE_MIN_TEXT_HEIGHT {
-        return Ok(());
+    // The rectangle is on the buffer before anything is asked about what fits inside it: FR-038
+    // sheds content from a rectangle too small for it, never the rectangle itself.
+    let text_cap = f64::from(metrics.text_height) * style.text_size;
+    let content = metrics.miniature_content((x, y, width, height), text_cap, icons.enabled());
+
+    if icons.enabled() {
+        if let Some(rect) = content.icon {
+            let drawn = icons.get(&window.class);
+            blit(cairo, drawn, rect, style.palette.text)?;
+            painted.icons.push(drawn.source.to_owned());
+        } else {
+            painted.shed += 1;
+        }
     }
-    let font_size = font_size.min(f64::from(metrics.text_height) * style.text_size);
-    let inset = (width * 0.06).min(font_size * 0.5);
-    let text_width = width - inset * 2.0;
-    if text_width <= 0.0 {
-        return Ok(());
+
+    // FR-015b is about truncation, which pango does at every size the title survives to.
+    if let Some(title) = content.title {
+        let (text_x, text_y, text_width, text_height) = title.rect;
+        let (layout, _) = line(
+            cairo,
+            style,
+            text_width,
+            title.font_size,
+            &escape(&window.label),
+            None,
+        );
+        let (_, extents) = layout.pixel_extents();
+        cairo.move_to(
+            text_x,
+            text_y + (text_height - f64::from(extents.height())) / 2.0,
+        );
+        set_colour(cairo, style.palette.text);
+        show_layout(cairo, &layout);
+        // A title kept but too long for its rectangle is truncated with a visible indication
+        // rather than overflowing it, exactly as a row is (FR-015b).
+        painted.ellipsized |= layout.is_ellipsized();
     }
-    let (layout, _) = line(
-        cairo,
-        style,
-        text_width,
-        font_size,
-        &escape(&window.label),
-        None,
-    );
-    let (_, extents) = layout.pixel_extents();
-    cairo.move_to(x + inset, y + (height - f64::from(extents.height())) / 2.0);
-    set_colour(cairo, style.palette.text);
-    show_layout(cairo, &layout);
+
+    painted.rects.push(held(&content));
     Ok(())
 }
 
@@ -530,7 +572,7 @@ fn paint_window(
 /// US3-AS5).
 fn paint_empty(cairo: &Context, style: &Style, metrics: &Metrics, area: (f64, f64, f64, f64)) {
     let font_size = (f64::from(metrics.text_height) * style.text_size * 0.8).min(area.3 * 0.3);
-    if font_size < MINIATURE_MIN_TEXT_HEIGHT || area.2 <= 0.0 {
+    if font_size < layout::MINIATURE_MIN_TEXT_HEIGHT || area.2 <= 0.0 {
         return;
     }
     let layout = centred(cairo, style, area.2, font_size, EMPTY_LABEL);
