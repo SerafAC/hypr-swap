@@ -264,6 +264,22 @@ impl Nested {
         );
     }
 
+    /// Rewrite the application configuration in place, at the same path [`Setup::with_app_config`]
+    /// wrote it to.
+    ///
+    /// The one way a test can change a setting *while the daemon is running*, which is what
+    /// FR-060 is about: the file a user edits is the file the daemon read at start-up, and
+    /// nothing but a restart makes it read it again.
+    ///
+    /// # Panics
+    /// If the file cannot be written.
+    pub fn write_app_config(&self, toml: &str) {
+        let directory = self.directory.join("config").join(hypr_swap::APP_ID);
+        std::fs::create_dir_all(&directory).expect("create the application config directory");
+        std::fs::write(directory.join("config.toml"), toml)
+            .expect("rewrite the application configuration");
+    }
+
     /// Take the Hyprland IPC sockets away from a daemon using the stable names, without touching
     /// the compositor itself.
     ///

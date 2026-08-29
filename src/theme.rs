@@ -1643,4 +1643,303 @@ mod tests {
                 .expect("the baseline records the text size")
         ));
     }
+
+    // --- T091: the documented catalogue is the implemented one (FR-061) -----
+
+    /// One row of a `contracts/style-values.md` table, by column.
+    type Row = Vec<String>;
+
+    /// The catalogue rows under one `##` heading of `contracts/style-values.md`, header and
+    /// separator dropped, every cell stripped of the backticks the page sets values in.
+    ///
+    /// Only tables whose first column is `Key` are catalogues: the page's other table names the
+    /// values that deliberately are *not* settings, and has nothing to check against the code.
+    ///
+    /// The document is read rather than transcribed on purpose. A test holding its own copy of
+    /// the ranges would agree with the code and say nothing about the page a user actually reads,
+    /// which is what SC-024 and SC-025 are about.
+    fn catalogue(heading: &str) -> Vec<Row> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("specs")
+            .join("002-overlay-visuals")
+            .join("contracts")
+            .join("style-values.md");
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+
+        let mut section = String::new();
+        let mut header: Option<Row> = None;
+        let mut rows = Vec::new();
+        for line in source.lines() {
+            // `### ` does not match, so a subsection stays inside the `##` it belongs to.
+            if let Some(title) = line.strip_prefix("## ") {
+                section = title.trim().to_owned();
+                header = None;
+                continue;
+            }
+            let Some(cells) = table_row(line) else {
+                header = None;
+                continue;
+            };
+            if section != heading {
+                continue;
+            }
+            match &header {
+                None => header = Some(cells),
+                Some(head) if head.first().map(String::as_str) == Some("Key") => {
+                    if cells
+                        .iter()
+                        .all(|cell| !cell.is_empty() && cell.chars().all(|c| c == '-' || c == ':'))
+                    {
+                        continue; // the `|---|---|` rule under the header
+                    }
+                    rows.push(cells);
+                }
+                Some(_) => {}
+            }
+        }
+        assert!(
+            !rows.is_empty(),
+            "`## {heading}` no longer holds a catalogue table"
+        );
+        rows
+    }
+
+    /// One markdown table row as its cells, or `None` if the line is not one.
+    fn table_row(line: &str) -> Option<Row> {
+        let line = line.trim();
+        if !line.starts_with('|') || !line.ends_with('|') || line.len() < 2 {
+            return None;
+        }
+        Some(
+            line.trim_matches('|')
+                .split('|')
+                .map(|cell| cell.trim().trim_matches('`').trim().to_owned())
+                .collect(),
+        )
+    }
+
+    /// The documented `min..=max` of one row, read as numbers so `1.0` and `1` compare equal.
+    fn documented_range(row: &Row, key: &str) -> (f64, f64) {
+        let (min, max) = row[3]
+            .split_once("..=")
+            .unwrap_or_else(|| panic!("`{key}`'s range is not written as `min..=max`: {}", row[3]));
+        (
+            min.parse().unwrap_or_else(|e| panic!("`{key}` min: {e}")),
+            max.parse().unwrap_or_else(|e| panic!("`{key}` max: {e}")),
+        )
+    }
+
+    /// The font and geometry rows together — one catalogue as far as `[style]` is concerned, and
+    /// written in the same five columns.
+    fn scalar_catalogue() -> Vec<Row> {
+        let mut rows = catalogue("Fonts");
+        rows.extend(catalogue("Geometry"));
+        rows
+    }
+
+    #[test]
+    fn the_documented_colours_are_the_implemented_ones_with_the_documented_values() {
+        // SC-024, SC-025: the eleven keys on the page are the eleven `COLOURS` holds, and both
+        // built-in palettes are byte-for-byte what the page promises. Compared through
+        // `Colour::parse` so the page's own notation is exercised, and so `#336bb8` and
+        // `#336bb8ff` compare equal rather than by the width they happened to be written at.
+        let rows = catalogue("Colours");
+
+        for row in &rows {
+            let key = row[0].as_str();
+            let setting = COLOURS
+                .iter()
+                .find(|setting| setting.key == key)
+                .unwrap_or_else(|| panic!("`{key}` is documented but is not a colour setting"));
+
+            for (theme, column) in [(&DARK, 2), (&LIGHT, 3)] {
+                let documented = Colour::parse(&row[column]).unwrap_or_else(|_| {
+                    panic!(
+                        "`{key}`'s {} value is not a colour: {}",
+                        theme.name, row[column]
+                    )
+                });
+                assert_eq!(
+                    setting.read(theme).hex_rgba(),
+                    documented.hex_rgba(),
+                    "`{key}` in the {} theme has drifted from the page",
+                    theme.name
+                );
+            }
+        }
+
+        for setting in COLOURS {
+            assert!(
+                rows.iter().any(|row| row[0] == setting.key),
+                "`{}` is implemented but undocumented",
+                setting.key
+            );
+        }
+        assert_eq!(
+            rows.len(),
+            COLOURS.len(),
+            "the colour catalogue has drifted"
+        );
+    }
+
+    #[test]
+    fn the_documented_fonts_and_geometry_are_the_implemented_ones() {
+        // SC-024, SC-025 for the twelve non-colour settings: the same key, the same default, the
+        // same range, and the same whole-unit-or-fraction form.
+        let rows = scalar_catalogue();
+
+        for row in &rows {
+            let key = row[0].as_str();
+            if key == FONT_FAMILY_KEY {
+                assert_eq!(row[2], DEFAULT_FONT_FAMILY, "`{key}`'s default has drifted");
+                assert_eq!(row[3], "—", "`{key}` has no range, so none is documented");
+                continue;
+            }
+
+            let setting = if key == TEXT_SIZE.key {
+                &TEXT_SIZE
+            } else {
+                GEOMETRY
+                    .iter()
+                    .find(|setting| setting.key == key)
+                    .unwrap_or_else(|| panic!("`{key}` is documented but is not a style setting"))
+            };
+
+            let default = if key == TEXT_SIZE.key {
+                DEFAULT_TEXT_SIZE
+            } else {
+                setting.read(&Geometry::DEFAULT)
+            };
+            let documented: f64 = row[2]
+                .parse()
+                .unwrap_or_else(|e| panic!("`{key}`'s default is not a number: {e}"));
+            assert!(
+                close(documented, default),
+                "`{key}`'s default has drifted: the page says {documented}, the code uses {default}"
+            );
+
+            let (min, max) = documented_range(row, key);
+            assert!(
+                close(min, setting.min) && close(max, setting.max),
+                "`{key}`'s range has drifted: the page says {min}..={max}, the code clamps to {}..={}",
+                setting.min,
+                setting.max
+            );
+
+            // The `Form` column and the code have to agree about whole units, because that is
+            // what decides how a message spells the value back (FR-059).
+            let integral = match row[1].as_str() {
+                "integer" => true,
+                "float" => false,
+                other => panic!("`{key}`'s form is neither integer nor float: {other}"),
+            };
+            assert_eq!(integral, setting.integral, "`{key}`'s form has drifted");
+        }
+
+        for key in GEOMETRY
+            .iter()
+            .map(|setting| setting.key)
+            .chain([TEXT_SIZE.key, FONT_FAMILY_KEY])
+        {
+            assert!(
+                rows.iter().any(|row| row[0] == key),
+                "`{key}` is implemented but undocumented"
+            );
+        }
+        assert_eq!(
+            rows.len(),
+            GEOMETRY.len() + 2,
+            "the font and geometry catalogue has drifted"
+        );
+    }
+
+    #[test]
+    fn no_documented_setting_is_inert() {
+        // SC-025's other half. Every key is driven through `resolve` **spelled as the page spells
+        // it**, and the resolved `Style` has to have moved: a setting could otherwise be listed,
+        // matched by the two tests above, and still never reach the renderer.
+        for row in catalogue("Colours") {
+            let key = row[0].clone();
+            // A colour neither built-in palette uses anywhere, so "it changed" cannot be an
+            // accident of the value chosen.
+            let wanted = "#0f1e2d40";
+            let (style, diagnostics) = resolve(&Requested {
+                theme: None,
+                overrides: vec![text(&key, wanted)],
+            });
+            assert!(
+                diagnostics.is_empty(),
+                "`{key}` is documented but `resolve` complained: {diagnostics:?}"
+            );
+            let setting = COLOURS
+                .iter()
+                .find(|setting| setting.key == key)
+                .unwrap_or_else(|| panic!("`{key}` is documented but is not a colour setting"));
+            assert_eq!(
+                setting.read(&style.palette).hex_rgba(),
+                wanted,
+                "`{key}` is documented but inert"
+            );
+        }
+
+        for row in scalar_catalogue() {
+            let key = row[0].clone();
+            if key == FONT_FAMILY_KEY {
+                let wanted = "Catalogue Serif";
+                let (style, diagnostics) = resolve(&Requested {
+                    theme: None,
+                    overrides: vec![text(&key, wanted)],
+                });
+                assert!(
+                    diagnostics.is_empty(),
+                    "`{key}` is documented but `resolve` complained: {diagnostics:?}"
+                );
+                assert_eq!(style.font_family, wanted, "`{key}` is documented but inert");
+                continue;
+            }
+
+            let setting = if key == TEXT_SIZE.key {
+                &TEXT_SIZE
+            } else {
+                GEOMETRY
+                    .iter()
+                    .find(|setting| setting.key == key)
+                    .unwrap_or_else(|| panic!("`{key}` is documented but is not a style setting"))
+            };
+            // Built from the page's own range, so a value in range here is one a user reading
+            // only that page would have written.
+            let (min, max) = documented_range(&row, &key);
+            let mut wanted = f64::midpoint(min, max);
+            if setting.integral {
+                wanted = wanted.round();
+            }
+
+            let (style, diagnostics) = resolve(&Requested {
+                theme: None,
+                overrides: vec![number(&key, wanted)],
+            });
+            assert!(
+                diagnostics.is_empty(),
+                "`{key}` = {wanted} is inside the documented range but `resolve` complained: \
+                 {diagnostics:?}"
+            );
+            let (resolved, default) = if key == TEXT_SIZE.key {
+                (style.text_size, DEFAULT_TEXT_SIZE)
+            } else {
+                (
+                    setting.read(&style.geometry),
+                    setting.read(&Geometry::DEFAULT),
+                )
+            };
+            assert!(
+                !close(wanted, default),
+                "`{key}` is being tested at its own default, so it would pass unwritten"
+            );
+            assert!(
+                close(resolved, wanted),
+                "`{key}` is documented but inert: wrote {wanted}, resolved {resolved}"
+            );
+        }
+    }
 }

@@ -18,6 +18,10 @@ current monitor.
   miniatures showing each window's real position and proportion, with no screen capture involved.
 - **Configurable order** — most-recently-used (default, so one tap bounces you back), compositor
   order, or grouped by monitor.
+- **Program icons** — each window shown with its own program's icon, taken from your desktop's
+  icon set; a placeholder where a program can't be identified. Turn them off with one setting.
+- **Themes and overrides** — a built-in `dark` or `light` palette, or override any individual
+  colour, font and dimension. Out of the box the overlay looks exactly as it always has.
 - **New-workspace hotkey** — jumps to the lowest unused workspace number on the focused monitor;
   a no-op if you're already on an empty one.
 - **No key grabbing** — hotkeys are ordinary Hyprland binds delivered as named global shortcuts;
@@ -30,6 +34,8 @@ current monitor.
 - Hyprland ≥ 0.55 (Wayland; other compositors are out of scope)
 - Rust ≥ 1.96 to build
 - System libraries: cairo, pango, pangocairo (development files)
+- Optional: an installed icon set for program icons — any freedesktop-layout set works, and
+  without one every window simply shows the placeholder
 - Optional: a desktop notification service (`notify-send`) — used for problems that need your
   attention; absence is fine
 
@@ -79,16 +85,59 @@ Optional — with no file present the defaults below apply. The file is
 presentation = "list"     # "list" | "grid"
 placement    = "active"   # "active" (monitor) | "all" (monitors)
 order        = "mru"      # "mru" | "compositor" | "monitor"
+
+icons        = true       # program icons beside window names
+icon_set     = "Papirus"  # any installed icon set; default: your desktop's own
+theme        = "dark"     # "dark" | "light"
 ```
 
 An invalid value is reported and falls back to that setting's default; the daemon keeps running.
 Diagnostics go to stderr. Exit codes: `0` success, `2` usage error, `3` compositor unreachable at
 start-up (or a second instance already running).
 
+### Appearance
+
+`theme` picks a built-in palette. Anything in it can be overridden individually in a `[style]`
+table, which also holds the font and the overlay's dimensions:
+
+```toml
+theme = "light"
+
+[style]
+highlight        = "#c04a2f"   # one colour, on top of the light theme
+font_family      = "JetBrains Mono"
+text_size        = 0.85
+text_line_height = 24
+width_fraction   = 0.95
+```
+
+**[`specs/002-overlay-visuals/contracts/style-values.md`](specs/002-overlay-visuals/contracts/style-values.md)
+is the full catalogue** — every key under `[style]`, its accepted form, its valid range and its
+default: eleven colours, two font values and ten dimensions. It is written so you can put together a
+complete custom appearance from that one page.
+
+Worth knowing:
+
+- **A theme is a palette and nothing else.** Switching theme recolours the overlay and never moves
+  it, so `dark` and `light` produce a surface of exactly the same size and position.
+- **Colours are `#rgb`, `#rrggbb` or `#rrggbbaa`**, and nothing else. Alpha defaults to opaque.
+- **Dimensions are logical units**, scaled per monitor exactly as the defaults are. A value outside
+  its documented range is *clamped* to the nearer bound and reported — not rejected, and not reset
+  to the default.
+- **One bad value costs you only that value.** Every setting is judged on its own; the rest of the
+  file still applies.
+- **`icon_set` is not `theme`.** One selects a freedesktop icon set, the other an overlay palette;
+  they are independent.
+- **Visual settings are read once, at start-up.** There is no live reload — restart the daemon to
+  apply a change.
+- With no configuration file at all, the overlay looks exactly as it did before icons and theming
+  existed, with the icons as the only addition.
+
 ## Development
 
 The project is spec-driven: requirements, architecture decisions, and contracts live under
-[`specs/001-workspace-swap-overlay/`](specs/001-workspace-swap-overlay/), governed by the project
+[`specs/001-workspace-swap-overlay/`](specs/001-workspace-swap-overlay/) and
+[`specs/002-overlay-visuals/`](specs/002-overlay-visuals/), governed by the project
 [constitution](.specify/memory/constitution.md).
 
 ```bash

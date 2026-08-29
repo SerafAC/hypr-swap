@@ -21,11 +21,14 @@ use e2e::keyboard::{
     KEY_ENTER, KEY_ESC, KEY_F12, KEY_LEFTALT, KEY_LEFTMETA, KEY_N, KEY_TAB, Keyboard,
 };
 use e2e::notify::NotifyLog;
+use e2e::overlay::{measure, paint_colours, pinned_panel, stage_scenario};
+use e2e::style::{LIST_ELEMENTS, assert_drawn_in};
 
 use hypr_swap::config::Order;
+use hypr_swap::diag::PAINT_RECORDS_VAR;
 use hypr_swap::ordering;
 use hypr_swap::state::World;
-use hypr_swap::theme::Geometry;
+use hypr_swap::theme::{DARK, Geometry, LIGHT};
 use hypr_swap::ui::layout;
 use hypr_swap::ui::shortcuts::Shortcut;
 use hypr_swap::{APP_ID, VERSION};
@@ -885,4 +888,93 @@ fn e2e_explicit_config_path_is_used_and_must_exist() {
         stderr.contains("WARN  config.presentation:"),
         "the explicitly named file was the one read: {stderr}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Visual settings are read once, at start-up
+// ---------------------------------------------------------------------------
+
+/// FR-060: the appearance is resolved at start-up and never re-read. Editing a visual setting
+/// under a running daemon changes nothing; restarting it is what applies the edit.
+///
+/// Asserted on both halves of the appearance at once, because they are read through different
+/// interfaces and a daemon could plausibly get one wrong and the other right: the geometry, which
+/// `hyprctl layers` reports, and the palette, which only the paint records name (research.md R22).
+/// The first daemon's records span *both* of its openings — the one before the edit and the one
+/// after — so "nothing changed" is asserted over the paints that followed the edit rather than
+/// only over the surface size.
+#[test]
+fn e2e_visual_settings_need_restart() {
+    // One theme and two geometry values, so the edit is visible in both interfaces. Every value
+    // is well inside its documented range, so nothing here is clamped or reported.
+    const EDITED: &str = "theme = \"light\"\n[style]\ntext_line_height = 48\nrow_padding = 20\n";
+
+    // An empty file rather than none at all: the scenario is a user *editing* their configuration,
+    // and the daemon must read this one at start-up for "unchanged" to mean anything.
+    let nested = Nested::start_with(&Setup::documented().with_app_config(""));
+    let panel = pinned_panel(&nested);
+    let _windows = stage_scenario(&nested, &panel);
+
+    let records = [(PAINT_RECORDS_VAR, "1")];
+    let mut daemon = nested.start_daemon_with_env(&[], &records);
+    let mut keyboard = Keyboard::attach(&nested.wayland_display);
+
+    let before = measure(&nested, &mut keyboard);
+
+    // The user edits the file with the daemon still running, then uses the overlay again.
+    nested.write_app_config(EDITED);
+    quiesce();
+    let during = measure(&nested, &mut keyboard);
+    assert_eq!(
+        during, before,
+        "an edit made while running moved the overlay"
+    );
+
+    let still_running = daemon.is_running();
+    let first = daemon.stderr();
+    assert!(
+        still_running,
+        "the daemon stopped when its configuration file changed:\n{first}"
+    );
+    let painted = paint_colours(&first);
+    assert!(
+        painted.len() >= 2,
+        "the two openings did not both leave paint records:\n{first}"
+    );
+    for drawn in &painted {
+        assert_drawn_in(drawn, &DARK, LIST_ELEMENTS, &LIGHT);
+    }
+    assert!(
+        !first.contains("config."),
+        "the edited file was read after all, and reported on:\n{first}"
+    );
+
+    // The restart is the thing that applies it.
+    nested.wait_until("the stopped daemon's shortcuts are gone", || {
+        nested.registered_shortcuts().is_empty()
+    });
+    let restarted = nested.start_daemon_with_env(&[], &records);
+    let after = measure(&nested, &mut keyboard);
+
+    assert_ne!(
+        after, before,
+        "the restart did not apply the edited configuration"
+    );
+    // Taller, not wider: the width is `width_fraction` of the monitor in both cases, and it is
+    // the row height the edit raised.
+    assert!(
+        after.3 > before.3,
+        "the raised text height and padding did not make the overlay taller: {after:?} against \
+         {before:?}"
+    );
+
+    let second = restarted.stderr();
+    let painted = paint_colours(&second);
+    assert!(
+        !painted.is_empty(),
+        "the restarted daemon left no paint records:\n{second}"
+    );
+    for drawn in &painted {
+        assert_drawn_in(drawn, &LIGHT, LIST_ELEMENTS, &DARK);
+    }
 }

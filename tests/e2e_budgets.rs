@@ -14,8 +14,11 @@ mod e2e;
 use std::time::{Duration, Instant};
 
 use e2e::clients;
-use e2e::harness::Nested;
-use e2e::keyboard::{KEY_LEFTALT, KEY_TAB, Keyboard};
+use e2e::harness::{Nested, Setup};
+use e2e::keyboard::{KEY_ESC, KEY_LEFTALT, KEY_TAB, Keyboard};
+use e2e::overlay::paint_records;
+
+use hypr_swap::diag::PAINT_RECORDS_VAR;
 
 /// SC-001: shortcut pressed to overlay on screen.
 const OVERLAY_BUDGET: Duration = Duration::from_millis(150);
@@ -117,5 +120,148 @@ fn e2e_idle_costs_nothing() {
     assert!(
         nested.overlay_monitors().is_empty(),
         "the measurement covered an idle daemon, with no overlay open"
+    );
+}
+
+/// SC-011: the SC-001 budget again, but under everything this feature added — a real icon set
+/// being resolved and decoded, a built-in theme, and a full set of overrides — at the scale the
+/// criterion names: 20 workspaces, 60 windows, 10 distinct programs.
+///
+/// This is the measurement T095 asks for, kept as a test rather than a one-off because it is the
+/// guard on FR-043's whole reason for existing. Icons are resolved at start-up and on a world
+/// rebuild, never on the open path (research.md R27), so the figure here should sit beside the
+/// icon-less one rather than above it. A regression that moved resolution onto the open path
+/// would show up here as a figure that scales with the number of distinct programs.
+///
+/// The daemon inherits the developer's real `XDG_DATA_*`, so the desktop entries and the icon
+/// files are the machine's own — a fixture set of two icons would not measure decoding at all.
+/// Ten programs with desktop entries on any ordinary system. `foot`'s `--app-id` stands in for
+/// each one, which is the identity resolution is keyed on (research.md R21).
+const SC011_PROGRAMS: [&str; 10] = [
+    "firefox",
+    "chromium",
+    "org.gnome.Nautilus",
+    "vlc",
+    "gimp",
+    "org.inkscape.Inkscape",
+    "blender",
+    "foot",
+    "steam",
+    "code",
+];
+const SC011_WORKSPACES: i32 = 20;
+/// Three per workspace: 60 windows across 20 workspaces, as SC-011 specifies.
+const SC011_PER_WORKSPACE: usize = 3;
+
+/// A built-in theme and a valid override of every kind — a colour, both font values and two
+/// dimensions — because SC-011 claims the budget holds under *any* of them.
+const SC011_CONFIG: &str = "\
+theme = \"light\"
+icon_set = \"Papirus-Dark\"
+
+[style]
+highlight        = \"#c04a2f\"
+font_family      = \"JetBrains Mono\"
+text_size        = 0.85
+text_line_height = 24
+width_fraction   = 0.95
+";
+
+/// Fill the instance with the scale SC-011 names, leaving it on workspace 1.
+fn stage_sc011(nested: &Nested) -> Vec<clients::Client> {
+    let mut windows = Vec::new();
+    for workspace in 1..=SC011_WORKSPACES {
+        for slot in 0..SC011_PER_WORKSPACE {
+            #[allow(clippy::cast_sign_loss)]
+            let index = workspace as usize * SC011_PER_WORKSPACE + slot;
+            windows.push(clients::spawn_as_on(
+                nested,
+                Some(SC011_PROGRAMS[index % SC011_PROGRAMS.len()]),
+                workspace,
+                &format!("sc011-{workspace}-{slot}"),
+            ));
+        }
+    }
+    nested.wait_until("every workspace exists", || {
+        nested
+            .workspaces()
+            .iter()
+            .filter(|workspace| workspace.id >= 1)
+            .count()
+            >= SC011_WORKSPACES as usize
+    });
+    nested.dispatch("workspace 1");
+    nested.wait_until("the run starts on workspace 1", || {
+        nested.active_workspace() == 1
+    });
+    windows
+}
+
+#[test]
+fn e2e_meets_the_latency_budget_with_icons() {
+    let nested = Nested::start_with(&Setup::documented().with_app_config(SC011_CONFIG));
+    let windows = stage_sc011(&nested);
+    assert_eq!(
+        windows.len(),
+        SC011_WORKSPACES as usize * SC011_PER_WORKSPACE
+    );
+
+    // The paint records are on so the run can say what it actually drew, rather than leaving
+    // "icons were enabled" as an assumption about a figure.
+    let daemon = nested.start_daemon_with_env(&[], &[(PAINT_RECORDS_VAR, "1")]);
+    let mut keyboard = Keyboard::attach(&nested.wayland_display);
+
+    let sample = {
+        let started = Instant::now();
+        for _ in 0..10 {
+            let _ = nested.overlay_monitors();
+        }
+        started.elapsed() / 10
+    };
+
+    keyboard.hold(KEY_LEFTALT);
+    keyboard.press(KEY_TAB);
+    let to_overlay = time_until("the overlay appears", || {
+        !nested.overlay_monitors().is_empty()
+    });
+    keyboard.release(KEY_TAB);
+    keyboard.settle();
+    keyboard.tap_while_held(KEY_ESC);
+    keyboard.release(KEY_LEFTALT);
+    keyboard.settle();
+    nested.wait_until("the overlay unmaps", || {
+        nested.overlay_surfaces().is_empty()
+    });
+
+    let stderr = daemon.stderr();
+    let records = paint_records(&stderr);
+    let drawn: usize = records
+        .iter()
+        .map(|record| record.matches("icons=[").count())
+        .sum();
+
+    println!(
+        "SC-011 shortcut → overlay: {to_overlay:?} (budget {OVERLAY_BUDGET:?}) with \
+         {SC011_WORKSPACES} workspaces, {} windows, {} programs, icons on, light theme + \
+         overrides",
+        windows.len(),
+        SC011_PROGRAMS.len()
+    );
+    println!(
+        "one `hyprctl` observation costs {sample:?}: the figure is an over-estimate by that much"
+    );
+    println!(
+        "{} paint records, {drawn} carrying an icon list",
+        records.len()
+    );
+
+    assert!(
+        !records.is_empty(),
+        "no paint records, so this measured an overlay that may not have drawn icons at all:\n\
+         {stderr}"
+    );
+    assert!(
+        to_overlay <= OVERLAY_BUDGET,
+        "SC-011: {to_overlay:?} against a {OVERLAY_BUDGET:?} budget"
     );
 }

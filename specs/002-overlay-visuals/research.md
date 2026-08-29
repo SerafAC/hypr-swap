@@ -40,9 +40,13 @@ clarification) — the measurement above. **Shelling out** to `rsvg-convert` —
 output-parsing surface per icon, for no benefit.
 
 **Pixel format note**: `tiny_skia::Pixmap` is premultiplied RGBA8; cairo `ARgb32` is premultiplied
-BGRA on little-endian. A channel swap is required when building the surface **[assumed — to confirm
-against `tiny_skia::PremultipliedColorU8` byte order during implementation]**. The conversion runs
-once per program per run, so its cost is irrelevant.
+BGRA on little-endian. A channel swap is required when building the surface **[verified in
+implementation — T092]**: `icons/decode.rs::surface_from_pixmap` assembles cairo's native-endian
+`u32` from the pixmap's `R, G, B, A` bytes, and
+`decode::tests::a_valid_svg_is_rasterised_at_the_slot_size` decodes an SVG filled with `#339966`
+and reads `(0x33, 0x99, 0x66, 0xff)` back out of the surface. Red and blue differ in that fixture,
+so a swap the wrong way round would fail rather than pass unnoticed. The conversion runs once per
+program per run, so its cost is irrelevant.
 
 ---
 
@@ -80,6 +84,19 @@ Hyprland case there is no release treadmill because the spec is frozen. Rejected
 ground that it would own the one piece of logic FR-057 makes user-visible (which set is in effect,
 and what happens when it is missing), pushing our diagnostics for FR-057's fallback behind someone
 else's error type. **`linicon`** — same objection, less maintained.
+
+**Survey of installed sets [verified in implementation — T092]**: the parser was run against every
+icon set on the development machine — Adwaita, AdwaitaLegacy, HighContrast, Papirus, Papirus-Dark,
+Papirus-Light, breeze, breeze-dark, default, hicolor and locolor, 1610 directories in total. Each
+set's parsed directory list, `Size`, `Scale`, `Type`, `MinSize`, `MaxSize`, `Threshold` and
+`Inherits` were compared against an independent naive reading of the same `index.theme`, and every
+chain was loaded and probed with five icon names. **No set was mishandled** and no chain failed to
+terminate at `hicolor`. Two cases worth recording because they exercise the degradation paths
+rather than the happy one: `default` lists no directories at all and is purely an `Inherits`
+redirect, which the parser resolves to `default → Adwaita → AdwaitaLegacy → hicolor`; and
+`locolor` ships no `index.theme`, which `SetIndex::default()` turns into a set holding nothing
+findable rather than an error. The assumption is therefore closed in the affirmative, and the
+survey is reproducible from the description above rather than kept as a machine-dependent test.
 
 **Symlink note**: 4664 of the 8509 entries in Papirus-Dark's `48x48/apps` are symlinks
 **[verified]**, so several classes routinely resolve to one real file. The cache is keyed by
@@ -292,6 +309,9 @@ invalidated on icon-set changes, theme changes, scale changes and package upgrad
 | When resolution runs | R27 — on the existing world-rebuild path and at start-up |
 | Cache lifetime | R28 — in memory, dropped on teardown, never on disk |
 
-Two items remain **[assumed]** and must be confirmed in implementation rather than planning: the
-`tiny_skia` → cairo channel order in R18, and whether any installed icon set in the wild ships an
-`index.theme` this parser mishandles (R20). Neither changes the design if it goes the other way.
+Two items were carried into implementation as **[assumed]** and have both since been confirmed
+(T092): the `tiny_skia` → cairo channel order in R18 is the swap the note describes, proved by a
+decode test reading a known colour back out of the surface; and no icon set installed on the
+development machine ships an `index.theme` this parser mishandles, across all eleven sets. Neither
+would have changed the design had it gone the other way. Nothing in this document is still
+assumed.
