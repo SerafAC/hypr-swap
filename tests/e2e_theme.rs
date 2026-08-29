@@ -12,9 +12,12 @@ use std::path::{Path, PathBuf};
 
 use e2e::harness::{Nested, Setup};
 use e2e::keyboard::Keyboard;
-use e2e::overlay::{GRID, baseline, measure, paint_records, pinned_panel, stage_scenario};
+use e2e::overlay::{
+    GRID, baseline, measure, open_while, paint_colours, paint_records, pinned_panel, stage_scenario,
+};
 
 use hypr_swap::diag::PAINT_RECORDS_VAR;
+use hypr_swap::theme::{self, COLOURS, Theme};
 
 /// The foundational phase's checkpoint: every colour and dimension now comes from a resolved
 /// `Style`, and the overlay is unchanged (FR-049a, SC-018).
@@ -151,4 +154,338 @@ fn the_recorded_baseline_is_present() {
         );
     }
     let _: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
+}
+
+// ---------------------------------------------------------------------------
+// User Story 2 — one setting recolours the whole overlay (T058–T062)
+// ---------------------------------------------------------------------------
+
+/// The whole of what a user writes to change the overlay's appearance (SC-020, US2-AS1).
+const LIGHT: &str = "theme = \"light\"\n";
+
+/// The elements the flat list draws, by the colour setting each one uses. Every workspace has a
+/// name, one of them is highlighted, one is active, and at least one unhighlighted workspace holds
+/// windows — so the scenario reaches all six whichever entry the highlight lands on.
+const LIST_ELEMENTS: &[&str] = &[
+    "backdrop",
+    "highlight",
+    "active_mark",
+    "text",
+    "text_highlighted",
+    "text_dim",
+];
+
+/// The same for the grid, which adds the miniature and the window rectangles inside it. Only
+/// `window_floating` is absent: the baseline scenario has no floating window, and inventing one
+/// here would change the scenario every other comparison is made against.
+const GRID_ELEMENTS: &[&str] = &[
+    "backdrop",
+    "highlight",
+    "active_mark",
+    "miniature",
+    "window",
+    "window_edge",
+    "text",
+    "text_highlighted",
+    "text_dim",
+];
+
+/// One paint's worth of evidence: the surface the compositor reported and the colours the daemon
+/// says it drew with.
+struct Painted {
+    surface: (i32, i32, u32, u32),
+    /// One entry per paint pass — the overlay repaints several times over one opening.
+    colours: Vec<Vec<String>>,
+    stderr: String,
+}
+
+/// Stage the baseline scenario under `app_config`, open the overlay once, and collect what was
+/// painted.
+fn painted(app_config: Option<&str>) -> Painted {
+    let setup = match app_config {
+        Some(toml) => Setup::documented().with_app_config(toml),
+        None => Setup::documented(),
+    };
+    let nested = Nested::start_with(&setup);
+    let panel = pinned_panel(&nested);
+    let _windows = stage_scenario(&nested, &panel);
+
+    let daemon = nested.start_daemon_with_env(&[], &[(PAINT_RECORDS_VAR, "1")]);
+    let mut keyboard = Keyboard::attach(&nested.wayland_display);
+
+    let surface = measure(&nested, &mut keyboard);
+    let stderr = daemon.stderr();
+    Painted {
+        surface,
+        colours: paint_colours(&stderr),
+        stderr,
+    }
+}
+
+/// The `#rrggbbaa` value a theme paints one element in.
+fn colour_of(theme: &Theme, key: &str) -> String {
+    COLOURS
+        .iter()
+        .find(|setting| setting.key == key)
+        .unwrap_or_else(|| panic!("{key} is not a colour setting"))
+        .read(theme)
+        .hex_rgba()
+}
+
+/// Assert that one paint drew in `theme` and in nothing else (FR-045, FR-048).
+///
+/// Three claims, which together are US2-AS1's "every themed element uses that theme's values and
+/// none is left with the default theme's appearance": every colour that reached cairo belongs to
+/// the theme, every element the presentation draws is among them, and no value that distinguishes
+/// `other` from `theme` appears at all.
+fn assert_drawn_in(drawn: &[String], theme: &Theme, elements: &[&str], other: &Theme) {
+    let palette: Vec<String> = COLOURS
+        .iter()
+        .map(|setting| setting.read(theme).hex_rgba())
+        .collect();
+    for colour in drawn {
+        assert!(
+            palette.contains(colour),
+            "{colour} is not a colour of the {:?} theme; the paint drew {drawn:?}",
+            theme.name
+        );
+    }
+    for element in elements {
+        let expected = colour_of(theme, element);
+        assert!(
+            drawn.contains(&expected),
+            "the {element} was not drawn in {:?}'s {expected}; the paint drew {drawn:?}",
+            theme.name
+        );
+    }
+    for setting in COLOURS {
+        let foreign = setting.read(other).hex_rgba();
+        if foreign == setting.read(theme).hex_rgba() {
+            // The two themes agree here, so seeing this value proves nothing either way.
+            continue;
+        }
+        assert!(
+            !drawn.contains(&foreign),
+            "the {} was left in {:?}'s {foreign}; the paint drew {drawn:?}",
+            setting.key,
+            other.name
+        );
+    }
+}
+
+/// Every paint of one opening, checked the same way — a theme that reached only the first pass
+/// would be a theme that flickers.
+fn assert_every_paint(painted: &Painted, theme: &Theme, elements: &[&str], other: &Theme) {
+    assert!(
+        !painted.colours.is_empty(),
+        "the gate produced no colour records at all; stderr was:\n{}",
+        painted.stderr
+    );
+    for drawn in &painted.colours {
+        assert_drawn_in(drawn, theme, elements, other);
+    }
+}
+
+/// US2-AS1/AS2, SC-020, SC-021: naming a built-in theme recolours every themed element of both
+/// presentations, and the naming is one line of configuration (FR-045, FR-048, FR-053).
+#[test]
+fn e2e_builtin_theme_applies() {
+    assert_eq!(LIGHT.lines().count(), 1, "SC-020: one line, not a palette");
+
+    let list = painted(Some(LIGHT));
+    assert_every_paint(&list, &theme::LIGHT, LIST_ELEMENTS, &theme::DARK);
+
+    let grid = painted(Some(&format!("{LIGHT}{GRID}")));
+    assert_every_paint(&grid, &theme::LIGHT, GRID_ELEMENTS, &theme::DARK);
+}
+
+/// US2-AS3, FR-048: with a copy on every monitor, every copy is the same theme — one resolved
+/// style drives them all rather than one per surface.
+#[test]
+fn e2e_theme_on_all_monitors() {
+    let nested = Nested::start_with(
+        &Setup::documented().with_app_config(&format!("{LIGHT}placement = \"all\"\n")),
+    );
+    let panel = pinned_panel(&nested);
+    let other = nested.add_headless_output();
+    let _windows = stage_scenario(&nested, &panel);
+
+    let daemon = nested.start_daemon_with_env(&[], &[(PAINT_RECORDS_VAR, "1")]);
+    let mut keyboard = Keyboard::attach(&nested.wayland_display);
+
+    let monitors = open_while(&nested, &mut keyboard, || nested.overlay_monitors());
+    let mut expected: Vec<String> = nested
+        .monitors()
+        .iter()
+        .map(|monitor| monitor.name.clone())
+        .collect();
+    expected.sort();
+    assert!(
+        expected.len() >= 2 && expected.contains(&panel) && expected.contains(&other),
+        "the scenario did not bring up two outputs to theme: {expected:?}"
+    );
+    assert_eq!(monitors, expected, "one copy per connected monitor");
+
+    let stderr = daemon.stderr();
+    let paints = paint_colours(&stderr);
+    assert!(
+        paints.len() >= 2,
+        "two surfaces painted fewer than two passes between them:\n{stderr}"
+    );
+    for drawn in &paints {
+        assert_drawn_in(drawn, &theme::LIGHT, LIST_ELEMENTS, &theme::DARK);
+    }
+}
+
+/// US2-AS4, FR-049a, SC-018: with no configuration at all the overlay's colours and geometry are
+/// the ones recorded from the pre-feature build.
+///
+/// Colours and geometry only — icons are not this test's business, which is what keeps US2
+/// independent of US1 (T060).
+#[test]
+fn e2e_default_appearance_unchanged() {
+    let recorded = baseline("style.json");
+    let palette = recorded["palette"]
+        .as_object()
+        .expect("the baseline records a palette");
+
+    let painted = painted(None);
+
+    // Geometry: the surface is exactly where and how big the pre-feature build put it.
+    let surface = &baseline("list.json")["surface"];
+    assert_eq!(
+        (
+            i64::from(painted.surface.0),
+            i64::from(painted.surface.1),
+            i64::from(painted.surface.2),
+            i64::from(painted.surface.3),
+        ),
+        (
+            surface["x_on_monitor"].as_i64().expect("x_on_monitor"),
+            surface["y_on_monitor"].as_i64().expect("y_on_monitor"),
+            surface["w"].as_i64().expect("w"),
+            surface["h"].as_i64().expect("h"),
+        ),
+        "the default overlay's geometry has moved since before this feature"
+    );
+
+    // Colours: every value that reached cairo is one the pre-feature renderer used.
+    let recorded_colours: Vec<String> = palette
+        .values()
+        .map(|colour| {
+            colour["hex"]
+                .as_str()
+                .expect("the baseline records a hex form")
+                .to_owned()
+        })
+        .collect();
+    assert!(
+        !painted.colours.is_empty(),
+        "the gate produced no colour records:\n{}",
+        painted.stderr
+    );
+    for drawn in &painted.colours {
+        for colour in drawn {
+            assert!(
+                recorded_colours.contains(colour),
+                "{colour} was never used by the pre-feature renderer; the paint drew {drawn:?}"
+            );
+        }
+        for element in LIST_ELEMENTS {
+            let expected = palette[*element]["hex"]
+                .as_str()
+                .expect("the baseline records a hex form")
+                .to_owned();
+            assert!(
+                drawn.contains(&expected),
+                "the {element} was not drawn in the recorded {expected}; the paint drew {drawn:?}"
+            );
+        }
+    }
+}
+
+/// US2-AS5, FR-049, SC-023: a theme is a palette, so switching one cannot move anything. Asserted
+/// on the compositor's own geometry rather than on the type — the structural half is the unit test
+/// in `theme.rs`.
+#[test]
+fn e2e_theme_switch_does_not_move_layout() {
+    for presentation in ["", GRID] {
+        let dark = painted(Some(&format!("theme = \"dark\"\n{presentation}")));
+        let light = painted(Some(&format!("{LIGHT}{presentation}")));
+        assert_eq!(
+            dark.surface,
+            light.surface,
+            "the overlay moved between themes in the {} presentation",
+            if presentation.is_empty() {
+                "list"
+            } else {
+                "grid"
+            }
+        );
+        // And the switch really happened, so the geometry above was not identical for the dull
+        // reason that both runs drew the same theme.
+        assert_drawn_in(&dark.colours[0], &theme::DARK, LIST_ELEMENTS, &theme::LIGHT);
+        assert_drawn_in(
+            &light.colours[0],
+            &theme::LIGHT,
+            LIST_ELEMENTS,
+            &theme::DARK,
+        );
+    }
+}
+
+/// US2-AS6, FR-058: an unknown theme name is reported, the default applies, every other setting
+/// still applies, and the daemon carries on.
+#[test]
+fn e2e_unknown_theme_falls_back() {
+    let accent = "#ff0000";
+    let painted = painted(Some(&format!(
+        "theme = \"dracula\"\n{GRID}\n[style]\nhighlight = \"{accent}\"\n"
+    )));
+
+    assert!(
+        painted.stderr.contains("WARN  config.theme:"),
+        "the unknown name was not reported:\n{}",
+        painted.stderr
+    );
+    assert!(
+        painted.stderr.contains(r#"unknown theme "dracula""#)
+            && painted.stderr.contains(r#"using "dark""#),
+        "the report does not say what was wrong and what was used instead:\n{}",
+        painted.stderr
+    );
+
+    // Every other setting still applies: the grid was drawn, and the override took effect.
+    let records = paint_records(&painted.stderr);
+    assert!(
+        !records.is_empty() && records.iter().all(|record| record.contains(" grid:")),
+        "the presentation setting was dropped along with the theme: {records:?}"
+    );
+    assert!(
+        !painted.colours.is_empty(),
+        "the daemon painted nothing at all:\n{}",
+        painted.stderr
+    );
+    for drawn in &painted.colours {
+        // The fallback palette, with the one overridden value in place of the theme's own.
+        let overridden = format!("{accent}ff");
+        assert!(
+            drawn.contains(&overridden),
+            "the override was dropped along with the theme; the paint drew {drawn:?}"
+        );
+        assert!(
+            !drawn.contains(&colour_of(&theme::DARK, "highlight")),
+            "the overridden highlight was drawn in the theme's own colour: {drawn:?}"
+        );
+        for element in GRID_ELEMENTS {
+            if *element == "highlight" {
+                continue;
+            }
+            let expected = colour_of(&theme::DARK, element);
+            assert!(
+                drawn.contains(&expected),
+                "the {element} did not fall back to the default theme's {expected}: {drawn:?}"
+            );
+        }
+    }
 }

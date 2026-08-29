@@ -234,6 +234,30 @@ pub fn paint(index: usize, presentation: &str, detail: &str) {
     let _ = writeln!(stderr, "{record}");
 }
 
+/// The record one paint's colours produce: `colours <presentation>: [#rrggbbaa …]`.
+///
+/// The colours are the ones actually handed to cairo over that paint, in the order they were
+/// first used, so the record is evidence about the pixels rather than about the configuration
+/// that was read (T058, research.md R22). A theme reaches the screen or it does not appear here.
+#[must_use]
+pub fn paint_colours_record(presentation: &str, colours: &[String]) -> String {
+    format!("colours {presentation}: [{}]", colours.join(" "))
+}
+
+/// Record the colours one paint drew with — but only when the gate is open.
+pub fn paint_colours(presentation: &str, colours: &[String]) {
+    if !paint_records_enabled() {
+        return;
+    }
+    let record = format_record(
+        Level::Info,
+        PAINT_SUBJECT,
+        &paint_colours_record(presentation, colours),
+    );
+    let mut stderr = std::io::stderr().lock();
+    let _ = writeln!(stderr, "{record}");
+}
+
 thread_local! {
     /// Notification children, kept only long enough to be reaped. The child is never waited on
     /// synchronously — a wedged notification daemon must not stall the event loop — so completed
@@ -440,6 +464,27 @@ mod tests {
                 &paint_record(2, "grid", "shed title")
             ),
             "INFO  paint: entry 2 grid: shed title"
+        );
+    }
+
+    #[test]
+    fn a_colour_record_names_the_presentation_and_every_colour_drawn() {
+        // T058: the tape is a list of `#rrggbbaa` values in first-use order, and it carries alpha
+        // because the backdrop is the one themed colour that is not opaque.
+        assert_eq!(
+            paint_colours_record("list", &["#17171ced".to_owned(), "#336bb8ff".to_owned()]),
+            "colours list: [#17171ced #336bb8ff]"
+        );
+        // A paint that drew nothing at all still says so, rather than looking like a paint that
+        // never happened.
+        assert_eq!(paint_colours_record("grid", &[]), "colours grid: []");
+        assert_eq!(
+            format_record(
+                Level::Info,
+                PAINT_SUBJECT,
+                &paint_colours_record("grid", &["#292930ff".to_owned()])
+            ),
+            "INFO  paint: colours grid: [#292930ff]"
         );
     }
 

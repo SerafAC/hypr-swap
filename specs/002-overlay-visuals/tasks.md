@@ -151,17 +151,17 @@ the default theme's appearance.
 
 ### Implementation for User Story 2
 
-- [ ] T055 [US2] Add the `light` built-in theme to src/theme.rs — the eleven colours of FR-045 chosen to read on a light desktop, defined as a palette only so it cannot carry font or geometry values (FR-045, FR-049)
-- [ ] T056 [US2] Apply the selected theme name in src/theme.rs `resolve`, falling back to the default and reporting when the name is unknown, with every other setting still applied (FR-049, FR-058)
-- [ ] T057 [P] [US2] Unit tests in src/theme.rs — every built-in theme defines all eleven colours and no font or geometry value, so selecting a theme provably cannot move the layout (FR-049, SC-023)
+- [X] T055 [US2] Add the `light` built-in theme to src/theme.rs — the eleven colours of FR-045 chosen to read on a light desktop, defined as a palette only so it cannot carry font or geometry values (FR-045, FR-049)
+- [X] T056 [US2] Apply the selected theme name in src/theme.rs `resolve`, falling back to the default and reporting when the name is unknown, with every other setting still applied (FR-049, FR-058)
+- [X] T057 [P] [US2] Unit tests in src/theme.rs — every built-in theme defines all eleven colours and no font or geometry value, so selecting a theme provably cannot move the layout (FR-049, SC-023)
 
 ### Tests for User Story 2 (REQUIRED)
 
-- [ ] T058 [P] [US2] E2E test `e2e_builtin_theme_applies` in tests/e2e_theme.rs — `theme = "light"` recolours every themed element in both presentations, with no element left in another theme's colours, and the switch is a single line of configuration (FR-045, FR-048, FR-053, SC-020, SC-021, US2-AS1/AS2)
-- [ ] T059 [P] [US2] E2E test `e2e_theme_on_all_monitors` in tests/e2e_theme.rs — `placement = "all"` with two headless outputs, every copy using the same theme (FR-048, US2-AS3)
-- [ ] T060 [P] [US2] E2E test `e2e_default_appearance_unchanged` in tests/e2e_theme.rs — no configuration file, colours and geometry matching the pre-feature baseline from T001. Asserts colours and geometry only, so it passes whether or not US1 has landed and US2 stays independent of it; SC-018's "icons are the only difference" is closed by T087 once both stories exist (FR-049a, SC-018, US2-AS4)
-- [ ] T061 [P] [US2] E2E test `e2e_theme_switch_does_not_move_layout` in tests/e2e_theme.rs — the overlay's `xywh` from `hyprctl layers` is identical under `dark` and `light` (FR-049, SC-023, US2-AS5)
-- [ ] T062 [P] [US2] E2E test `e2e_unknown_theme_falls_back` in tests/e2e_theme.rs — an unknown name is reported, the default theme applies, every other setting still applies, and the daemon keeps running (FR-058, US2-AS6)
+- [X] T058 [P] [US2] E2E test `e2e_builtin_theme_applies` in tests/e2e_theme.rs — `theme = "light"` recolours every themed element in both presentations, with no element left in another theme's colours, and the switch is a single line of configuration (FR-045, FR-048, FR-053, SC-020, SC-021, US2-AS1/AS2)
+- [X] T059 [P] [US2] E2E test `e2e_theme_on_all_monitors` in tests/e2e_theme.rs — `placement = "all"` with two headless outputs, every copy using the same theme (FR-048, US2-AS3)
+- [X] T060 [P] [US2] E2E test `e2e_default_appearance_unchanged` in tests/e2e_theme.rs — no configuration file, colours and geometry matching the pre-feature baseline from T001. Asserts colours and geometry only, so it passes whether or not US1 has landed and US2 stays independent of it; SC-018's "icons are the only difference" is closed by T087 once both stories exist (FR-049a, SC-018, US2-AS4)
+- [X] T061 [P] [US2] E2E test `e2e_theme_switch_does_not_move_layout` in tests/e2e_theme.rs — the overlay's `xywh` from `hyprctl layers` is identical under `dark` and `light` (FR-049, SC-023, US2-AS5)
+- [X] T062 [P] [US2] E2E test `e2e_unknown_theme_falls_back` in tests/e2e_theme.rs — an unknown name is reported, the default theme applies, every other setting still applies, and the daemon keeps running (FR-058, US2-AS6)
 
 **Checkpoint**: Both P1 stories are complete and independently demonstrable.
 

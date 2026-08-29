@@ -101,15 +101,37 @@ impl Colour {
     /// colours this way for text, which is drawn opaque.
     #[must_use]
     pub fn hex(self) -> String {
-        // Clamped to `0.0..=1.0` first, so the scaled value is always inside `u8`.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let channel = |value: f64| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
         format!(
             "#{:02x}{:02x}{:02x}",
-            channel(self.red),
-            channel(self.green),
-            channel(self.blue)
+            Self::channel(self.red),
+            Self::channel(self.green),
+            Self::channel(self.blue)
         )
+    }
+
+    /// `#rrggbbaa` — the full colour including its opacity, which is the form the recorded
+    /// baseline holds and the form a paint record names a drawn colour by (research.md R22).
+    ///
+    /// The renderer's evidence has to carry alpha: the backdrop is the one themed colour that is
+    /// not opaque, and a theme that got its transparency wrong would otherwise look identical to
+    /// one that got it right.
+    #[must_use]
+    pub fn hex_rgba(self) -> String {
+        format!(
+            "#{:02x}{:02x}{:02x}{:02x}",
+            Self::channel(self.red),
+            Self::channel(self.green),
+            Self::channel(self.blue),
+            Self::channel(self.alpha)
+        )
+    }
+
+    /// One channel as the 8-bit value the two hex forms print, rounded half away from zero
+    /// (`contracts/style-values.md`).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn channel(value: f64) -> u8 {
+        // Clamped to `0.0..=1.0` first, so the scaled value is always inside `u8`.
+        (value.clamp(0.0, 1.0) * 255.0).round() as u8
     }
 }
 
@@ -418,8 +440,32 @@ pub const DARK: Theme = Theme {
     window_edge: Colour::new(0.52, 0.55, 0.62, 1.0),
 };
 
+/// The light counterpart: the same overlay read against a light desktop (FR-049, T055).
+///
+/// A palette and nothing else, exactly as [`DARK`] is — no font, no geometry — which is what makes
+/// SC-023's "switching theme never moves the layout" true by construction rather than by
+/// discipline. The values invert the dark palette's *roles* rather than its channels: the backdrop
+/// becomes near-white at the same opacity, the two text colours darken, and the miniature and its
+/// window rectangles stay a shade apart from the backdrop so a miniature still reads as a panel.
+/// `text_highlighted` stays white because the highlight stays a saturated blue in both themes —
+/// the one value the two palettes share, and deliberately so.
+pub const LIGHT: Theme = Theme {
+    name: "light",
+    backdrop: Colour::new(0.97, 0.97, 0.98, 0.93),
+    highlight: Colour::new(0.18, 0.44, 0.80, 1.0),
+    active_mark: Colour::new(0.16, 0.55, 0.28, 1.0),
+    text: Colour::new(0.11, 0.11, 0.14, 1.0),
+    text_highlighted: Colour::new(1.0, 1.0, 1.0, 1.0),
+    text_dim: Colour::new(0.35, 0.35, 0.40, 1.0),
+    text_dim_highlighted: Colour::new(0.88, 0.92, 0.98, 1.0),
+    miniature: Colour::new(0.90, 0.90, 0.93, 1.0),
+    window: Colour::new(0.76, 0.78, 0.84, 1.0),
+    window_floating: Colour::new(0.68, 0.71, 0.79, 1.0),
+    window_edge: Colour::new(0.45, 0.48, 0.56, 1.0),
+};
+
 /// Every theme a user can name. The first is the default (FR-049).
-pub const BUILT_IN: &[Theme] = &[DARK];
+pub const BUILT_IN: &[Theme] = &[DARK, LIGHT];
 
 /// One colour setting as data, mirroring [`GeometrySetting`]: the key a user writes, and how the
 /// value is read from and written into a palette.
@@ -1162,6 +1208,110 @@ mod tests {
             assert_eq!(style.font_family, DEFAULT_FONT_FAMILY, "{}", theme.name);
             assert!(close(style.text_size, DEFAULT_TEXT_SIZE), "{}", theme.name);
         }
+    }
+
+    // --- T057: what a built-in theme is, and is not -------------------------
+
+    #[test]
+    fn every_built_in_theme_is_selectable_by_its_name_without_complaint() {
+        // FR-049: the set is "documented" and "selectable by name", so a theme that exists in the
+        // slice but cannot be reached by the name it carries is a theme a user cannot have.
+        for theme in BUILT_IN {
+            let (style, diagnostics) = resolve(&Requested {
+                theme: Some(theme.name.to_owned()),
+                overrides: Vec::new(),
+            });
+            assert_eq!(
+                style.palette, *theme,
+                "{} did not resolve to itself",
+                theme.name
+            );
+            assert!(
+                diagnostics.is_empty(),
+                "{} reported {diagnostics:?}",
+                theme.name
+            );
+        }
+    }
+
+    #[test]
+    fn built_in_theme_names_are_unique() {
+        // `named_theme` takes the first match, so a duplicated name would make one theme
+        // unreachable and the shadowing silent.
+        let mut names: Vec<&str> = BUILT_IN.iter().map(|theme| theme.name).collect();
+        let total = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), total, "duplicate built-in theme name");
+        assert!(
+            names.contains(&"dark") && names.contains(&"light"),
+            "FR-049 requires at least a dark and a light theme, found {names:?}"
+        );
+    }
+
+    #[test]
+    fn every_built_in_theme_defines_all_eleven_colours_and_nothing_else() {
+        // FR-049, SC-023: a theme is a palette. `resolve` already proves it carries no font and
+        // no geometry (below); this proves the palette half — every one of the eleven is a real
+        // colour in every theme, so none was left at a placeholder.
+        assert_eq!(COLOURS.len(), 11, "FR-045 names eleven colours");
+        for theme in BUILT_IN {
+            for setting in COLOURS {
+                for channel in channels(setting.read(theme)) {
+                    assert!(
+                        (0.0..=1.0).contains(&channel),
+                        "{}.{} has an out-of-range channel {channel}",
+                        theme.name,
+                        setting.key
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_colour_setting_reaches_a_field_of_its_own() {
+        // Two catalogue rows pointing at one field would make an override silently set the wrong
+        // element — the kind of copy-and-paste slip the macro above invites. Writing a distinct
+        // value through every key and reading them all back catches it.
+        let mut palette = DARK;
+        for (index, setting) in COLOURS.iter().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            let unique = Colour::new(index as f64 / 255.0, 0.0, 0.0, 1.0);
+            setting.write(&mut palette, unique);
+        }
+        let mut written: Vec<String> = COLOURS
+            .iter()
+            .map(|setting| setting.read(&palette).hex_rgba())
+            .collect();
+        let total = written.len();
+        written.sort();
+        written.dedup();
+        assert_eq!(written.len(), total, "two colour keys share one field");
+    }
+
+    #[test]
+    fn the_light_theme_is_a_light_one() {
+        // The one thing "a light theme" has to mean, asserted rather than assumed: its backdrop
+        // is light and its primary text is dark, which is the reverse of the default (FR-049).
+        let luminance = |colour: Colour| {
+            0.2126f64.mul_add(
+                colour.red,
+                0.7152f64.mul_add(colour.green, 0.0722 * colour.blue),
+            )
+        };
+        assert!(
+            luminance(LIGHT.backdrop) > 0.5,
+            "the light backdrop is not light"
+        );
+        assert!(
+            luminance(LIGHT.text) < 0.5,
+            "the light theme's text is not dark"
+        );
+        assert!(
+            luminance(DARK.backdrop) < 0.5 && luminance(DARK.text) > 0.5,
+            "the dark theme stopped being the dark one"
+        );
     }
 
     #[test]

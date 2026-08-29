@@ -132,29 +132,36 @@ pub fn paint(
     first_visible: usize,
     highlight: usize,
 ) -> Result<(), cairo::Error> {
-    backdrop(cairo, style, metrics)?;
     // Read once per paint rather than once per entry: the gate is closed in every run that is not
     // an E2E one, and this is the whole of what it costs then (research.md R22).
     let record = diag::paint_records_enabled();
+    arm_colour_tape(record);
+    let presentation = match metrics.presentation {
+        Presentation::List => "list",
+        Presentation::Grid => "grid",
+    };
+    backdrop(cairo, style, metrics)?;
     for slot in 0..metrics.visible_entries() {
         let Some(entry) = entries.get(first_visible + slot) else {
             break;
         };
         let index = first_visible + slot;
         let selected = index == highlight;
-        let (presentation, painted) = match metrics.presentation {
-            Presentation::List => (
-                "list",
-                paint_row(cairo, style, icons, metrics, entry, slot, selected)?,
-            ),
+        let painted = match metrics.presentation {
+            Presentation::List => paint_row(cairo, style, icons, metrics, entry, slot, selected)?,
             Presentation::Grid => {
                 paint_cell(cairo, style, metrics, entry, slot, selected)?;
-                ("grid", Painted::default())
+                Painted::default()
             }
         };
         if record {
             diag::paint(index, presentation, &drawn(entry, selected, &painted));
         }
+    }
+    // Every colour this paint reached the buffer with, once the whole overlay is on it — the
+    // evidence that a named theme recoloured every element and left none behind (FR-045, FR-048).
+    if let Some(colours) = take_colour_tape() {
+        diag::paint_colours(presentation, &colours);
     }
     Ok(())
 }
@@ -634,6 +641,9 @@ fn row_markup(style: &Style, entry: &Entry, selected: bool, icons: bool) -> Stri
     } else {
         style.palette.text_dim
     };
+    // Secondary text is the one themed colour that reaches the buffer through pango markup rather
+    // than through `set_colour`, so it is noted here or it is missing from the tape entirely.
+    note_colour(dim);
     let mark = if icons { ICON_MARK } else { "" };
     let mut markup = format!("<b>{}</b>", escape(&entry.label));
     if !entry.windows.is_empty() {
@@ -669,8 +679,54 @@ fn primary_text(style: &Style, selected: bool) -> Colour {
 }
 
 fn set_colour(cairo: &Context, colour: Colour) {
+    note_colour(colour);
     let (red, green, blue, alpha) = colour.rgba();
     cairo.set_source_rgba(red, green, blue, alpha);
+}
+
+// --- The colour tape (T058, research.md R22) --------------------------------
+//
+// A theme's requirements are about what reaches the screen, and screenshot comparison stays
+// rejected, so the evidence has to be taken where the colour is actually handed to cairo rather
+// than where it was resolved. `set_colour` is that single point, and the tape below is what it
+// writes to: armed once per paint from the gate `paint` already read, and `None` — a thread-local
+// read and a null check — in every run that is not an E2E one.
+//
+// Thread-local rather than threaded through the paint functions because the alternative is a
+// `&mut` parameter on every drawing helper paired with a push beside every `set_colour` call,
+// which is both more code and weaker evidence: a paired push can disagree with the call it sits
+// next to, and a tap inside `set_colour` cannot.
+
+thread_local! {
+    /// The colours handed to cairo during the current paint, in first-use order, or `None` when
+    /// the gate is shut.
+    static COLOUR_TAPE: std::cell::RefCell<Option<Vec<Colour>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Start (or discard) a tape for the paint about to begin.
+fn arm_colour_tape(recording: bool) {
+    COLOUR_TAPE.with_borrow_mut(|tape| *tape = recording.then(Vec::new));
+}
+
+/// Note a colour on the tape, if one is running. Distinct values only: the record is "which
+/// colours the overlay was drawn in", and an entry drawn twice says nothing more than once.
+fn note_colour(colour: Colour) {
+    COLOUR_TAPE.with_borrow_mut(|tape| {
+        if let Some(tape) = tape.as_mut()
+            && !tape.contains(&colour)
+        {
+            tape.push(colour);
+        }
+    });
+}
+
+/// Take the finished tape, leaving the gate shut until the next paint arms it again.
+fn take_colour_tape() -> Option<Vec<String>> {
+    COLOUR_TAPE.with_borrow_mut(|tape| {
+        tape.take()
+            .map(|colours| colours.into_iter().map(Colour::hex_rgba).collect())
+    })
 }
 
 /// A device-pixel rectangle as the floating-point one cairo draws with.

@@ -20,19 +20,29 @@ notation is accepted (research R25).
 
 **Set by a theme**: yes — these eleven values are what a built-in theme sets (FR-045, FR-049).
 
-| Key | Draws | Default (`dark`) |
-|---|---|---|
-| `backdrop` | Overlay background | `#17171ced` |
-| `highlight` | Highlighted entry background | `#336bb8` |
-| `active_mark` | Active-workspace mark | `#6bb873` |
-| `text` | Primary entry text (workspace name) | `#ebebf0` |
-| `text_highlighted` | Primary text on the highlighted entry | `#ffffff` |
-| `text_dim` | Secondary text (window names) | `#a8a8b3` |
-| `text_dim_highlighted` | Secondary text on the highlighted entry | `#dbe6f5` |
-| `miniature` | Miniature background | `#292930` |
-| `window` | Tiled window rectangle fill | `#4d5261` |
-| `window_floating` | Floating window rectangle fill | `#61667a` |
-| `window_edge` | Window rectangle edge | `#858c9e` |
+| Key | Draws | Default (`dark`) | `light` |
+|---|---|---|---|
+| `backdrop` | Overlay background | `#17171ced` | `#f7f7faed` |
+| `highlight` | Highlighted entry background | `#336bb8` | `#2e70cc` |
+| `active_mark` | Active-workspace mark | `#6bb873` | `#298c47` |
+| `text` | Primary entry text (workspace name) | `#ebebf0` | `#1c1c24` |
+| `text_highlighted` | Primary text on the highlighted entry | `#ffffff` | `#ffffff` |
+| `text_dim` | Secondary text (window names) | `#a8a8b3` | `#595966` |
+| `text_dim_highlighted` | Secondary text on the highlighted entry | `#dbe6f5` | `#e0ebfa` |
+| `miniature` | Miniature background | `#292930` | `#e6e6ed` |
+| `window` | Tiled window rectangle fill | `#4d5261` | `#c2c7d6` |
+| `window_floating` | Floating window rectangle fill | `#61667a` | `#adb5c9` |
+| `window_edge` | Window rectangle edge | `#858c9e` | `#737a8f` |
+
+## Built-in themes
+
+`theme = "dark"` (the default) and `theme = "light"`, whose values are the two columns above. A
+built-in theme is a **palette and nothing else**: it sets those eleven colours and never a font or
+a geometry value, so switching theme recolours the overlay and never moves it (FR-049, SC-023).
+`text_highlighted` is white in both, because the highlight stays a saturated blue in both.
+
+An unknown name is reported, the default theme applies, and every other setting still applies
+(FR-058). Any of the eleven can still be overridden on top of a theme (FR-050).
 
 The `dark` defaults are the constants `ui/render.rs` uses today, so an unconfigured overlay is
 unchanged (FR-049a, SC-018). Those constants are floats; the hex above is their 8-bit round-trip,
