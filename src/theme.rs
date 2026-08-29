@@ -1210,6 +1210,146 @@ mod tests {
         }
     }
 
+    // --- T070: override independence (FR-059, SC-022) -----------------------
+
+    /// A distinct colour per catalogue row, so a value read back can only have come from the key
+    /// that wrote it.
+    fn distinct(index: usize) -> Colour {
+        // Channels on exact 8-bit steps, so the value survives the `#rrggbbaa` the test writes
+        // it as and a mismatch below can only mean the wrong key was written.
+        #[allow(clippy::cast_possible_truncation)]
+        let step = (index * 20) as u8;
+        Colour::new(f64::from(step) / 255.0, 128.0 / 255.0, 64.0 / 255.0, 1.0)
+    }
+
+    #[test]
+    fn each_of_the_eleven_colours_is_overridable_on_its_own() {
+        // FR-045, FR-050: eleven independent settings, not one appearance to be replaced whole.
+        // Overriding one leaves the other ten exactly as the named theme left them.
+        for (index, setting) in COLOURS.iter().enumerate() {
+            let wanted = distinct(index);
+            let (style, diagnostics) = resolve(&Requested {
+                theme: Some("light".to_owned()),
+                overrides: vec![text(setting.key, &wanted.hex_rgba())],
+            });
+            assert!(diagnostics.is_empty(), "{}: {diagnostics:?}", setting.key);
+            assert_eq!(setting.read(&style.palette), wanted, "{}", setting.key);
+            for other in COLOURS {
+                if other.key == setting.key {
+                    continue;
+                }
+                assert_eq!(
+                    other.read(&style.palette),
+                    other.read(&LIGHT),
+                    "overriding {} disturbed {}",
+                    setting.key,
+                    other.key
+                );
+            }
+            // And nothing outside the palette moved, so a colour override cannot resize the
+            // overlay (SC-023).
+            assert_eq!(style.geometry, Geometry::default(), "{}", setting.key);
+            assert_eq!(style.font_family, DEFAULT_FONT_FAMILY, "{}", setting.key);
+        }
+    }
+
+    #[test]
+    fn each_of_the_eleven_colours_falls_back_alone_when_it_is_the_invalid_one() {
+        // SC-022 for every key rather than for one of them: whichever colour a user spells wrong,
+        // that colour alone falls back and the other ten overrides still apply. The report names
+        // the setting, what was wrong, and the value used (FR-059).
+        for broken in COLOURS {
+            let overrides: Vec<(String, Value)> = COLOURS
+                .iter()
+                .enumerate()
+                .map(|(at, setting)| {
+                    if setting.key == broken.key {
+                        text(setting.key, "octarine")
+                    } else {
+                        text(setting.key, &distinct(at).hex_rgba())
+                    }
+                })
+                .collect();
+            let (style, diagnostics) = resolve(&Requested {
+                theme: Some("light".to_owned()),
+                overrides,
+            });
+
+            assert_eq!(
+                broken.read(&style.palette),
+                broken.read(&LIGHT),
+                "{} did not fall back to the theme's own value",
+                broken.key
+            );
+            for (at, setting) in COLOURS.iter().enumerate() {
+                if setting.key == broken.key {
+                    continue;
+                }
+                assert_eq!(
+                    setting.read(&style.palette),
+                    distinct(at),
+                    "{} was discarded along with the invalid {}",
+                    setting.key,
+                    broken.key
+                );
+            }
+
+            assert_eq!(diagnostics.len(), 1, "{}: {diagnostics:?}", broken.key);
+            let reported = &diagnostics[0];
+            assert_eq!(reported.subject, subject(broken.key));
+            assert!(
+                reported
+                    .message
+                    .contains("expected #rgb, #rrggbb or #rrggbbaa")
+                    && reported.message.contains(r#"got "octarine""#)
+                    && reported
+                        .message
+                        .contains(&format!("using {}", broken.read(&LIGHT).hex())),
+                "{}: {}",
+                broken.key,
+                reported.message
+            );
+        }
+    }
+
+    #[test]
+    fn an_invalid_colour_does_not_stop_the_font_and_the_geometry_beside_it() {
+        // The three catalogues are independent of each other too, which is what makes "every
+        // other setting is still applied" (US4-AS4) true across kinds and not only within one.
+        let (style, diagnostics) = resolve(&Requested {
+            theme: Some("light".to_owned()),
+            overrides: vec![
+                text("backdrop", "#not-hex"),
+                text("font_family", "JetBrains Mono"),
+                number("text_size", 0.9),
+                number("text_line_height", 28.0),
+                number("width_fraction", 0.5),
+            ],
+        });
+        assert_eq!(style.palette.backdrop, LIGHT.backdrop);
+        assert_eq!(style.font_family, "JetBrains Mono");
+        assert!(close(style.text_size, 0.9));
+        assert_eq!(style.geometry.text_line_height, 28);
+        assert!(close(style.geometry.width_fraction, 0.5));
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].subject, subject("backdrop"));
+    }
+
+    #[test]
+    fn a_font_family_is_taken_as_written_and_never_reported_on() {
+        // FR-046, US4-AS5: whether a family exists is the platform's question, asked when the
+        // text is laid out. `resolve` has no business answering it, so no family is ever a
+        // diagnostic here — the E2E `e2e_missing_font_substitutes` covers the other half.
+        for family in ["JetBrains Mono", "No Such Family At All", "Sans"] {
+            let (style, diagnostics) = resolve(&Requested {
+                theme: None,
+                overrides: vec![text("font_family", family)],
+            });
+            assert_eq!(style.font_family, family);
+            assert!(diagnostics.is_empty(), "{family}: {diagnostics:?}");
+        }
+    }
+
     // --- T057: what a built-in theme is, and is not -------------------------
 
     #[test]

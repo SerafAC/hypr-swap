@@ -202,17 +202,17 @@ matches the named theme.
 
 ### Implementation for User Story 4
 
-- [ ] T068 [US4] Wire the eleven colour override keys from `[style]` through src/config.rs into `theme::resolve`, each independent so an invalid one affects only itself (FR-045, FR-050, FR-059)
-- [ ] T069 [US4] Wire `font_family` and `text_size` from `[style]` into the resolved `Style` and apply them to all overlay text in both presentations in src/ui/render.rs, letting the platform substitute an absent family without raising an error (FR-046)
-- [ ] T070 [P] [US4] Unit tests in src/theme.rs for override independence — one invalid colour among several valid settings leaves every other value applied, and the reported message names the setting, what was wrong and the value used (FR-059, SC-022)
+- [X] T068 [US4] Wire the eleven colour override keys from `[style]` through src/config.rs into `theme::resolve`, each independent so an invalid one affects only itself (FR-045, FR-050, FR-059)
+- [X] T069 [US4] Wire `font_family` and `text_size` from `[style]` into the resolved `Style` and apply them to all overlay text in both presentations in src/ui/render.rs, letting the platform substitute an absent family without raising an error (FR-046)
+- [X] T070 [P] [US4] Unit tests in src/theme.rs for override independence — one invalid colour among several valid settings leaves every other value applied, and the reported message names the setting, what was wrong and the value used (FR-059, SC-022)
 
 ### Tests for User Story 4 (REQUIRED)
 
-- [ ] T071 [P] [US4] E2E test `e2e_colour_override_wins_over_theme` in tests/e2e_style.rs — a theme plus one colour override, that element overridden and every other one still from the theme (FR-050, US4-AS1)
-- [ ] T072 [P] [US4] E2E test `e2e_overrides_without_theme` in tests/e2e_style.rs — overrides with no theme name apply on top of the default theme (FR-050, US4-AS2)
-- [ ] T073 [P] [US4] E2E test `e2e_font_override_applies` in tests/e2e_style.rs — a `font_family` override applied to all text in both presentations (FR-046, US4-AS3)
-- [ ] T074 [P] [US4] E2E test `e2e_missing_font_substitutes` in tests/e2e_style.rs — an absent family is substituted, text stays readable, and nothing is reported (US4-AS5)
-- [ ] T075 [P] [US4] E2E test `e2e_invalid_value_falls_back_alone` in tests/e2e_style.rs — one bad colour among several good settings, reported once, every other setting still applied (FR-059, SC-022, US4-AS4)
+- [X] T071 [P] [US4] E2E test `e2e_colour_override_wins_over_theme` in tests/e2e_style.rs — a theme plus one colour override, that element overridden and every other one still from the theme (FR-050, US4-AS1)
+- [X] T072 [P] [US4] E2E test `e2e_overrides_without_theme` in tests/e2e_style.rs — overrides with no theme name apply on top of the default theme (FR-050, US4-AS2)
+- [X] T073 [P] [US4] E2E test `e2e_font_override_applies` in tests/e2e_style.rs — a `font_family` override applied to all text in both presentations (FR-046, US4-AS3)
+- [X] T074 [P] [US4] E2E test `e2e_missing_font_substitutes` in tests/e2e_style.rs — an absent family is substituted, text stays readable, and nothing is reported (US4-AS5)
+- [X] T075 [P] [US4] E2E test `e2e_invalid_value_falls_back_alone` in tests/e2e_style.rs — one bad colour among several good settings, reported once, every other setting still applied (FR-059, SC-022, US4-AS4)
 
 **Checkpoint**: Both P2 stories are complete.
 

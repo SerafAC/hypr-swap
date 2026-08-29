@@ -126,6 +126,30 @@ pub fn paint_colours(stderr: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// The families one paint asked pango for and the families pango loaded for it (T069).
+///
+/// One entry per paint, in the order they were emitted, mirroring [`paint_colours`].
+#[must_use]
+pub fn paint_fonts(stderr: &str) -> Vec<(Vec<String>, Vec<String>)> {
+    records_of(stderr, "fonts ")
+        .iter()
+        .map(|record| (families(record, "requested"), families(record, "resolved")))
+        .collect()
+}
+
+/// The quoted family names of one bracketed field — `requested=["A" "B"]` yields `["A", "B"]`.
+///
+/// Read by the quotes rather than by whitespace, because a family name has spaces in it.
+fn families(record: &str, key: &str) -> Vec<String> {
+    field(record, key)
+        .unwrap_or_default()
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect()
+}
+
 /// Every `paint:` record of one shape, with the subject stripped.
 fn records_of(stderr: &str, shape: &str) -> Vec<String> {
     stderr

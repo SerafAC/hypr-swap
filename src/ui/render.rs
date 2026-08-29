@@ -15,6 +15,7 @@
 use std::fmt::Write as _;
 
 use cairo::{Context, Format, ImageSurface};
+use pango::prelude::FontExt as _;
 use pango::{Alignment, EllipsizeMode};
 use pangocairo::functions::{create_layout, show_layout};
 
@@ -132,6 +133,7 @@ pub fn paint(
     // an E2E one, and this is the whole of what it costs then (research.md R22).
     let record = diag::paint_records_enabled();
     arm_colour_tape(record);
+    arm_font_tape(record);
     let presentation = match metrics.presentation {
         Presentation::List => "list",
         Presentation::Grid => "grid",
@@ -155,6 +157,11 @@ pub fn paint(
     // evidence that a named theme recoloured every element and left none behind (FR-045, FR-048).
     if let Some(colours) = take_colour_tape() {
         diag::paint_colours(presentation, &colours);
+    }
+    // And every family this paint laid text out in, asked for and loaded — the evidence that a
+    // font override reached all of the overlay's text, in either presentation (FR-046).
+    if let Some((requested, resolved)) = take_font_tape() {
+        diag::paint_fonts(presentation, &requested, &resolved);
     }
     Ok(())
 }
@@ -609,6 +616,7 @@ fn line(
     #[allow(clippy::cast_possible_truncation)]
     font.set_absolute_size(font_size * f64::from(pango::SCALE));
     layout.set_font_description(Some(&font));
+    note_font(&layout, &font);
 
     layout.set_ellipsize(EllipsizeMode::End);
     layout.set_single_paragraph_mode(true);
@@ -769,6 +777,60 @@ fn take_colour_tape() -> Option<Vec<String>> {
         tape.take()
             .map(|colours| colours.into_iter().map(Colour::hex_rgba).collect())
     })
+}
+
+// --- The font tape (T069, research.md R22) ----------------------------------
+//
+// The same tap, one layer up: `line` is the single point where every piece of overlay text is
+// given a font, so a family recorded there is a family some text was actually laid out in. Both
+// halves are kept — the family asked for, and the family pango loaded for it — because FR-046 and
+// US4-AS5 are different claims about the same paint: that the override reached every layout, and
+// that an absent family is quietly substituted rather than refused.
+
+thread_local! {
+    /// `(requested, resolved)` families of the current paint, in first-use order, or `None` when
+    /// the gate is shut.
+    static FONT_TAPE: std::cell::RefCell<Option<(Vec<String>, Vec<String>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Start (or discard) a tape for the paint about to begin.
+fn arm_font_tape(recording: bool) {
+    FONT_TAPE.with_borrow_mut(|tape| *tape = recording.then(|| (Vec::new(), Vec::new())));
+}
+
+/// Note one laid-out font, if a tape is running. Distinct families only, as with the colours.
+///
+/// Asking pango which font it loaded is the only way to see a substitution from outside, and it
+/// is done here rather than at resolve time because it is the loaded font that draws the pixels.
+fn note_font(layout: &pango::Layout, font: &pango::FontDescription) {
+    FONT_TAPE.with_borrow_mut(|tape| {
+        let Some((requested, resolved)) = tape.as_mut() else {
+            return;
+        };
+        let asked = font
+            .family()
+            .map_or_else(String::new, |family| family.to_string());
+        if !requested.contains(&asked) {
+            requested.push(asked);
+        }
+        // An unresolvable font is not an error here: it is recorded as nothing loaded, and the
+        // paint carries on with whatever pango falls back to on its own.
+        let loaded = layout
+            .context()
+            .load_font(font)
+            .map(|loaded| loaded.describe())
+            .and_then(|described| described.family())
+            .map_or_else(String::new, |family| family.to_string());
+        if !resolved.contains(&loaded) {
+            resolved.push(loaded);
+        }
+    });
+}
+
+/// Take the finished tape, leaving the gate shut until the next paint arms it again.
+fn take_font_tape() -> Option<(Vec<String>, Vec<String>)> {
+    FONT_TAPE.with_borrow_mut(Option::take)
 }
 
 /// A device-pixel rectangle as the floating-point one cairo draws with.

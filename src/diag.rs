@@ -258,6 +258,46 @@ pub fn paint_colours(presentation: &str, colours: &[String]) {
     let _ = writeln!(stderr, "{record}");
 }
 
+/// The record one paint's fonts produce:
+/// `fonts <presentation>: requested=["…"] resolved=["…"]`.
+///
+/// `requested` is every family this paint asked pango for and `resolved` is every family pango
+/// actually loaded, both distinct and in first-use order. The pair is what makes FR-046 testable
+/// from outside: one requested family means every piece of text on the overlay was laid out in
+/// the configured one, and a resolved family that differs from it is the platform substituting an
+/// absent family without anything being reported (US4-AS3, US4-AS5).
+#[must_use]
+pub fn paint_fonts_record(presentation: &str, requested: &[String], resolved: &[String]) -> String {
+    format!(
+        "fonts {presentation}: requested=[{}] resolved=[{}]",
+        quoted(requested),
+        quoted(resolved)
+    )
+}
+
+/// A list of families as the record spells it — quoted, because a family name has spaces in it.
+fn quoted(families: &[String]) -> String {
+    families
+        .iter()
+        .map(|family| format!("{family:?}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Record the fonts one paint laid its text out in — but only when the gate is open.
+pub fn paint_fonts(presentation: &str, requested: &[String], resolved: &[String]) {
+    if !paint_records_enabled() {
+        return;
+    }
+    let record = format_record(
+        Level::Info,
+        PAINT_SUBJECT,
+        &paint_fonts_record(presentation, requested, resolved),
+    );
+    let mut stderr = std::io::stderr().lock();
+    let _ = writeln!(stderr, "{record}");
+}
+
 thread_local! {
     /// Notification children, kept only long enough to be reaped. The child is never waited on
     /// synchronously — a wedged notification daemon must not stall the event loop — so completed
@@ -485,6 +525,42 @@ mod tests {
                 &paint_colours_record("grid", &["#292930ff".to_owned()])
             ),
             "INFO  paint: colours grid: [#292930ff]"
+        );
+    }
+
+    #[test]
+    fn a_font_record_names_what_was_asked_for_and_what_was_loaded() {
+        // T069: the evidence for FR-046. One requested family means every layout of that paint
+        // was given the configured one; a resolved family that differs is the substitution
+        // US4-AS5 allows, recorded rather than reported.
+        assert_eq!(
+            paint_fonts_record(
+                "list",
+                &["JetBrains Mono".to_owned()],
+                &["JetBrains Mono".to_owned()]
+            ),
+            r#"fonts list: requested=["JetBrains Mono"] resolved=["JetBrains Mono"]"#
+        );
+        assert_eq!(
+            paint_fonts_record(
+                "grid",
+                &["No Such Family".to_owned()],
+                &["DejaVu Sans".to_owned()]
+            ),
+            r#"fonts grid: requested=["No Such Family"] resolved=["DejaVu Sans"]"#
+        );
+        // A paint with no text at all still says so, as the colour record does.
+        assert_eq!(
+            paint_fonts_record("list", &[], &[]),
+            "fonts list: requested=[] resolved=[]"
+        );
+        assert_eq!(
+            format_record(
+                Level::Info,
+                PAINT_SUBJECT,
+                &paint_fonts_record("grid", &["Sans".to_owned()], &["Sans".to_owned()])
+            ),
+            r#"INFO  paint: fonts grid: requested=["Sans"] resolved=["Sans"]"#
         );
     }
 

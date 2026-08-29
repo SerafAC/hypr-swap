@@ -17,3 +17,4 @@ pub mod harness;
 pub mod keyboard;
 pub mod notify;
 pub mod overlay;
+pub mod style;
