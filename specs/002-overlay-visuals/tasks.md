@@ -229,17 +229,17 @@ exceed the configured cap, and the highlighted entry is scrolled into view.
 
 ### Implementation for User Story 5
 
-- [ ] T076 [US5] Wire the ten geometry override keys from `[style]` through src/config.rs into `theme::Geometry`, applying the clamping and reporting already implemented in Phase 2 (FR-047, FR-054)
-- [ ] T077 [P] [US5] Unit tests in src/ui/layout.rs proving the FR-053 invariants hold across the whole valid range of every geometry value — entries stay fixed-size regardless of workspace count, the overlay never exceeds its cap, the highlighted entry is always in view, and entries are never scaled down to fit (FR-053, SC-023)
-- [ ] T078 [P] [US5] Unit tests in src/ui/layout.rs for the scale round-trip with non-default geometry, confirming overridden values are logical units scaled per monitor exactly as the defaults are (FR-055)
+- [X] T076 [US5] Wire the ten geometry override keys from `[style]` through src/config.rs into `theme::Geometry`, applying the clamping and reporting already implemented in Phase 2 (FR-047, FR-054)
+- [X] T077 [P] [US5] Unit tests in src/ui/layout.rs proving the FR-053 invariants hold across the whole valid range of every geometry value — entries stay fixed-size regardless of workspace count, the overlay never exceeds its cap, the highlighted entry is always in view, and entries are never scaled down to fit (FR-053, SC-023)
+- [X] T078 [P] [US5] Unit tests in src/ui/layout.rs for the scale round-trip with non-default geometry, confirming overridden values are logical units scaled per monitor exactly as the defaults are (FR-055)
 
 ### Tests for User Story 5 (REQUIRED)
 
-- [ ] T079 [P] [US5] E2E test `e2e_geometry_override_resizes` in tests/e2e_style.rs — raised text height and size cap produce a larger overlay, confirmed against `hyprctl layers` (FR-047, FR-055, US5-AS1)
-- [ ] T080 [P] [US5] E2E test `e2e_geometry_override_still_caps_and_scrolls` in tests/e2e_style.rs — geometry overrides with 20 workspaces still cap, still scroll, and still keep entries full size (FR-053, SC-023, US5-AS2)
-- [ ] T081 [P] [US5] E2E test `e2e_grid_geometry_override` in tests/e2e_style.rs — cell size and gap overrides applied, each window rectangle keeping its relative position and proportion (FR-047, US5-AS3)
-- [ ] T082 [P] [US5] E2E test `e2e_out_of_range_geometry_clamped` in tests/e2e_style.rs — a cell width of 0 and a cap of 5.0 are clamped and reported, and the overlay is usable (FR-054, US5-AS4)
-- [ ] T083 [P] [US5] E2E test `e2e_geometry_scales_with_monitor` in tests/e2e_style.rs — the same overrides on a scale-2 output scale as the defaults do (FR-055, US5-AS5)
+- [X] T079 [P] [US5] E2E test `e2e_geometry_override_resizes` in tests/e2e_style.rs — raised text height and size cap produce a larger overlay, confirmed against `hyprctl layers` (FR-047, FR-055, US5-AS1)
+- [X] T080 [P] [US5] E2E test `e2e_geometry_override_still_caps_and_scrolls` in tests/e2e_style.rs — geometry overrides with 20 workspaces still cap, still scroll, and still keep entries full size (FR-053, SC-023, US5-AS2)
+- [X] T081 [P] [US5] E2E test `e2e_grid_geometry_override` in tests/e2e_style.rs — cell size and gap overrides applied, each window rectangle keeping its relative position and proportion (FR-047, US5-AS3)
+- [X] T082 [P] [US5] E2E test `e2e_out_of_range_geometry_clamped` in tests/e2e_style.rs — a cell width of 0 and a cap of 5.0 are clamped and reported, and the overlay is usable (FR-054, US5-AS4)
+- [X] T083 [P] [US5] E2E test `e2e_geometry_scales_with_monitor` in tests/e2e_style.rs — the same overrides on a scale-2 output scale as the defaults do (FR-055, US5-AS5)
 
 **Checkpoint**: Geometry is user-controllable without any layout guarantee weakening.
 

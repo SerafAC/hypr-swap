@@ -1253,6 +1253,90 @@ mod tests {
         }
     }
 
+    // --- T076: the ten geometry keys (FR-047, FR-050) -----------------------
+
+    /// A value in the middle of a setting's documented range: in range by construction, so a
+    /// diagnostic from writing it can only mean the range itself is wrong, and — as the test
+    /// below asserts rather than assumes — different from that setting's default, so reading it
+    /// back proves the write happened.
+    fn midpoint(setting: &GeometrySetting) -> f64 {
+        let middle = f64::midpoint(setting.min, setting.max);
+        if setting.integral {
+            middle.round()
+        } else {
+            middle
+        }
+    }
+
+    #[test]
+    fn each_of_the_ten_geometry_values_is_overridable_on_its_own() {
+        // FR-047, FR-050: ten independent settings, the geometry counterpart of the colour test
+        // above. Overriding one leaves the other nine, the palette and the font exactly as the
+        // named theme left them — which is the half of SC-023 that says no setting can move a
+        // dimension it does not name.
+        for setting in GEOMETRY {
+            let wanted = midpoint(setting);
+            assert!(
+                !close(wanted, setting.read(&Geometry::DEFAULT)),
+                "{} is being tested against its own default, so it would pass unwritten",
+                setting.key
+            );
+
+            let (style, diagnostics) = resolve(&Requested {
+                theme: Some("light".to_owned()),
+                overrides: vec![number(setting.key, wanted)],
+            });
+            assert!(diagnostics.is_empty(), "{}: {diagnostics:?}", setting.key);
+            assert!(
+                close(setting.read(&style.geometry), wanted),
+                "{} did not reach its own field",
+                setting.key
+            );
+
+            for other in GEOMETRY {
+                if other.key == setting.key {
+                    continue;
+                }
+                assert!(
+                    close(other.read(&style.geometry), other.read(&Geometry::DEFAULT)),
+                    "overriding {} disturbed {}",
+                    setting.key,
+                    other.key
+                );
+            }
+            // And nothing outside the geometry moved, so a geometry override cannot recolour the
+            // overlay any more than a colour override can resize it.
+            assert_eq!(style.palette, LIGHT, "{}", setting.key);
+            assert_eq!(style.font_family, DEFAULT_FONT_FAMILY, "{}", setting.key);
+            assert!(
+                close(style.text_size, Style::default().text_size),
+                "{}",
+                setting.key
+            );
+        }
+    }
+
+    #[test]
+    fn the_ten_geometry_values_apply_together_without_overwriting_one_another() {
+        // Ten separate fields rather than one shared one: written in a single `[style]` table,
+        // each still arrives with the value it was given (FR-047).
+        let mut wanted = Geometry::DEFAULT;
+        let overrides = GEOMETRY
+            .iter()
+            .map(|setting| {
+                setting.write(&mut wanted, midpoint(setting));
+                number(setting.key, midpoint(setting))
+            })
+            .collect();
+
+        let (style, diagnostics) = resolve(&Requested {
+            theme: None,
+            overrides,
+        });
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(style.geometry, wanted);
+    }
+
     #[test]
     fn each_of_the_eleven_colours_falls_back_alone_when_it_is_the_invalid_one() {
         // SC-022 for every key rather than for one of them: whichever colour a user spells wrong,

@@ -355,6 +355,11 @@ pub fn list_metrics(
     // Built from the row geometry rather than scaled from a logical height, so the rows always
     // tile the buffer exactly however the scale rounds.
     let height = row_height * visible_rows as u32 + padding * 2;
+    let (height, logical_height) = capped(
+        height,
+        fraction(logical_monitor.1, geometry.height_fraction),
+        scale,
+    );
     let width = scaled(logical_width, scale);
 
     Metrics {
@@ -362,7 +367,7 @@ pub fn list_metrics(
         width,
         height,
         logical_width,
-        logical_height: logical(height, scale),
+        logical_height,
         scale,
         row_height,
         text_height,
@@ -414,13 +419,23 @@ pub fn grid_metrics(
     // cells tile the buffer exactly however the scale rounds — as the list's rows do.
     let width = padding * 2 + cell_width * columns as u32 + gap * (columns as u32 - 1);
     let height = padding * 2 + row_height * visible_rows as u32 - gap;
+    let (width, logical_width) = capped(
+        width,
+        fraction(logical_monitor.0, geometry.width_fraction),
+        scale,
+    );
+    let (height, logical_height) = capped(
+        height,
+        fraction(logical_monitor.1, geometry.height_fraction),
+        scale,
+    );
 
     Metrics {
         presentation: Presentation::Grid,
         width,
         height,
-        logical_width: logical(width, scale),
-        logical_height: logical(height, scale),
+        logical_width,
+        logical_height,
         scale,
         row_height,
         text_height,
@@ -644,13 +659,24 @@ fn sane_scale(scale: f32) -> f64 {
     }
 }
 
-/// Round a logical-pixel measurement up to device pixels, never to zero.
+/// Round a logical-pixel measurement up to device pixels, never rounding a real one away to zero.
+///
+/// Zero is passed through rather than floored: three of FR-047's settings — the two paddings and
+/// the grid gap — have zero at the bottom of their documented range, and flooring it would leave
+/// them one device pixel at every scale, which is the one measurement that would then *not* scale
+/// per monitor (FR-055). The floor still guards every positive value, which is what it was for.
 fn scaled(logical: u32, scale: f32) -> u32 {
+    if logical == 0 {
+        return 0;
+    }
     ((f64::from(logical) * sane_scale(scale)).round() as u32).max(1)
 }
 
-/// Round a device-pixel measurement back down to logical pixels, never to zero.
+/// Round a device-pixel measurement back down to logical pixels, on the same terms.
 fn logical(device: u32, scale: f32) -> u32 {
+    if device == 0 {
+        return 0;
+    }
     ((f64::from(device) / sane_scale(scale)).round() as u32).max(1)
 }
 
@@ -658,9 +684,27 @@ fn fraction(pixels: u32, of: f64) -> u32 {
     ((f64::from(pixels) * of).round() as u32).max(1)
 }
 
+/// Hold a computed overlay size to its cap, returning it in both unit systems (FR-053, SC-023).
+///
+/// The cap is a *fraction of the monitor* while every geometry range is *absolute* (FR-054), so a
+/// large enough cell on a small enough monitor asks for more than the cap allows. Both metric
+/// functions floor themselves at one row and one column, and that floor is the only thing that can
+/// exceed the cap: above it, the row and column counts are chosen precisely so the result fits.
+/// So when this bites, exactly one entry is on screen and it is clipped by the surface edge —
+/// which is the right way round, because the alternative is scaling the entry down to fit and
+/// FR-019 forbids that.
+///
+/// It only ever reduces, so every configuration that already fits — which is every configuration
+/// the defaults produce — passes through untouched.
+fn capped(device: u32, logical_cap: u32, scale: f32) -> (u32, u32) {
+    let device = device.min(scaled(logical_cap, scale));
+    (device, logical(device, scale).min(logical_cap))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme;
 
     /// The defaults, which are exactly the `pub const`s this module used to hold. Every
     /// expectation below is anchored to them and asserts the same numbers as before the refactor,
@@ -1768,6 +1812,274 @@ mod tests {
                     assert!(
                         title.rect.2 > 0.0,
                         "a title box with no width is not a title"
+                    );
+                }
+            }
+        }
+    }
+
+    // --- T077/T078: the invariants across the whole valid range -------------
+    //
+    // Everything above anchors to `Geometry::DEFAULT`, which proves the refactor changed no
+    // arithmetic but says nothing about the nine other values each setting may now take. These
+    // walk the ranges themselves. FR-053 names four guarantees that no valid configuration may
+    // weaken, and each gets a test below; FR-055 asks that a themed value be scaled per monitor
+    // exactly as a default one is, which is the last of them.
+
+    /// The two metric functions, so an invariant that must hold of both is written once.
+    type MetricsFn = fn(&Geometry, (u32, u32), f32, usize) -> Metrics;
+    const PRESENTATIONS: &[(&str, MetricsFn)] = &[("list", list_metrics), ("grid", grid_metrics)];
+
+    /// The monitors the invariants are checked on: one too small for much of anything, an
+    /// ordinary panel, a scaled 4K one, and a fractionally scaled laptop. Between them the cap
+    /// bites in some cases and not in others, which is what makes the walk below meaningful.
+    const MONITORS: &[((u32, u32), f32)] = &[
+        ((640, 480), 1.0),
+        ((1366, 768), 1.25),
+        ((1920, 1080), 1.0),
+        ((3840, 2160), 2.0),
+    ];
+
+    /// The workspace counts each invariant is checked at — one, a handful, more than fits on the
+    /// small monitor, and an absurd number.
+    const COUNTS: &[usize] = &[1, 3, 20, 200];
+
+    /// Every geometry setting driven to each end of its documented range and to a value between
+    /// them, plus the two configurations that put *every* setting at one end at once.
+    ///
+    /// A finite stand-in for "the whole valid range" (T077): the arithmetic in this module is
+    /// monotonic in each value, so the ends and the middle of each range are where a broken
+    /// invariant shows. The all-at-once pair is what catches an invariant that survives each
+    /// setting alone but not their combination — the maximum cell on the minimum cap, say.
+    fn across_the_valid_range() -> Vec<(String, Geometry)> {
+        let mut cases = vec![("the defaults".to_owned(), G)];
+        let mut all_min = G;
+        let mut all_max = G;
+        for setting in theme::GEOMETRY {
+            setting.write(&mut all_min, setting.min);
+            setting.write(&mut all_max, setting.max);
+            for value in [
+                setting.min,
+                f64::midpoint(setting.min, setting.max),
+                setting.max,
+            ] {
+                let mut geometry = G;
+                setting.write(&mut geometry, value);
+                cases.push((
+                    format!("{} = {}", setting.key, setting.show(value)),
+                    geometry,
+                ));
+            }
+        }
+        cases.push(("every setting at its minimum".to_owned(), all_min));
+        cases.push(("every setting at its maximum".to_owned(), all_max));
+        cases
+    }
+
+    #[test]
+    fn the_range_walked_is_the_documented_one_and_is_not_empty() {
+        // The three tests below are only as good as this list, so it is checked rather than
+        // trusted: one case per end and middle of all ten settings, plus the defaults and the two
+        // extremes. A setting added to the catalogue is walked automatically.
+        let cases = across_the_valid_range();
+        assert_eq!(cases.len(), theme::GEOMETRY.len() * 3 + 3);
+        assert_eq!(theme::GEOMETRY.len(), 10, "FR-047 names ten dimensions");
+    }
+
+    #[test]
+    fn entries_keep_one_size_at_every_valid_geometry() {
+        // FR-053's first and fourth guarantees together: an entry's size is a function of the
+        // geometry and the monitor alone, never of how many entries there are. That is what
+        // "never scaled down to fit" means operationally — one entry and two hundred are drawn
+        // at identical size, so the overlay scrolls instead of shrinking.
+        for (what, geometry) in across_the_valid_range() {
+            for &(monitor, scale) in MONITORS {
+                for (presentation, metrics_of) in PRESENTATIONS {
+                    let one = metrics_of(&geometry, monitor, scale, 1);
+                    for &count in COUNTS {
+                        let many = metrics_of(&geometry, monitor, scale, count);
+                        let where_ = format!("{what}, {presentation} on {monitor:?}@{scale}");
+                        assert_eq!(many.row_height, one.row_height, "row height: {where_}");
+                        assert_eq!(many.text_height, one.text_height, "text height: {where_}");
+                        assert_eq!(many.cell_width, one.cell_width, "cell width: {where_}");
+                        assert_eq!(
+                            many.miniature_height, one.miniature_height,
+                            "miniature height: {where_}"
+                        );
+                        assert_eq!(many.padding, one.padding, "padding: {where_}");
+                        assert!(many.row_height > 0, "a row with no height: {where_}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_overlay_never_exceeds_its_cap_at_any_valid_geometry() {
+        // FR-053's second guarantee and SC-023: no combination of valid settings produces an
+        // overlay larger than the fraction of the monitor it is capped at — and since that
+        // fraction can be at most 1.0, none produces one larger than the monitor either.
+        //
+        // Asserted on the *logical* size, because that is what the compositor is asked for and
+        // what `hyprctl layers` reports; the buffer is checked beside it so the two cannot drift
+        // apart into a surface that fits while the pixels behind it do not.
+        for (what, geometry) in across_the_valid_range() {
+            for &(monitor, scale) in MONITORS {
+                let logical_monitor = (logical(monitor.0, scale), logical(monitor.1, scale));
+                let cap = (
+                    fraction(logical_monitor.0, geometry.width_fraction),
+                    fraction(logical_monitor.1, geometry.height_fraction),
+                );
+                for (presentation, metrics_of) in PRESENTATIONS {
+                    for &count in COUNTS {
+                        let metrics = metrics_of(&geometry, monitor, scale, count);
+                        let where_ = format!(
+                            "{what}, {presentation} on {monitor:?}@{scale}, {count} entries"
+                        );
+                        let (width, height) = metrics.surface_size();
+                        assert!(
+                            width <= cap.0 && height <= cap.1,
+                            "the surface is {width}x{height} against a cap of {cap:?}: {where_}"
+                        );
+                        assert!(
+                            width <= logical_monitor.0 && height <= logical_monitor.1,
+                            "the surface is {width}x{height} on a {logical_monitor:?} desktop: \
+                             {where_}"
+                        );
+                        assert!(
+                            metrics.width <= scaled(cap.0, scale)
+                                && metrics.height <= scaled(cap.1, scale),
+                            "the buffer is {}x{} against a cap of {cap:?} at scale {scale}: \
+                             {where_}",
+                            metrics.width,
+                            metrics.height
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_highlight_is_in_view_at_every_valid_geometry() {
+        // FR-053's third guarantee: whatever the geometry does to how many entries fit, the
+        // viewport still contains the highlighted one. Every position in the list is tried, and
+        // from both directions of travel — the viewport is stateful, so a highlight arrived at
+        // from below is a different case from the same highlight arrived at from above.
+        for (what, geometry) in across_the_valid_range() {
+            for &(monitor, scale) in MONITORS {
+                for (presentation, metrics_of) in PRESENTATIONS {
+                    for &count in COUNTS {
+                        let metrics = metrics_of(&geometry, monitor, scale, count);
+                        let visible = metrics.visible_entries();
+                        let mut previous = 0;
+                        // Down the whole list and back up again, carrying the viewport along as
+                        // the session does.
+                        let walk = (0..count).chain((0..count).rev());
+                        for highlight in walk {
+                            let first = first_visible_entry(&metrics, count, highlight, previous);
+                            assert!(
+                                highlight >= first && highlight < first + visible,
+                                "highlight {highlight} of {count} is outside [{first}, {}) — \
+                                 {what}, {presentation} on {monitor:?}@{scale}",
+                                first + visible
+                            );
+                            assert!(
+                                first < count,
+                                "the viewport starts at entry {first}, past the end of a list of \
+                                 {count}: {what}"
+                            );
+                            assert_eq!(
+                                first % metrics.columns.max(1),
+                                0,
+                                "the viewport moved by part of a row, so a cell would change \
+                                 column as it scrolled: {what}"
+                            );
+                            previous = first;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn overridden_geometry_scales_per_monitor_exactly_as_the_defaults_do() {
+        // FR-055: a themed value is in the same logical units as a built-in one, so the same
+        // configuration on a scale-2 monitor of twice the pixels must produce the same surface —
+        // the buffer doubles, the surface does not. Asserted for every case in the range, so no
+        // single setting can be the one that was left unscaled.
+        for (what, geometry) in across_the_valid_range() {
+            for (presentation, metrics_of) in PRESENTATIONS {
+                for &count in COUNTS {
+                    let unscaled = metrics_of(&geometry, (1920, 1080), 1.0, count);
+                    let scaled_up = metrics_of(&geometry, (3840, 2160), 2.0, count);
+                    let where_ = format!("{what}, {presentation}, {count} entries");
+
+                    assert_eq!(
+                        scaled_up.surface_size(),
+                        unscaled.surface_size(),
+                        "the same logical desktop gave a different surface: {where_}"
+                    );
+                    assert_eq!(
+                        scaled_up.buffer_size(),
+                        (unscaled.width * 2, unscaled.height * 2),
+                        "the buffer did not follow the scale: {where_}"
+                    );
+                    assert_eq!(
+                        scaled_up.row_height,
+                        unscaled.row_height * 2,
+                        "the row did not follow the scale: {where_}"
+                    );
+                    assert_eq!(
+                        scaled_up.text_height,
+                        unscaled.text_height * 2,
+                        "the text did not follow the scale: {where_}"
+                    );
+                    assert_eq!(
+                        scaled_up.icon_slot(),
+                        unscaled.icon_slot() * 2,
+                        "the icon did not follow the scale (FR-039): {where_}"
+                    );
+                    assert_eq!(
+                        scaled_up.visible_entries(),
+                        unscaled.visible_entries(),
+                        "the same desktop showed a different number of entries: {where_}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_surface_round_trips_between_the_two_unit_systems_at_every_valid_geometry() {
+        // FR-055, T078: the logical size is the buffer divided by the scale, whatever the
+        // geometry, so an overridden value cannot be one that is painted in device pixels and
+        // then handed to `set_size` as though it were logical ones.
+        for (what, geometry) in across_the_valid_range() {
+            for &(monitor, scale) in MONITORS {
+                for (presentation, metrics_of) in PRESENTATIONS {
+                    let metrics = metrics_of(&geometry, monitor, scale, 20);
+                    let where_ = format!("{what}, {presentation} on {monitor:?}@{scale}");
+                    let (logical_width, logical_height) = metrics.surface_size();
+                    let (width, height) = metrics.buffer_size();
+
+                    assert!(
+                        logical_width > 0 && logical_height > 0 && width > 0 && height > 0,
+                        "a surface collapsed to nothing: {where_}"
+                    );
+                    // Within a pixel of the ratio, which is all integer rounding allows — the
+                    // point is that the two differ by the scale and not by a factor of it.
+                    let expected = |device: u32| logical(device, scale);
+                    assert!(
+                        logical_width.abs_diff(expected(width)) <= 1
+                            && logical_height.abs_diff(expected(height)) <= 1,
+                        "surface {logical_width}x{logical_height} is not buffer {width}x{height} \
+                         at scale {scale}: {where_}"
+                    );
+                    assert!(
+                        (metrics.scale - scale).abs() < f32::EPSILON,
+                        "the scale was not carried: {where_}"
                     );
                 }
             }

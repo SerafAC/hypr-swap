@@ -103,6 +103,15 @@ produce an unusable overlay:
   `ui/layout.rs` cannot divide by zero and a row can always hold its text.
 - Nothing here can make entry size depend on the number of workspaces — entries stay fixed-size and
   the overlay scrolls, exactly as FR-019 requires (FR-053).
+- **The cap wins over the entry size.** These ranges are absolute while the cap is a fraction of
+  the monitor, so a large enough entry on a small enough monitor asks for more than the cap allows
+  — a `grid_cell_width` of `2000` on an 800-pixel panel, say. `ui/layout.rs` holds the overlay to
+  the cap and lets that one entry be clipped by the surface edge, rather than scaling it down to
+  fit, which FR-019 forbids. Below that extreme the row and column counts are chosen so the result
+  fits, and the clamp never engages.
+- **Zero means zero.** `row_padding`, `overlay_padding` and `grid_gap` admit `0`, and a zero there
+  is carried through to the buffer rather than floored to one device pixel — a floor would be the
+  one measurement that did not scale per monitor, which FR-055 forbids.
 
 ---
 

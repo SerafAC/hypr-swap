@@ -794,6 +794,39 @@ mod tests {
     }
 
     #[test]
+    fn every_geometry_key_is_readable_under_the_style_table_as_written() {
+        // T076, FR-047: `theme.rs` proves the ten settings resolve; this proves they are reachable
+        // from a file, which is the half that lives here. The catalogue is walked rather than the
+        // keys spelled out, so a setting added to `theme::GEOMETRY` without a way to write it
+        // fails here rather than shipping inert (FR-061, SC-025).
+        let mut wanted = theme::Geometry::DEFAULT;
+        let rows: Vec<String> = theme::GEOMETRY
+            .iter()
+            .map(|setting| {
+                // Mid-range, so the value is in range without being any setting's default — a key
+                // silently dropped on the way through leaves the default behind and is caught.
+                let value = f64::midpoint(setting.min, setting.max);
+                let value = if setting.integral {
+                    value.round()
+                } else {
+                    value
+                };
+                setting.write(&mut wanted, value);
+                format!("{} = {value}", setting.key)
+            })
+            .collect();
+
+        let (configuration, diagnostics) = parse(&format!("[style]\n{}\n", rows.join("\n")));
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(configuration.style.geometry, wanted);
+        assert_ne!(
+            configuration.style.geometry,
+            theme::Geometry::DEFAULT,
+            "the table must move the geometry, or it proves nothing"
+        );
+    }
+
+    #[test]
     fn an_unknown_theme_or_icon_set_name_is_reported_and_falls_back() {
         // FR-058 for the theme. An unknown *icon set* name is a filesystem question and is
         // reported by `icons/iconset.rs`, so the name is carried through here unjudged (FR-057).
