@@ -12,6 +12,7 @@
 #![allow(dead_code)]
 
 pub mod clients;
+pub mod fixtures;
 pub mod harness;
 pub mod keyboard;
 pub mod notify;

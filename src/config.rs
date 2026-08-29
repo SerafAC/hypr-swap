@@ -7,7 +7,9 @@
 
 use std::path::{Path, PathBuf};
 
+pub use crate::diag::Diagnostic;
 use crate::diag::{self, Condition};
+use crate::theme::{self, Requested, Style, Value};
 
 /// How workspaces are presented in the overlay (FR-016).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -41,24 +43,41 @@ pub enum Order {
     Monitor,
 }
 
-/// The three user settings. Key combinations are deliberately not here — they live in the
-/// compositor's configuration (FR-022).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// The user settings. Key combinations are deliberately not here — they live in the compositor's
+/// configuration (FR-022).
+///
+/// The three behaviour settings are feature 001's; the visual ones are feature 002's. Note what
+/// `style` is: not what the user wrote, but the **resolved** appearance. Every default and every
+/// precedence rule lives in [`crate::theme`], so this module parses and delegates and holds no
+/// default of its own (FR-050, data-model.md).
+#[derive(Debug, Clone, PartialEq)]
 pub struct Configuration {
     pub presentation: Presentation,
     pub placement: Placement,
     pub order: Order,
+    /// Whether program icons are drawn at all (FR-056).
+    pub icons: bool,
+    /// The icon set to draw from, or `None` to follow the desktop's configured set (FR-057).
+    ///
+    /// Note the vocabulary the spec keeps distinct: this is the *icon set*, whose artwork is
+    /// drawn, and it is independent of the overlay theme inside [`Self::style`].
+    pub icon_set: Option<String>,
+    /// The resolved appearance, read once at start-up and never re-read (FR-060).
+    pub style: Style,
 }
 
-/// One thing worth telling the user about the configuration file.
-///
-/// Parsing produces these rather than writing to stderr itself, so the whole schema — including
-/// the exact subject each problem is reported under — is unit-testable without capturing output.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Diagnostic {
-    pub condition: Condition,
-    pub subject: String,
-    pub message: String,
+impl Default for Configuration {
+    fn default() -> Self {
+        Self {
+            presentation: Presentation::default(),
+            placement: Placement::default(),
+            order: Order::default(),
+            // FR-056: icons are on unless the user turns them off.
+            icons: true,
+            icon_set: None,
+            style: Style::default(),
+        }
+    }
 }
 
 /// Why a configuration file named explicitly with `--config` could not be used (FR-034).
@@ -180,8 +199,8 @@ fn load_file(path: &Path, required: bool) -> Result<Configuration, LoadError> {
     };
 
     let (configuration, diagnostics) = parse(&source);
-    for d in diagnostics {
-        diag::report(d.condition, &d.subject, &d.message);
+    for d in &diagnostics {
+        d.report();
     }
     Ok(configuration)
 }
@@ -203,38 +222,166 @@ pub fn parse(source: &str) -> (Configuration, Vec<Diagnostic>) {
                 .span()
                 .map(|span| format!(" at byte {}", span.start))
                 .unwrap_or_default();
-            diagnostics.push(Diagnostic {
-                condition: Condition::InvalidConfigValue,
-                subject: "config".to_owned(),
-                message: format!(
+            diagnostics.push(Diagnostic::new(
+                Condition::InvalidConfigValue,
+                "config",
+                format!(
                     "not valid TOML{position}: {}, using defaults for every setting",
                     e.message()
                 ),
-            });
+            ));
             return (Configuration::default(), diagnostics);
         }
     };
+
+    // The visual settings are read as written and validated by `theme.rs`, which owns every
+    // default and the FR-050 precedence chain. This module decides nothing about them.
+    let requested = Requested {
+        theme: read_theme_name(&table, &mut diagnostics),
+        overrides: read_style_table(&table, &mut diagnostics),
+    };
+    let (style, style_diagnostics) = theme::resolve(&requested);
+    diagnostics.extend(style_diagnostics);
 
     let configuration = Configuration {
         presentation: read(&table, &mut diagnostics),
         placement: read(&table, &mut diagnostics),
         order: read(&table, &mut diagnostics),
+        icons: read_icons(&table, &mut diagnostics),
+        icon_set: read_icon_set(&table, &mut diagnostics),
+        style,
     };
 
     for key in table.keys() {
         if !matches!(
             key.as_str(),
-            Presentation::KEY | Placement::KEY | Order::KEY
+            Presentation::KEY
+                | Placement::KEY
+                | Order::KEY
+                | ICONS_KEY
+                | ICON_SET_KEY
+                | THEME_KEY
+                | STYLE_KEY
         ) {
-            diagnostics.push(Diagnostic {
-                condition: Condition::UnknownConfigKey,
-                subject: format!("config.{key}"),
-                message: "unknown key, ignored".to_owned(),
-            });
+            diagnostics.push(Diagnostic::new(
+                Condition::UnknownConfigKey,
+                format!("config.{key}"),
+                "unknown key, ignored",
+            ));
         }
     }
 
     (configuration, diagnostics)
+}
+
+/// The keys feature 002 adds (`contracts/config.md`).
+const ICONS_KEY: &str = "icons";
+const ICON_SET_KEY: &str = "icon_set";
+const THEME_KEY: &str = "theme";
+const STYLE_KEY: &str = "style";
+
+/// `icons` — a boolean, defaulting to shown (FR-056).
+fn read_icons(table: &toml::Table, diagnostics: &mut Vec<Diagnostic>) -> bool {
+    let default = Configuration::default().icons;
+    let Some(value) = table.get(ICONS_KEY) else {
+        return default;
+    };
+    if let Some(icons) = value.as_bool() {
+        return icons;
+    }
+    diagnostics.push(Diagnostic::new(
+        Condition::InvalidConfigValue,
+        format!("config.{ICONS_KEY}"),
+        format!(
+            "expected true or false, found {}; using {default}",
+            value.type_str()
+        ),
+    ));
+    default
+}
+
+/// `icon_set` — a name, or absent to follow the desktop's configured set (FR-057).
+///
+/// Whether the named set is *installed* is not decided here: that is a filesystem question and it
+/// belongs to `icons/iconset.rs`, which reports and falls back on its own.
+fn read_icon_set(table: &toml::Table, diagnostics: &mut Vec<Diagnostic>) -> Option<String> {
+    let value = table.get(ICON_SET_KEY)?;
+    if let Some(name) = value.as_str() {
+        return Some(name.to_owned());
+    }
+    diagnostics.push(Diagnostic::new(
+        Condition::InvalidConfigValue,
+        format!("config.{ICON_SET_KEY}"),
+        format!(
+            "expected a string, found {}; following the desktop's configured set",
+            value.type_str()
+        ),
+    ));
+    None
+}
+
+/// `theme` — a built-in theme's name (FR-049). Whether the name is known is `theme.rs`'s call.
+fn read_theme_name(table: &toml::Table, diagnostics: &mut Vec<Diagnostic>) -> Option<String> {
+    let value = table.get(THEME_KEY)?;
+    if let Some(name) = value.as_str() {
+        return Some(name.to_owned());
+    }
+    diagnostics.push(Diagnostic::new(
+        Condition::InvalidConfigValue,
+        format!("config.{THEME_KEY}"),
+        format!(
+            "expected a string, found {}; using the default theme",
+            value.type_str()
+        ),
+    ));
+    None
+}
+
+/// The `[style]` table, translated out of `toml` into the neutral values `theme.rs` judges.
+///
+/// The translation is the whole of this module's involvement with style: every question of what a
+/// value means, whether it is in range and what happens when it is not is `theme.rs`'s, so a
+/// default cannot come to exist in two places (Principle III).
+fn read_style_table(
+    table: &toml::Table,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Vec<(String, Value)> {
+    let Some(value) = table.get(STYLE_KEY) else {
+        return Vec::new();
+    };
+    let Some(style) = value.as_table() else {
+        diagnostics.push(Diagnostic::new(
+            Condition::InvalidConfigValue,
+            format!("config.{STYLE_KEY}"),
+            format!(
+                "expected a table of style values, found {}; using the theme's values throughout",
+                value.type_str()
+            ),
+        ));
+        return Vec::new();
+    };
+
+    style
+        .iter()
+        .map(|(key, value)| (key.clone(), neutral(value)))
+        .collect()
+}
+
+/// One TOML value as the form `theme.rs` takes. Anything that is not a scalar keeps only its type
+/// name, which is all a "found a table" message needs.
+fn neutral(value: &toml::Value) -> Value {
+    match value {
+        toml::Value::String(text) => Value::Text(text.clone()),
+        toml::Value::Integer(number) => Value::Integer(*number),
+        toml::Value::Float(number) => Value::Float(*number),
+        other => Value::Other(match other.type_str() {
+            "boolean" => "a boolean",
+            "table" => "a table",
+            "array" => "an array",
+            "datetime" => "a datetime",
+            _ => "another kind of value",
+        }),
+    }
 }
 
 /// Read one setting, falling back to its own default and reporting it by name when the value is
@@ -258,14 +405,14 @@ fn read<T: Setting + PartialEq>(table: &toml::Table, diagnostics: &mut Vec<Diagn
         .map(|(name, _)| *name)
         .collect::<Vec<_>>()
         .join(", ");
-    diagnostics.push(Diagnostic {
-        condition: Condition::InvalidConfigValue,
-        subject: format!("config.{}", T::KEY),
-        message: format!(
+    diagnostics.push(Diagnostic::new(
+        Condition::InvalidConfigValue,
+        format!("config.{}", T::KEY),
+        format!(
             "{problem}, using default {:?} (accepted: {accepted})",
             default.name()
         ),
-    });
+    ));
     default
 }
 
@@ -380,6 +527,7 @@ mod tests {
                 presentation: Presentation::Grid,
                 placement: Placement::AllMonitors,
                 order: Order::Monitor,
+                ..Configuration::default()
             }
         );
         assert!(diagnostics.is_empty());
@@ -446,7 +594,7 @@ mod tests {
         let (configuration, diagnostics) = parse(
             r#"
             order = "monitor"
-            theme = "dracula"
+            wallpaper = "dracula"
             "#,
         );
         assert_eq!(
@@ -454,7 +602,7 @@ mod tests {
             Order::Monitor,
             "the valid keys still apply"
         );
-        assert_eq!(subjects(&diagnostics), vec!["config.theme"]);
+        assert_eq!(subjects(&diagnostics), vec!["config.wallpaper"]);
         assert_eq!(diagnostics[0].condition, Condition::UnknownConfigKey);
     }
 
@@ -536,5 +684,194 @@ mod tests {
         assert_eq!(Order::Mru.name(), "mru");
         assert_eq!(Order::Compositor.name(), "compositor");
         assert_eq!(Order::Monitor.name(), "monitor");
+    }
+
+    // T015 — feature 002's four visual settings (contracts/config.md).
+
+    #[test]
+    fn the_visual_defaults_are_icons_on_the_desktops_icon_set_and_the_dark_theme() {
+        // FR-056, FR-057, FR-049, and FR-049a for everything the style carries.
+        let (configuration, diagnostics) = parse("");
+        assert!(configuration.icons, "FR-056: icons default to shown");
+        assert_eq!(
+            configuration.icon_set, None,
+            "FR-057: absent means follow the desktop"
+        );
+        assert_eq!(configuration.style, theme::Style::default());
+        assert_eq!(configuration.style.palette, theme::DARK);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn a_feature_001_configuration_file_is_still_valid_and_still_means_the_same_thing() {
+        // The compatibility promise at the end of contracts/config.md.
+        let (configuration, diagnostics) = parse(
+            r#"
+            presentation = "grid"
+            placement = "all"
+            order = "monitor"
+            "#,
+        );
+        assert!(diagnostics.is_empty());
+        assert_eq!(configuration.style, theme::Style::default());
+        assert!(configuration.icons);
+    }
+
+    #[test]
+    fn each_visual_setting_is_parsed() {
+        let (configuration, diagnostics) = parse(
+            r##"
+            icons = false
+            icon_set = "Papirus-Dark"
+            theme = "dark"
+
+            [style]
+            highlight = "#123456"
+            font_family = "JetBrains Mono"
+            text_size = 0.9
+            text_line_height = 28
+            width_fraction = 0.9
+            "##,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert!(!configuration.icons);
+        assert_eq!(configuration.icon_set.as_deref(), Some("Papirus-Dark"));
+        assert_eq!(
+            configuration.style.palette.highlight,
+            theme::Colour::parse("#123456").expect("a valid colour")
+        );
+        assert_eq!(configuration.style.font_family, "JetBrains Mono");
+        assert!((configuration.style.text_size - 0.9).abs() < 1e-9);
+        assert_eq!(configuration.style.geometry.text_line_height, 28);
+        assert!((configuration.style.geometry.width_fraction - 0.9).abs() < 1e-9);
+    }
+
+    #[test]
+    fn one_invalid_visual_setting_falls_back_alone_while_the_rest_still_apply() {
+        // SC-022, and FR-059's "one bad value must not discard the rest".
+        let (configuration, diagnostics) = parse(
+            r##"
+            presentation = "grid"
+            icons = "yes"
+
+            [style]
+            highlight = "not-a-colour"
+            text = "#010203"
+            grid_cell_width = 0
+            "##,
+        );
+
+        assert_eq!(configuration.presentation, Presentation::Grid);
+        assert!(
+            configuration.icons,
+            "the bad boolean fell back to its default"
+        );
+        assert_eq!(
+            configuration.style.palette.highlight,
+            theme::DARK.highlight,
+            "the bad colour fell back alone"
+        );
+        assert_eq!(
+            configuration.style.palette.text,
+            theme::Colour::parse("#010203").expect("a valid colour"),
+            "the good colour still applied"
+        );
+        assert_eq!(
+            configuration.style.geometry.grid_cell_width, 40,
+            "FR-054: out of range is clamped, not rejected"
+        );
+
+        let mut reported = subjects(&diagnostics);
+        reported.sort_unstable();
+        assert_eq!(
+            reported,
+            vec![
+                "config.icons",
+                "config.style.grid_cell_width",
+                "config.style.highlight"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unknown_theme_or_icon_set_name_is_reported_and_falls_back() {
+        // FR-058 for the theme. An unknown *icon set* name is a filesystem question and is
+        // reported by `icons/iconset.rs`, so the name is carried through here unjudged (FR-057).
+        let (configuration, diagnostics) = parse(
+            r#"
+            theme = "dracula"
+            icon_set = "NoSuchSet"
+            order = "compositor"
+            "#,
+        );
+        assert_eq!(configuration.style.palette, theme::DARK);
+        assert_eq!(configuration.icon_set.as_deref(), Some("NoSuchSet"));
+        assert_eq!(
+            configuration.order,
+            Order::Compositor,
+            "every other setting still applies"
+        );
+        assert_eq!(subjects(&diagnostics), vec!["config.theme"]);
+        assert!(
+            diagnostics[0]
+                .message
+                .contains(r#"unknown theme "dracula""#),
+            "{}",
+            diagnostics[0].message
+        );
+    }
+
+    #[test]
+    fn a_visual_setting_of_the_wrong_type_is_reported_against_its_own_key() {
+        let (configuration, diagnostics) = parse(
+            r#"
+            icons = 1
+            icon_set = 2
+            theme = 3
+            style = "dark"
+            "#,
+        );
+        assert_eq!(configuration, Configuration::default());
+        assert_eq!(
+            subjects(&diagnostics),
+            vec![
+                "config.theme",
+                "config.style",
+                "config.icons",
+                "config.icon_set"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unknown_style_key_is_reported_under_the_style_table() {
+        let (configuration, diagnostics) = parse(
+            r##"
+            [style]
+            shadow = "#000000"
+            text = "#010203"
+            "##,
+        );
+        assert_eq!(
+            configuration.style.palette.text,
+            theme::Colour::parse("#010203").expect("a valid colour")
+        );
+        assert_eq!(subjects(&diagnostics), vec!["config.style.shadow"]);
+        assert_eq!(diagnostics[0].condition, Condition::UnknownConfigKey);
+    }
+
+    #[test]
+    fn the_visual_keys_are_not_reported_as_unknown_top_level_keys() {
+        let (_, diagnostics) = parse(
+            r##"
+            icons = true
+            icon_set = "hicolor"
+            theme = "dark"
+
+            [style]
+            text = "#010203"
+            "##,
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 }

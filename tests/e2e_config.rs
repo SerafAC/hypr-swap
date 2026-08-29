@@ -25,6 +25,7 @@ use e2e::notify::NotifyLog;
 use hypr_swap::config::Order;
 use hypr_swap::ordering;
 use hypr_swap::state::World;
+use hypr_swap::theme::Geometry;
 use hypr_swap::ui::layout;
 use hypr_swap::ui::shortcuts::Shortcut;
 use hypr_swap::{APP_ID, VERSION};
@@ -102,7 +103,8 @@ fn expected_list_size(nested: &Nested, monitor: &str, entry_count: usize) -> (u3
         .into_iter()
         .find(|candidate| candidate.name == monitor)
         .expect("the monitor is connected");
-    layout::list_metrics(monitor.size, monitor.scale, entry_count).surface_size()
+    layout::list_metrics(&Geometry::DEFAULT, monitor.size, monitor.scale, entry_count)
+        .surface_size()
 }
 
 /// Give the compositor a moment to do something, for the assertions that nothing happened.
@@ -236,6 +238,7 @@ fn e2e_defaults_without_config() {
     assert_ne!(
         surface.size,
         layout::grid_metrics(
+            &Geometry::DEFAULT,
             nested
                 .monitors()
                 .into_iter()

@@ -18,6 +18,7 @@ use e2e::keyboard::{KEY_LEFTALT, KEY_TAB, Keyboard};
 use hypr_swap::config::Order;
 use hypr_swap::ordering;
 use hypr_swap::state::World;
+use hypr_swap::theme::Geometry;
 use hypr_swap::ui::layout;
 
 const SETTLE: Duration = Duration::from_millis(200);
@@ -138,7 +139,12 @@ fn e2e_scrolls_many_workspaces() {
     let mut keyboard = Keyboard::attach(&nested.wayland_display);
 
     let listed = entries(&nested, Order::Mru);
-    let expected = layout::list_metrics(monitor.size, monitor.scale, listed.len());
+    let expected = layout::list_metrics(
+        &Geometry::DEFAULT,
+        monitor.size,
+        monitor.scale,
+        listed.len(),
+    );
     assert!(
         expected.scrolls(listed.len()),
         "{} entries must exceed the cap on a {:?} monitor",
@@ -171,7 +177,7 @@ fn e2e_scrolls_many_workspaces() {
     );
     assert_eq!(
         expected.row_height,
-        layout::list_metrics(monitor.size, monitor.scale, 1).row_height,
+        layout::list_metrics(&Geometry::DEFAULT, monitor.size, monitor.scale, 1).row_height,
         "twenty entries are the same height as one"
     );
 
@@ -294,8 +300,13 @@ fn e2e_overlay_scales_with_the_monitor() {
     let logical_monitor = (scaled_monitor.size.0 / 2, scaled_monitor.size.1 / 2);
     assert_eq!(
         scaled.size,
-        layout::list_metrics(logical_monitor, 1.0, entries(&nested, Order::Mru).len())
-            .surface_size(),
+        layout::list_metrics(
+            &Geometry::DEFAULT,
+            logical_monitor,
+            1.0,
+            entries(&nested, Order::Mru).len()
+        )
+        .surface_size(),
         "a 4K panel at scale 2 must present the overlay exactly as a {logical_monitor:?} monitor does"
     );
     assert!(
@@ -351,6 +362,7 @@ fn measure_overlay(
         .find(|monitor| monitor.focused)
         .expect("a focused monitor");
     let expected = layout::list_metrics(
+        &Geometry::DEFAULT,
         monitor.size,
         monitor.scale,
         entries(nested, Order::Mru).len(),
@@ -511,7 +523,12 @@ fn e2e_grid_miniature_layout() {
 
     let monitor = focused_monitor(&nested);
     let listed = entries(&nested, Order::Mru);
-    let expected = layout::grid_metrics(monitor.size, monitor.scale, listed.len());
+    let expected = layout::grid_metrics(
+        &Geometry::DEFAULT,
+        monitor.size,
+        monitor.scale,
+        listed.len(),
+    );
 
     let _daemon = nested.start_daemon();
     let mut keyboard = Keyboard::attach(&nested.wayland_display);
@@ -525,7 +542,13 @@ fn e2e_grid_miniature_layout() {
     );
     assert_ne!(
         surface.size,
-        layout::list_metrics(monitor.size, monitor.scale, listed.len()).surface_size(),
+        layout::list_metrics(
+            &Geometry::DEFAULT,
+            monitor.size,
+            monitor.scale,
+            listed.len()
+        )
+        .surface_size(),
         "and is distinguishable from the list, so the setting demonstrably took effect"
     );
 
@@ -595,6 +618,7 @@ fn e2e_grid_offscreen_workspace() {
 
     let monitor = focused_monitor(&nested);
     let metrics = layout::grid_metrics(
+        &Geometry::DEFAULT,
         monitor.size,
         monitor.scale,
         entries(&nested, Order::Mru).len(),
@@ -715,7 +739,12 @@ fn e2e_title_truncation() {
 
     let monitor = focused_monitor(&nested);
     let listed = entries(&nested, Order::Mru);
-    let expected = layout::grid_metrics(monitor.size, monitor.scale, listed.len());
+    let expected = layout::grid_metrics(
+        &Geometry::DEFAULT,
+        monitor.size,
+        monitor.scale,
+        listed.len(),
+    );
 
     let _daemon = nested.start_daemon();
     let mut keyboard = Keyboard::attach(&nested.wayland_display);

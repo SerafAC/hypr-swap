@@ -57,35 +57,35 @@ changing a single pixel. Also lands the config surface and the test hooks every 
 
 ### The style model
 
-- [ ] T006 Implement `Colour` in src/theme.rs — RGBA with channels in `0.0..=1.0`, and a total parser accepting exactly `#rgb`, `#rrggbb`, `#rrggbbaa` with alpha defaulting to opaque (research.md R25, contracts/style-values.md)
-- [ ] T007 [P] Unit tests in src/theme.rs for the colour parser — all three forms, alpha default, case insensitivity, and rejection of every other input including empty string, missing `#`, bad length and non-hex digits (FR-045, research.md R25)
-- [ ] T008 Implement `Geometry` in src/theme.rs — the ten fields of FR-047 with the defaults and `[min, max]` ranges from contracts/style-values.md, held as `const` range data rather than scattered conditionals (research.md R26)
-- [ ] T009 Implement clamping in src/theme.rs — an out-of-range geometry value is brought to the nearer bound and the adjustment reported through `diag.rs` naming the setting and the value used (FR-054, FR-059)
-- [ ] T010 [P] Unit tests in src/theme.rs for clamping — each of the ten values below-min, above-max and in-range, asserting the reported message names the setting and the value actually used (FR-054, FR-059)
-- [ ] T011 Implement `Theme` (the eleven-colour palette) and `Style` (palette + font family + text size + geometry) in src/theme.rs, with the `dark` built-in whose values are byte-for-byte today's constants in src/ui/render.rs (FR-045, FR-049a, data-model.md)
-- [ ] T012 Implement `resolve(config) -> Style` in src/theme.rs expressing the FR-050 precedence chain exactly once: explicit override → named theme (colours only) → default (research.md R24)
-- [ ] T013 [P] Unit tests in src/theme.rs for the precedence chain — override beats theme, theme beats default, overrides without a theme apply over the default theme, and an invalid override falls back alone leaving every other value intact (FR-050, FR-059)
+- [X] T006 Implement `Colour` in src/theme.rs — RGBA with channels in `0.0..=1.0`, and a total parser accepting exactly `#rgb`, `#rrggbb`, `#rrggbbaa` with alpha defaulting to opaque (research.md R25, contracts/style-values.md)
+- [X] T007 [P] Unit tests in src/theme.rs for the colour parser — all three forms, alpha default, case insensitivity, and rejection of every other input including empty string, missing `#`, bad length and non-hex digits (FR-045, research.md R25)
+- [X] T008 Implement `Geometry` in src/theme.rs — the ten fields of FR-047 with the defaults and `[min, max]` ranges from contracts/style-values.md, held as `const` range data rather than scattered conditionals (research.md R26)
+- [X] T009 Implement clamping in src/theme.rs — an out-of-range geometry value is brought to the nearer bound and the adjustment reported through `diag.rs` naming the setting and the value used (FR-054, FR-059)
+- [X] T010 [P] Unit tests in src/theme.rs for clamping — each of the ten values below-min, above-max and in-range, asserting the reported message names the setting and the value actually used (FR-054, FR-059)
+- [X] T011 Implement `Theme` (the eleven-colour palette) and `Style` (palette + font family + text size + geometry) in src/theme.rs, with the `dark` built-in whose values are byte-for-byte today's constants in src/ui/render.rs (FR-045, FR-049a, data-model.md)
+- [X] T012 Implement `resolve(config) -> Style` in src/theme.rs expressing the FR-050 precedence chain exactly once: explicit override → named theme (colours only) → default (research.md R24)
+- [X] T013 [P] Unit tests in src/theme.rs for the precedence chain — override beats theme, theme beats default, overrides without a theme apply over the default theme, and an invalid override falls back alone leaving every other value intact (FR-050, FR-059)
 
 ### Configuration surface
 
-- [ ] T014 Extend src/config.rs with the four visual settings — `icons` (bool, default true), `icon_set` (string, default: the desktop's configured set), `theme` (string, default `"dark"`), and the `[style]` override table — delegating all value validation to src/theme.rs so defaults keep a single home (contracts/config.md, FR-056, FR-057, FR-049, FR-050)
-- [ ] T015 [P] Unit tests in src/config.rs for the new settings — defaults with no file, each setting parsed, one invalid setting falling back alone while every other setting still applies, and an unknown `theme` or `icon_set` name reported and falling back (FR-058, FR-059, SC-022)
+- [X] T014 Extend src/config.rs with the four visual settings — `icons` (bool, default true), `icon_set` (string, default: the desktop's configured set), `theme` (string, default `"dark"`), and the `[style]` override table — delegating all value validation to src/theme.rs so defaults keep a single home (contracts/config.md, FR-056, FR-057, FR-049, FR-050)
+- [X] T015 [P] Unit tests in src/config.rs for the new settings — defaults with no file, each setting parsed, one invalid setting falling back alone while every other setting still applies, and an unknown `theme` or `icon_set` name reported and falling back (FR-058, FR-059, SC-022)
 
 ### The pixel-neutral refactor
 
-- [ ] T016 Refactor src/ui/layout.rs — replace the `pub const` geometry with fields taken from `theme::Geometry`, threading it through `list_metrics`, `grid_metrics`, `Metrics` and every helper; `GRID_LABEL_HEIGHT` stays derived rather than becoming a setting (FR-047, plan.md Complexity Tracking)
-- [ ] T017 Update the existing src/ui/layout.rs unit tests to construct a default `Geometry` instead of reading constants, asserting the same numbers as before — this is the proof the refactor changed no arithmetic (FR-047, FR-049a)
-- [ ] T018 Refactor src/ui/render.rs — replace the eleven colour constants, the font family and `FONT_FRACTION`, `CORNER` and `MARK_WIDTH` with lookups on the resolved `Style` passed in from src/ui/mod.rs (FR-045, FR-046, FR-047)
-- [ ] T019 Thread the resolved `Style` from start-up through src/main.rs and src/ui/mod.rs to the paint path, resolving it once at start-up and never re-reading it (FR-060)
-- [ ] T020 [P] Unit test in src/theme.rs asserting the `dark` theme's eleven colours and the default geometry equal the values the pre-feature renderer used, so a future edit cannot silently change the default appearance (FR-049a, SC-018)
+- [X] T016 Refactor src/ui/layout.rs — replace the `pub const` geometry with fields taken from `theme::Geometry`, threading it through `list_metrics`, `grid_metrics`, `Metrics` and every helper; `GRID_LABEL_HEIGHT` stays derived rather than becoming a setting (FR-047, plan.md Complexity Tracking)
+- [X] T017 Update the existing src/ui/layout.rs unit tests to construct a default `Geometry` instead of reading constants, asserting the same numbers as before — this is the proof the refactor changed no arithmetic (FR-047, FR-049a)
+- [X] T018 Refactor src/ui/render.rs — replace the eleven colour constants, the font family and `FONT_FRACTION`, `CORNER` and `MARK_WIDTH` with lookups on the resolved `Style` passed in from src/ui/mod.rs (FR-045, FR-046, FR-047)
+- [X] T019 Thread the resolved `Style` from start-up through src/main.rs and src/ui/mod.rs to the paint path, resolving it once at start-up and never re-reading it (FR-060)
+- [X] T020 [P] Unit test in src/theme.rs asserting the `dark` theme's eleven colours and the default geometry equal the values the pre-feature renderer used, so a future edit cannot silently change the default appearance (FR-049a, SC-018)
 
 ### Test infrastructure
 
-- [ ] T021 Add the env-gated paint diagnostics to src/diag.rs — under an environment gate, one record per painted entry naming what was resolved and drawn (icon file chosen, placeholder used, or content shed from a miniature rectangle), following the fault-injection precedent in src/hypr/ipc.rs and inert when unset (research.md R22)
-- [ ] T022 [P] Unit tests in src/diag.rs for the paint records — correct content, and complete silence when the gate is unset (research.md R22)
-- [ ] T023 [P] Create tests/e2e/fixtures.rs staging a synthetic `XDG_DATA_HOME` — the desktop entries, both fixture icon sets, and the valid SVG, valid PNG and truncated PNG described in contracts/icon-lookup.md; declare it in tests/e2e/mod.rs (research.md R22)
-- [ ] T024 [P] Add a `hyprctl layers` geometry helper to tests/e2e/harness.rs returning the overlay surface's `xywh` from the nested instance, for the layout assertions in US2 and US5 (research.md R22)
-- [ ] T025 E2E test `e2e_refactor_is_pixel_neutral` in tests/e2e_theme.rs — with no configuration file, the overlay's `xywh` and paint records are identical to those recorded before Phase 2, proving the refactor changed nothing (FR-049a, SC-018)
+- [X] T021 Add the env-gated paint diagnostics to src/diag.rs — under an environment gate, one record per painted entry naming what was resolved and drawn (icon file chosen, placeholder used, or content shed from a miniature rectangle), following the fault-injection precedent in src/hypr/ipc.rs and inert when unset (research.md R22)
+- [X] T022 [P] Unit tests in src/diag.rs for the paint records — correct content, and complete silence when the gate is unset (research.md R22)
+- [X] T023 [P] Create tests/e2e/fixtures.rs staging a synthetic `XDG_DATA_HOME` — the desktop entries, both fixture icon sets, and the valid SVG, valid PNG and truncated PNG described in contracts/icon-lookup.md; declare it in tests/e2e/mod.rs (research.md R22)
+- [X] T024 [P] Add a `hyprctl layers` geometry helper to tests/e2e/harness.rs returning the overlay surface's `xywh` from the nested instance, for the layout assertions in US2 and US5 (research.md R22)
+- [X] T025 E2E test `e2e_refactor_is_pixel_neutral` in tests/e2e_theme.rs — with no configuration file, the overlay's `xywh` and paint records are identical to those recorded before Phase 2, proving the refactor changed nothing (FR-049a, SC-018)
 
 **Checkpoint**: The overlay looks exactly as it did, but every colour and dimension now comes from a
 resolved `Style`. User story work can begin.

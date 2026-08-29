@@ -451,6 +451,32 @@ impl Nested {
         found
     }
 
+    /// The overlay's `xywh` as the compositor reports it, in coordinates relative to the monitor
+    /// showing it — the geometry assertion the visual stories are built on (research.md R22).
+    ///
+    /// On-monitor rather than global, because a headless output's global origin depends on what
+    /// else the nested instance has arranged around it and is therefore not reproducible; the
+    /// offset within the monitor is a property of the code, which is what the committed baseline
+    /// in `tests/fixtures/baseline/` records (`list.json`'s `x_on_monitor`).
+    ///
+    /// `None` when no overlay is mapped, or when the surface sits on a monitor the instance does
+    /// not report — both of which are a test looking at the wrong moment rather than a geometry
+    /// worth asserting on.
+    #[must_use]
+    pub fn overlay_xywh(&self) -> Option<(i32, i32, u32, u32)> {
+        let surface = self.overlay_surfaces().into_iter().next()?;
+        let monitor = self
+            .monitors()
+            .into_iter()
+            .find(|monitor| monitor.name == surface.monitor)?;
+        Some((
+            surface.position.0 - monitor.position.0,
+            surface.position.1 - monitor.position.1,
+            surface.size.0,
+            surface.size.1,
+        ))
+    }
+
     /// The names the compositor has been told about, i.e. what `hyprctl globalshortcuts` shows.
     #[must_use]
     pub fn registered_shortcuts(&self) -> Vec<String> {

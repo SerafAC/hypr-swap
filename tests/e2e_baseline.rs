@@ -37,6 +37,7 @@ use hypr_swap::config::Order;
 use hypr_swap::model::Monitor;
 use hypr_swap::ordering;
 use hypr_swap::state::World;
+use hypr_swap::theme::Geometry;
 use hypr_swap::ui::layout;
 
 /// The scenario is pinned to a fixed panel so the baseline is a property of the code rather than
@@ -134,122 +135,43 @@ fn style_baseline() -> serde_json::Value {
         "font_family": FONT_FAMILY,
         "palette": palette,
         "render_scalars": scalars,
+        // Transcribed, like the palette above: these were `pub const`s in `ui::layout` and are
+        // now the fields of `theme::Geometry`. Reading them from `theme::Geometry::DEFAULT` would
+        // make the recorder describe whatever the defaults *are* rather than what they *were*,
+        // which is the one thing a baseline must not do.
         "geometry": {
-            "text_line_height": layout::TEXT_LINE_HEIGHT,
-            "row_padding": layout::ROW_PADDING,
-            "overlay_padding": layout::OVERLAY_PADDING,
-            "width_fraction": layout::OVERLAY_WIDTH_FRACTION,
-            "height_fraction": layout::OVERLAY_HEIGHT_FRACTION,
-            "grid_cell_width": layout::GRID_CELL_WIDTH,
-            "grid_cell_height": layout::GRID_CELL_HEIGHT,
-            "grid_gap": layout::GRID_GAP,
+            "text_line_height": 20,
+            "row_padding": 8,
+            "overlay_padding": 12,
+            "width_fraction": 0.8,
+            "height_fraction": 0.8,
+            "grid_cell_width": 240,
+            "grid_cell_height": 135,
+            "grid_gap": 12,
             "corner_radius": 0.28,
             "mark_width": 0.12,
         },
         "derived": {
             "note": "Not settings — derived from the values above (plan.md Complexity Tracking).",
-            "grid_label_height": layout::GRID_LABEL_HEIGHT,
+            "grid_label_height": 28,
             "scroll_margin": layout::SCROLL_MARGIN,
         },
     })
 }
 
-/// The copy of `ui::render`'s private constants above, checked against the source it was copied
-/// from.
-///
-/// This runs in every normal test run for as long as the pre-feature renderer exists, so the
-/// baseline cannot be silently invalidated by an edit to a constant. Once feature 002's
-/// foundational phase replaces those constants, this test is deleted along with them and the
-/// committed fixture stands alone.
-#[test]
-fn style_baseline_matches_the_source() {
-    let source = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("ui")
-            .join("render.rs"),
-    )
-    .expect("read src/ui/render.rs");
-
-    // Numbers are compared as numbers, not as text: `0.20` and `0.2` are the same colour, and a
-    // reformat of the source must not be reported as a change of appearance.
-    let numbers = |line: &str| -> Vec<f64> {
-        line.trim_end_matches(';')
-            .rsplit_once('=')
-            .map_or("", |(_, value)| value)
-            .trim()
-            .trim_matches(|c| c == '(' || c == ')')
-            .split(',')
-            .filter_map(|field| field.trim().parse::<f64>().ok())
-            .collect()
-    };
-    let declaration = |constant: &str| -> Vec<f64> {
-        let needle = format!("const {constant}: ");
-        let line = source
-            .lines()
-            .find(|line| line.starts_with(&needle) || line.starts_with(&format!("pub {needle}")))
-            .unwrap_or_else(|| {
-                panic!(
-                    "src/ui/render.rs no longer declares `{constant}` — the recorded baseline in \
-                     tests/fixtures/baseline/style.json is stale"
-                )
-            });
-        numbers(line)
-    };
-
-    // The constant names as `ui::render` spells them, paired with the palette keys above.
-    let names = [
-        ("BACKDROP", "backdrop"),
-        ("HIGHLIGHT", "highlight"),
-        ("ACTIVE_MARK", "active_mark"),
-        ("TEXT", "text"),
-        ("TEXT_HIGHLIGHTED", "text_highlighted"),
-        ("TEXT_DIM", "text_dim"),
-        ("TEXT_DIM_HIGHLIGHTED", "text_dim_highlighted"),
-        ("MINIATURE", "miniature"),
-        ("WINDOW", "window"),
-        ("WINDOW_EDGE", "window_edge"),
-        ("WINDOW_FLOATING", "window_floating"),
-    ];
-    for (constant, key) in names {
-        let &(_, r, g, b, a) = PALETTE
-            .iter()
-            .find(|(name, ..)| *name == key)
-            .unwrap_or_else(|| panic!("{key} is in the recorded palette"));
-        assert_eq!(
-            declaration(constant),
-            vec![r, g, b, a],
-            "src/ui/render.rs::{constant} has changed — the recorded baseline in \
-             tests/fixtures/baseline/style.json is stale"
-        );
-    }
-
-    for (constant, key) in [
-        ("CORNER", "corner_radius"),
-        ("MARK_WIDTH", "mark_width"),
-        ("FONT_FRACTION", "text_size"),
-        ("MINIATURE_FONT_FRACTION", "miniature_font_fraction"),
-        ("MINIATURE_MIN_TEXT_HEIGHT", "miniature_min_text_height"),
-        ("MINIATURE_EDGE", "miniature_edge"),
-    ] {
-        let &(_, expected) = RENDER_SCALARS
-            .iter()
-            .find(|(name, _)| *name == key)
-            .unwrap_or_else(|| panic!("{key} is in the recorded scalars"));
-        assert_eq!(
-            declaration(constant),
-            vec![expected],
-            "src/ui/render.rs::{constant} has changed — the recorded baseline in \
-             tests/fixtures/baseline/style.json is stale"
-        );
-    }
-
-    assert!(
-        source.contains(&format!("FontDescription::from_string(\"{FONT_FAMILY}\")")),
-        "src/ui/render.rs no longer builds its font description from `{FONT_FAMILY}` — the \
-         recorded baseline in tests/fixtures/baseline/style.json is stale"
-    );
-}
+// Where the guard on this transcription used to be.
+//
+// While the pre-feature renderer existed, `style_baseline_matches_the_source` re-read its private
+// constants out of `src/ui/render.rs` and failed if an edit had made the fixture stale. Feature
+// 002's foundational phase replaced those constants with resolved style values, so there is no
+// longer a source to check against and the test was deleted along with them — as its own comment
+// said it would be.
+//
+// The guard has a successor, in the place that now owns the numbers: `theme.rs`'s
+// `the_dark_theme_is_byte_for_byte_the_pre_feature_palette` and
+// `the_default_geometry_is_byte_for_byte_the_pre_feature_geometry` read
+// `tests/fixtures/baseline/style.json` and fail if a default drifts from it (FR-049a, SC-018).
+// Those run under `cargo test --lib`, with no compositor needed.
 
 // --- The geometry baseline --------------------------------------------------
 
@@ -376,9 +298,19 @@ fn record(presentation: &str, app_config: Option<&str>) -> serde_json::Value {
     let monitor = focused_monitor(&nested);
     let listed = entries(&nested);
     let metrics = if presentation == "grid" {
-        layout::grid_metrics(monitor.size, monitor.scale, listed.len())
+        layout::grid_metrics(
+            &Geometry::DEFAULT,
+            monitor.size,
+            monitor.scale,
+            listed.len(),
+        )
     } else {
-        layout::list_metrics(monitor.size, monitor.scale, listed.len())
+        layout::list_metrics(
+            &Geometry::DEFAULT,
+            monitor.size,
+            monitor.scale,
+            listed.len(),
+        )
     };
 
     let surface = open_overlay(&nested, &mut keyboard);

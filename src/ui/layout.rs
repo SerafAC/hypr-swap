@@ -2,9 +2,13 @@
 //! list is on screen (FR-019, SC-005, research.md R16).
 //!
 //! Pure arithmetic, so SC-005's twenty-workspace case is testable at every monitor size without a
-//! compositor. The constants below are the documented ones from `contracts/config.md` — they are
-//! deliberately *not* settings (Principle II), but they live here in one place (Principle III) so
-//! they could become settings if a requirement ever asked.
+//! compositor. The dimensions used to be `pub const`s here; FR-047 makes them user-settable, so
+//! they are now the fields of [`crate::theme::Geometry`] and arrive as an argument. The arithmetic
+//! below is unchanged — only where the numbers come from is (FR-049a).
+//!
+//! What is *not* settable is as deliberate as what is: [`SCROLL_MARGIN`] and the grid label height
+//! are derived from the values above them and have no meaning apart from those, so making them
+//! settings would only let them disagree (plan.md → Complexity Tracking).
 //!
 //! The rule that shapes all of it: **entries never shrink to make the set fit**. FR-019 caps the
 //! overlay at a fraction of the monitor and scrolls when the entries exceed it, rather than
@@ -19,39 +23,14 @@
 )]
 
 use crate::config::Presentation;
-
-/// The documented cap: the overlay claims at most this fraction of the monitor in each axis, so
-/// the surrounding desktop stays visible as context (FR-019, research.md R16).
-pub const OVERLAY_WIDTH_FRACTION: f64 = 0.8;
-pub const OVERLAY_HEIGHT_FRACTION: f64 = 0.8;
-
-/// One text line, in logical pixels. A list row is exactly one line tall regardless of how many
-/// windows the workspace holds — the titles are laid out along the row and ellipsised (FR-014).
-pub const TEXT_LINE_HEIGHT: u32 = 20;
-
-/// Padding above and below the text in a list row, in logical pixels.
-pub const ROW_PADDING: u32 = 8;
-
-/// Padding between the entry column and the edge of the overlay, in logical pixels.
-pub const OVERLAY_PADDING: u32 = 12;
+use crate::theme::Geometry;
 
 /// The highlight never sits closer than this many entries to a scrolled edge, so the user can
 /// always see where the list continues (research.md R16).
+///
+/// Not a setting: it is a navigation courtesy rather than a dimension, and FR-047 does not list
+/// it.
 pub const SCROLL_MARGIN: usize = 1;
-
-/// A grid cell's miniature area, in logical pixels — the documented 240 × 135 (16:9) constant
-/// (`contracts/config.md`). Fixed, exactly as the list's row height is: FR-019 forbids shrinking
-/// entries to make the set fit, in either presentation.
-pub const GRID_CELL_WIDTH: u32 = 240;
-pub const GRID_CELL_HEIGHT: u32 = 135;
-
-/// Space between grid cells, in logical pixels. Also the inset between a cell's highlight and the
-/// miniature panel inside it, so the highlight stays visible around a selected cell.
-pub const GRID_GAP: u32 = 12;
-
-/// The label line beneath a miniature: one text line plus the space above it that separates the
-/// label from the miniature it names (FR-015).
-pub const GRID_LABEL_HEIGHT: u32 = TEXT_LINE_HEIGHT + ROW_PADDING;
 
 /// The buffer size and the entry geometry for one overlay, in device pixels — plus the surface
 /// size the compositor is asked for, in logical pixels.
@@ -193,10 +172,15 @@ impl Metrics {
 /// occupies the same fraction of the screen — and so the same physical size — on a `HiDPI`
 /// monitor as on a standard one.
 #[must_use]
-pub fn list_metrics(monitor_size: (u32, u32), scale: f32, entry_count: usize) -> Metrics {
-    let text_height = scaled(TEXT_LINE_HEIGHT, scale);
-    let row_height = scaled(TEXT_LINE_HEIGHT + ROW_PADDING * 2, scale);
-    let padding = scaled(OVERLAY_PADDING, scale);
+pub fn list_metrics(
+    geometry: &Geometry,
+    monitor_size: (u32, u32),
+    scale: f32,
+    entry_count: usize,
+) -> Metrics {
+    let text_height = scaled(geometry.text_line_height, scale);
+    let row_height = scaled(geometry.text_line_height + geometry.row_padding * 2, scale);
+    let padding = scaled(geometry.overlay_padding, scale);
 
     // The cap is a fraction of what the user actually sees, so it is taken on the logical desktop
     // — 80 % of a 4K panel at scale 2 is 80 % of the 1920×1080 the compositor lays out on it.
@@ -204,8 +188,8 @@ pub fn list_metrics(monitor_size: (u32, u32), scale: f32, entry_count: usize) ->
         logical(monitor_size.0, scale),
         logical(monitor_size.1, scale),
     );
-    let logical_width = fraction(logical_monitor.0, OVERLAY_WIDTH_FRACTION);
-    let max_height = scaled(fraction(logical_monitor.1, OVERLAY_HEIGHT_FRACTION), scale);
+    let logical_width = fraction(logical_monitor.0, geometry.width_fraction);
+    let max_height = scaled(fraction(logical_monitor.1, geometry.height_fraction), scale);
 
     let visible_rows = entry_count.clamp(1, rows_that_fit(max_height, row_height, padding));
     // Built from the row geometry rather than scaled from a logical height, so the rows always
@@ -238,21 +222,26 @@ pub fn list_metrics(monitor_size: (u32, u32), scale: f32, entry_count: usize) ->
 /// with one extra question answered first: how many of those cells fit across the cap. Entries
 /// never shrink here either — a set too large for the cap scrolls, exactly as the list's does.
 #[must_use]
-pub fn grid_metrics(monitor_size: (u32, u32), scale: f32, entry_count: usize) -> Metrics {
-    let text_height = scaled(TEXT_LINE_HEIGHT, scale);
-    let cell_width = scaled(GRID_CELL_WIDTH, scale);
-    let miniature_height = scaled(GRID_CELL_HEIGHT, scale);
-    let gap = scaled(GRID_GAP, scale);
-    let padding = scaled(OVERLAY_PADDING, scale);
+pub fn grid_metrics(
+    geometry: &Geometry,
+    monitor_size: (u32, u32),
+    scale: f32,
+    entry_count: usize,
+) -> Metrics {
+    let text_height = scaled(geometry.text_line_height, scale);
+    let cell_width = scaled(geometry.grid_cell_width, scale);
+    let miniature_height = scaled(geometry.grid_cell_height, scale);
+    let gap = scaled(geometry.grid_gap, scale);
+    let padding = scaled(geometry.overlay_padding, scale);
     // The pitch carries the gap, so `cell_rect` subtracts it to get the cell's own height.
-    let row_height = miniature_height + scaled(GRID_LABEL_HEIGHT, scale) + gap;
+    let row_height = miniature_height + scaled(geometry.grid_label_height(), scale) + gap;
 
     let logical_monitor = (
         logical(monitor_size.0, scale),
         logical(monitor_size.1, scale),
     );
-    let max_width = scaled(fraction(logical_monitor.0, OVERLAY_WIDTH_FRACTION), scale);
-    let max_height = scaled(fraction(logical_monitor.1, OVERLAY_HEIGHT_FRACTION), scale);
+    let max_width = scaled(fraction(logical_monitor.0, geometry.width_fraction), scale);
+    let max_height = scaled(fraction(logical_monitor.1, geometry.height_fraction), scale);
 
     // Never wider than there are entries to put in it: three workspaces get a three-cell overlay,
     // not a full-width one with empty space.
@@ -513,6 +502,13 @@ fn fraction(pixels: u32, of: f64) -> u32 {
 mod tests {
     use super::*;
 
+    /// The defaults, which are exactly the `pub const`s this module used to hold. Every
+    /// expectation below is anchored to them and asserts the same numbers as before the refactor,
+    /// which is the proof that turning the constants into settings changed no arithmetic
+    /// (FR-047, FR-049a).
+    const G: Geometry = Geometry::DEFAULT;
+    const GRID_LABEL_HEIGHT: u32 = G.text_line_height + G.row_padding;
+
     /// A 1080p monitor at scale 1 — the reference case every expectation below is anchored to.
     const HD: (u32, u32) = (1920, 1080);
 
@@ -521,7 +517,7 @@ mod tests {
     #[test]
     fn the_overlay_is_capped_at_eighty_percent_of_the_monitor() {
         // FR-019's documented fraction.
-        let metrics = list_metrics(HD, 1.0, 100);
+        let metrics = list_metrics(&G, HD, 1.0, 100);
         assert_eq!(metrics.width, 1536, "80 % of 1920");
         assert!(
             metrics.height <= 864,
@@ -532,7 +528,7 @@ mod tests {
 
     #[test]
     fn a_short_list_gets_a_short_overlay_rather_than_an_empty_box() {
-        let metrics = list_metrics(HD, 1.0, 3);
+        let metrics = list_metrics(&G, HD, 1.0, 3);
         assert_eq!(metrics.visible_rows, 3);
         assert_eq!(metrics.height, metrics.row_height * 3 + metrics.padding * 2);
         assert!(!metrics.scrolls(3));
@@ -540,17 +536,17 @@ mod tests {
 
     #[test]
     fn the_row_height_is_one_text_line_plus_its_padding() {
-        let metrics = list_metrics(HD, 1.0, 5);
-        assert_eq!(metrics.row_height, TEXT_LINE_HEIGHT + ROW_PADDING * 2);
+        let metrics = list_metrics(&G, HD, 1.0, 5);
+        assert_eq!(metrics.row_height, G.text_line_height + G.row_padding * 2);
     }
 
     #[test]
     fn entries_keep_their_size_no_matter_how_many_there_are() {
         // FR-019: the overlay scrolls instead of scaling entries down. This is the requirement.
-        let reference = list_metrics(HD, 1.0, 1).row_height;
+        let reference = list_metrics(&G, HD, 1.0, 1).row_height;
         for count in [2, 5, 20, 100, 1000] {
             assert_eq!(
-                list_metrics(HD, 1.0, count).row_height,
+                list_metrics(&G, HD, 1.0, count).row_height,
                 reference,
                 "{count} entries changed the row height"
             );
@@ -561,13 +557,13 @@ mod tests {
     fn twenty_workspaces_keep_full_entry_size_whether_or_not_they_fit() {
         // SC-005. On 1080p all twenty fit inside the cap; on a 720p monitor they do not, and the
         // difference is that the overlay scrolls — never that the rows get smaller (FR-019).
-        let roomy = list_metrics(HD, 1.0, 20);
+        let roomy = list_metrics(&G, HD, 1.0, 20);
         assert_eq!(roomy.row_height, 36);
         assert_eq!(roomy.visible_rows, 20, "20 × 36 + 24 fits inside 864");
         assert!(!roomy.scrolls(20));
         assert!(roomy.height <= 864);
 
-        let cramped = list_metrics((1280, 720), 1.0, 20);
+        let cramped = list_metrics(&G, (1280, 720), 1.0, 20);
         assert_eq!(cramped.row_height, roomy.row_height, "rows never shrink");
         assert!(cramped.scrolls(20), "20 rows exceed 80 % of 720");
         assert_eq!(cramped.visible_rows, 15, "(576 − 24) / 36");
@@ -587,10 +583,10 @@ mod tests {
         ];
         for size in sizes {
             for count in [1, 3, 20, 50] {
-                let metrics = list_metrics(size, 1.0, count);
+                let metrics = list_metrics(&G, size, 1.0, count);
                 assert_eq!(
                     metrics.row_height,
-                    TEXT_LINE_HEIGHT + ROW_PADDING * 2,
+                    G.text_line_height + G.row_padding * 2,
                     "{size:?} with {count} entries shrank the rows"
                 );
                 assert!(
@@ -604,15 +600,15 @@ mod tests {
 
     #[test]
     fn the_text_line_leaves_room_for_its_padding_inside_the_row() {
-        let metrics = list_metrics(HD, 1.0, 5);
-        assert_eq!(metrics.text_height, TEXT_LINE_HEIGHT);
-        assert_eq!(metrics.row_height - metrics.text_height, ROW_PADDING * 2);
+        let metrics = list_metrics(&G, HD, 1.0, 5);
+        assert_eq!(metrics.text_height, G.text_line_height);
+        assert_eq!(metrics.row_height - metrics.text_height, G.row_padding * 2);
     }
 
     #[test]
     fn every_constant_is_multiplied_by_the_monitor_scale() {
-        let one = list_metrics(HD, 1.0, 5);
-        let two = list_metrics((3840, 2160), 2.0, 5);
+        let one = list_metrics(&G, HD, 1.0, 5);
+        let two = list_metrics(&G, (3840, 2160), 2.0, 5);
         assert_eq!(two.row_height, one.row_height * 2);
         assert_eq!(two.text_height, one.text_height * 2);
         assert_eq!(two.padding, one.padding * 2);
@@ -624,7 +620,7 @@ mod tests {
 
     #[test]
     fn a_fractional_scale_still_yields_whole_pixels() {
-        let metrics = list_metrics((2560, 1440), 1.5, 10);
+        let metrics = list_metrics(&G, (2560, 1440), 1.5, 10);
         assert_eq!(metrics.row_height, 54, "36 logical px at 1.5");
         assert_eq!(metrics.padding, 18);
     }
@@ -632,7 +628,7 @@ mod tests {
     #[test]
     fn a_nonsense_scale_falls_back_to_one_rather_than_collapsing_the_overlay() {
         for scale in [0.0, -1.0, f32::NAN] {
-            let metrics = list_metrics(HD, scale, 5);
+            let metrics = list_metrics(&G, HD, scale, 5);
             assert_eq!(metrics.row_height, 36, "scale {scale}");
             assert_eq!(
                 metrics.surface_size(),
@@ -648,7 +644,7 @@ mod tests {
     fn the_surface_size_is_logical_pixels_and_the_buffer_size_is_device_pixels() {
         // The bug this separation exists to prevent: `set_size` takes logical pixels, so handing
         // it the buffer size makes the overlay `scale` times too large on a scaled monitor.
-        let metrics = list_metrics((3840, 2160), 2.0, 5);
+        let metrics = list_metrics(&G, (3840, 2160), 2.0, 5);
         assert_eq!(metrics.buffer_size(), (3072, metrics.height));
         assert_eq!(metrics.surface_size(), (1536, metrics.height / 2));
     }
@@ -658,8 +654,8 @@ mod tests {
         // A 4K panel at scale 2 presents a 1920×1080 logical desktop, so the overlay must occupy
         // exactly what it would on a real 1920×1080 monitor — the same size as every other window
         // on that screen, not twice it.
-        let unscaled = list_metrics((1920, 1080), 1.0, 7);
-        let scaled_up = list_metrics((3840, 2160), 2.0, 7);
+        let unscaled = list_metrics(&G, (1920, 1080), 1.0, 7);
+        let scaled_up = list_metrics(&G, (3840, 2160), 2.0, 7);
         assert_eq!(scaled_up.surface_size(), unscaled.surface_size());
         assert_eq!(scaled_up.visible_rows, unscaled.visible_rows);
         assert_eq!(
@@ -682,7 +678,7 @@ mod tests {
         ] {
             let logical_monitor = (logical(size.0, scale), logical(size.1, scale));
             for count in [1, 3, 20, 50] {
-                let metrics = list_metrics(size, scale, count);
+                let metrics = list_metrics(&G, size, scale, count);
                 let (width, height) = metrics.surface_size();
                 assert!(
                     width <= logical_monitor.0 * 4 / 5 + 1
@@ -702,7 +698,7 @@ mod tests {
         // buffer is free to land a device pixel either side of where it started, which at worst
         // trims a pixel off the bottom padding.
         for scale in [1.0, 1.25, 1.5, 1.6, 1.75, 2.0, 2.5, 3.0] {
-            let metrics = list_metrics((3840, 2160), scale, 10);
+            let metrics = list_metrics(&G, (3840, 2160), scale, 10);
             let (width, height) = metrics.surface_size();
             let refitted = refit(metrics, width, height, 10);
             assert_eq!(refitted.surface_size(), (width, height), "scale {scale}");
@@ -723,7 +719,7 @@ mod tests {
         // silently clipped. Deriving the height from the row geometry is what prevents that.
         for scale in [1.0, 1.125, 1.25, 1.5, 1.6, 1.75, 2.0, 2.5, 3.0] {
             for count in [1, 5, 20] {
-                let metrics = list_metrics((3840, 2160), scale, count);
+                let metrics = list_metrics(&G, (3840, 2160), scale, count);
                 let (_, last_y, _, row) = metrics.cell_rect(metrics.visible_rows - 1);
                 assert_eq!(
                     last_y + row + metrics.padding,
@@ -736,7 +732,7 @@ mod tests {
 
     #[test]
     fn refitting_reads_the_compositors_logical_size_and_scales_the_buffer_back_up() {
-        let metrics = list_metrics((3840, 2160), 2.0, 20);
+        let metrics = list_metrics(&G, (3840, 2160), 2.0, 20);
         let refitted = refit(metrics, 800, 300, 20);
         assert_eq!(refitted.surface_size(), (800, 300));
         assert_eq!(
@@ -753,13 +749,13 @@ mod tests {
 
     #[test]
     fn a_monitor_too_short_for_even_one_row_still_shows_one() {
-        let metrics = list_metrics((640, 40), 1.0, 10);
+        let metrics = list_metrics(&G, (640, 40), 1.0, 10);
         assert_eq!(metrics.visible_rows, 1);
     }
 
     #[test]
     fn list_cell_rects_stack_without_gaps_or_overlap() {
-        let metrics = list_metrics(HD, 1.0, 20);
+        let metrics = list_metrics(&G, HD, 1.0, 20);
         for slot in 1..metrics.visible_rows {
             let (_, previous_y, _, height) = metrics.cell_rect(slot - 1);
             let (_, y, _, _) = metrics.cell_rect(slot);
@@ -773,7 +769,7 @@ mod tests {
 
     #[test]
     fn refitting_to_a_shorter_surface_shows_fewer_rows_at_the_same_size() {
-        let metrics = list_metrics(HD, 1.0, 20);
+        let metrics = list_metrics(&G, HD, 1.0, 20);
         assert_eq!(metrics.visible_rows, 20);
 
         let refitted = refit(metrics, metrics.width, 300, 20);
@@ -787,13 +783,13 @@ mod tests {
 
     #[test]
     fn refitting_never_shows_more_rows_than_there_are_entries() {
-        let metrics = list_metrics(HD, 1.0, 3);
+        let metrics = list_metrics(&G, HD, 1.0, 3);
         assert_eq!(refit(metrics, 1536, 864, 3).visible_rows, 3);
     }
 
     #[test]
     fn a_surface_too_short_for_a_row_still_shows_one() {
-        let metrics = list_metrics(HD, 1.0, 20);
+        let metrics = list_metrics(&G, HD, 1.0, 20);
         assert_eq!(refit(metrics, 1536, 10, 20).visible_rows, 1);
     }
 
@@ -817,11 +813,11 @@ mod tests {
     #[test]
     fn a_grid_cell_is_the_documented_size_plus_its_label_line() {
         // `contracts/config.md`: 240 × 135 logical px (16:9) + label line.
-        let metrics = grid_metrics(HD, 1.0, 6);
-        assert_eq!(metrics.cell_width, GRID_CELL_WIDTH);
-        assert_eq!(metrics.miniature_height, GRID_CELL_HEIGHT);
+        let metrics = grid_metrics(&G, HD, 1.0, 6);
+        assert_eq!(metrics.cell_width, G.grid_cell_width);
+        assert_eq!(metrics.miniature_height, G.grid_cell_height);
         let (_, _, _, cell_height) = metrics.cell_rect(0);
-        assert_eq!(cell_height, GRID_CELL_HEIGHT + GRID_LABEL_HEIGHT);
+        assert_eq!(cell_height, G.grid_cell_height + GRID_LABEL_HEIGHT);
         let (_, _, _, label_height) = metrics.label_rect(0);
         assert_eq!(label_height, GRID_LABEL_HEIGHT, "the label sits below it");
     }
@@ -829,9 +825,9 @@ mod tests {
     #[test]
     fn grid_cells_keep_their_size_no_matter_how_many_there_are() {
         // FR-019 in the grid: the overlay scrolls rather than shrinking miniatures.
-        let reference = grid_metrics(HD, 1.0, 1);
+        let reference = grid_metrics(&G, HD, 1.0, 1);
         for count in [2, 6, 20, 100, 1000] {
-            let metrics = grid_metrics(HD, 1.0, count);
+            let metrics = grid_metrics(&G, HD, 1.0, count);
             assert_eq!(metrics.cell_width, reference.cell_width, "{count} entries");
             assert_eq!(metrics.row_height, reference.row_height, "{count} entries");
             assert_eq!(
@@ -843,7 +839,7 @@ mod tests {
 
     #[test]
     fn the_grid_fits_as_many_cells_as_the_cap_allows_and_no_more() {
-        let metrics = grid_metrics(HD, 1.0, 40);
+        let metrics = grid_metrics(&G, HD, 1.0, 40);
         // 80 % of 1920 is 1536; six 240-wide cells with 12 px gaps and padding come to 1524.
         assert_eq!(metrics.columns, 6);
         assert_eq!(metrics.width, 1524);
@@ -855,7 +851,7 @@ mod tests {
     #[test]
     fn the_grid_is_never_wider_than_it_has_entries_to_fill() {
         for count in 1..=6 {
-            let metrics = grid_metrics(HD, 1.0, count);
+            let metrics = grid_metrics(&G, HD, 1.0, count);
             assert_eq!(metrics.columns, count, "{count} entries");
             assert_eq!(metrics.visible_rows, 1, "{count} entries fit on one row");
         }
@@ -863,7 +859,7 @@ mod tests {
 
     #[test]
     fn grid_cells_tile_the_surface_without_overlapping() {
-        let metrics = grid_metrics(HD, 1.0, 20);
+        let metrics = grid_metrics(&G, HD, 1.0, 20);
         let mut seen: Vec<(u32, u32, u32, u32)> = Vec::new();
         for slot in 0..metrics.visible_entries() {
             let cell = metrics.cell_rect(slot);
@@ -899,7 +895,7 @@ mod tests {
         ] {
             let logical_monitor = (logical(size.0, scale), logical(size.1, scale));
             for count in [1, 3, 20, 50] {
-                let metrics = grid_metrics(size, scale, count);
+                let metrics = grid_metrics(&G, size, scale, count);
                 let (width, height) = metrics.surface_size();
                 assert!(
                     width <= logical_monitor.0 * 4 / 5 + 1
@@ -910,7 +906,7 @@ mod tests {
                 assert!(metrics.columns >= 1 && metrics.visible_rows >= 1);
                 assert_eq!(
                     metrics.cell_width,
-                    grid_metrics(size, scale, 1).cell_width,
+                    grid_metrics(&G, size, scale, 1).cell_width,
                     "cells never shrink to make {count} of them fit"
                 );
             }
@@ -919,8 +915,8 @@ mod tests {
 
     #[test]
     fn every_grid_constant_is_multiplied_by_the_monitor_scale() {
-        let one = grid_metrics(HD, 1.0, 6);
-        let two = grid_metrics((3840, 2160), 2.0, 6);
+        let one = grid_metrics(&G, HD, 1.0, 6);
+        let two = grid_metrics(&G, (3840, 2160), 2.0, 6);
         assert_eq!(two.cell_width, one.cell_width * 2);
         assert_eq!(two.miniature_height, one.miniature_height * 2);
         assert_eq!(two.gap, one.gap * 2);
@@ -935,7 +931,7 @@ mod tests {
     #[test]
     fn a_grid_surface_round_trips_between_the_two_unit_systems() {
         for scale in [1.0, 1.25, 1.5, 2.0, 3.0] {
-            let metrics = grid_metrics((3840, 2160), scale, 20);
+            let metrics = grid_metrics(&G, (3840, 2160), scale, 20);
             let (width, height) = metrics.surface_size();
             let refitted = refit(metrics, width, height, 20);
             assert_eq!(refitted.columns, metrics.columns, "scale {scale}");
@@ -946,7 +942,7 @@ mod tests {
 
     #[test]
     fn refitting_a_grid_to_a_narrower_surface_shows_fewer_columns_at_the_same_size() {
-        let metrics = grid_metrics(HD, 1.0, 20);
+        let metrics = grid_metrics(&G, HD, 1.0, 20);
         assert_eq!(metrics.columns, 6);
 
         let refitted = refit(metrics, 800, metrics.logical_height, 20);
@@ -1092,7 +1088,7 @@ mod tests {
 
     #[test]
     fn the_miniature_box_sits_inside_its_cell() {
-        let metrics = grid_metrics(HD, 1.0, 12);
+        let metrics = grid_metrics(&G, HD, 1.0, 12);
         for slot in 0..metrics.visible_entries() {
             let (x, y, width, height) = metrics.cell_rect(slot);
             let area = metrics.miniature_box(slot, (1920, 1080));
@@ -1189,7 +1185,7 @@ mod tests {
         // SC-005 as a property, across the sizes a user might actually have.
         for size in [(1280, 720), (1920, 1080), (3840, 2160), (800, 600)] {
             for count in [1, 2, 7, 20, 63] {
-                let metrics = list_metrics(size, 1.0, count);
+                let metrics = list_metrics(&G, size, 1.0, count);
                 let rows = metrics.visible_rows;
                 let mut first = 0;
                 // Walk the whole list forwards then backwards, as Tab and Shift+Tab would.
@@ -1228,7 +1224,7 @@ mod tests {
     fn the_list_viewport_is_unchanged_by_the_shared_grid_arithmetic() {
         // One column means `first_visible_entry` is `first_visible`, so US1's behaviour is the
         // same function it always was.
-        let metrics = list_metrics((1280, 720), 1.0, 20);
+        let metrics = list_metrics(&G, (1280, 720), 1.0, 20);
         let mut first = 0;
         for highlight in (0..20).chain((0..20).rev()) {
             let expected = first_visible(metrics.visible_rows, 20, highlight, first);
@@ -1241,7 +1237,7 @@ mod tests {
     fn the_grid_scrolls_by_whole_rows_and_keeps_the_highlight_in_view() {
         // A cell that changed column as the viewport moved would make the grid unreadable while
         // navigating, so the first visible entry is always the start of a row.
-        let metrics = grid_metrics(HD, 1.0, 40);
+        let metrics = grid_metrics(&G, HD, 1.0, 40);
         let columns = metrics.columns;
         let visible = metrics.visible_entries();
         assert!(metrics.scrolls(40));
@@ -1260,7 +1256,7 @@ mod tests {
 
     #[test]
     fn a_grid_that_fits_never_scrolls() {
-        let metrics = grid_metrics(HD, 1.0, 12);
+        let metrics = grid_metrics(&G, HD, 1.0, 12);
         assert!(!metrics.scrolls(12));
         for highlight in 0..12 {
             assert_eq!(first_visible_entry(&metrics, 12, highlight, 0), 0);

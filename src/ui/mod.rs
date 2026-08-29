@@ -337,9 +337,11 @@ impl App {
     /// overlay is asked for, and everything after this — navigation, commit, cancel — is the
     /// same code either way.
     fn metrics_for(&self, monitor_size: (u32, u32), scale: f32, entry_count: usize) -> Metrics {
+        // The geometry comes from the resolved style, once, and is never re-read (FR-060).
+        let geometry = &self.config.style.geometry;
         match self.config.presentation {
-            Presentation::List => layout::list_metrics(monitor_size, scale, entry_count),
-            Presentation::Grid => layout::grid_metrics(monitor_size, scale, entry_count),
+            Presentation::List => layout::list_metrics(geometry, monitor_size, scale, entry_count),
+            Presentation::Grid => layout::grid_metrics(geometry, monitor_size, scale, entry_count),
         }
     }
 
@@ -532,6 +534,7 @@ impl App {
 
         if let Err(e) = render::overlay(
             canvas,
+            &self.config.style,
             &metrics,
             &session.entries,
             overlay.first_visible,

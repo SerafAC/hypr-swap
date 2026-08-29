@@ -60,14 +60,14 @@ fn main() -> ExitCode {
         }
     };
 
-    match run(configuration) {
+    match run(&configuration) {
         Ok(()) => ExitCode::from(EXIT_OK),
         Err(code) => ExitCode::from(code),
     }
 }
 
 /// Start up, then serve until a signal arrives, reconnecting across compositor restarts.
-fn run(configuration: Configuration) -> Result<(), u8> {
+fn run(configuration: &Configuration) -> Result<(), u8> {
     let environment = Environment::read().map_err(|missing| {
         diag::report(
             Condition::CompositorUnreachableAtStartup,
@@ -136,7 +136,7 @@ fn run(configuration: Configuration) -> Result<(), u8> {
 /// One connected lifetime: build the client, serve until the connection drops or a signal
 /// arrives, then tear everything down.
 fn serve(
-    configuration: Configuration,
+    configuration: &Configuration,
     environment: &Environment,
     ipc: &Ipc,
     fatal_if_unavailable: bool,
@@ -156,7 +156,9 @@ fn serve(
         Err(_) => return Ok(Outcome::Disconnected),
     };
 
-    let (wayland, mut app) = match ui::connect(configuration, world) {
+    // Cloned per connected lifetime rather than re-read: the file is read exactly once, at
+    // start-up, and a reconnection must not pick up an edit the user made since (FR-060).
+    let (wayland, mut app) = match ui::connect(configuration.clone(), world) {
         Ok(client) => client,
         Err(e) if fatal_if_unavailable => {
             diag::report(

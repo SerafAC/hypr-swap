@@ -107,6 +107,40 @@ impl Condition {
     }
 }
 
+/// One thing worth telling the user about, produced rather than printed.
+///
+/// Validation builds these instead of writing to stderr itself, so a whole schema — including the
+/// exact subject each problem is reported under — is unit-testable without capturing output. The
+/// caller hands each one to [`report`]. It lives here rather than in [`crate::config`] because
+/// [`crate::theme`] produces them too, and the record format has exactly one home (FR-029).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Diagnostic {
+    pub condition: Condition,
+    pub subject: String,
+    pub message: String,
+}
+
+impl Diagnostic {
+    /// Build one, so the three fields are never assembled in a different order at a call site.
+    #[must_use]
+    pub fn new(
+        condition: Condition,
+        subject: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            condition,
+            subject: subject.into(),
+            message: message.into(),
+        }
+    }
+
+    /// Report it through the one policy-owning path.
+    pub fn report(&self) {
+        report(self.condition, &self.subject, &self.message);
+    }
+}
+
 /// The one stderr record shape: `<LEVEL> <subject>: <message>`.
 ///
 /// The level is padded to a fixed width so records line up in a journal; no timestamp, because
@@ -130,6 +164,64 @@ pub fn report(condition: Condition, subject: &str, message: &str) {
         // not tell the user which setting to go and fix (US5-AS5).
         notify(summary, &format!("{subject}: {message}"));
     }
+}
+
+// --- Paint records (research.md R22) -----------------------------------------
+
+/// The environment gate that turns on one record per painted entry.
+///
+/// This feature's requirements are almost entirely visual, and screenshot comparison was rejected
+/// as brittle in feature 001's R14. Instead the daemon can be asked to say what it resolved and
+/// drew, on the stderr that FR-029 already defines as its diagnostic interface, and the E2E suite
+/// asserts on that. Unset — which is always the case in normal use — this costs one environment
+/// read per painted entry and produces nothing at all.
+///
+/// The precedent is [`crate::hypr::ipc::FAULT_INJECTION_VAR`], the env-gated hook feature 001's
+/// rollback tests use (plan.md → Complexity Tracking).
+pub const PAINT_RECORDS_VAR: &str = "HYPR_SWAP_E2E_PAINT_RECORDS";
+
+/// The subject every paint record is reported under, so a test can filter the daemon's stderr for
+/// exactly these lines.
+pub const PAINT_SUBJECT: &str = "paint";
+
+/// Whether the gate is open, given what the environment holds.
+///
+/// Split from [`paint_records_enabled`] so "silent unless asked" is testable without mutating the
+/// process environment out from under a parallel test.
+#[must_use]
+fn records_wanted(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_some_and(|value| !value.is_empty())
+}
+
+/// Whether paint records are being collected.
+#[must_use]
+pub fn paint_records_enabled() -> bool {
+    records_wanted(std::env::var_os(PAINT_RECORDS_VAR).as_deref())
+}
+
+/// The record one painted entry produces: `entry <index> <presentation>: <detail>`.
+///
+/// Split from [`paint`] so its content is unit-testable without capturing stderr.
+#[must_use]
+pub fn paint_record(index: usize, presentation: &str, detail: &str) -> String {
+    format!("entry {index} {presentation}: {detail}")
+}
+
+/// Record what was resolved and drawn for one entry — but only when the gate is open.
+///
+/// Never notifies and never raises the level above `INFO`: this is evidence for a test, not
+/// something a user is meant to act on (FR-031).
+pub fn paint(index: usize, presentation: &str, detail: &str) {
+    if !paint_records_enabled() {
+        return;
+    }
+    let record = format_record(
+        Level::Info,
+        PAINT_SUBJECT,
+        &paint_record(index, presentation, detail),
+    );
+    let mut stderr = std::io::stderr().lock();
+    let _ = writeln!(stderr, "{record}");
 }
 
 thread_local! {
@@ -315,6 +407,55 @@ mod tests {
                 "hypr-swap: swap failed",
             ]
         );
+    }
+
+    // T022 — the env-gated paint records (research.md R22).
+
+    #[test]
+    fn a_paint_record_names_the_entry_the_presentation_and_what_was_drawn() {
+        assert_eq!(
+            paint_record(0, "list", "icon /usr/share/icons/Set/48x48/apps/foot.png"),
+            "entry 0 list: icon /usr/share/icons/Set/48x48/apps/foot.png"
+        );
+        assert_eq!(
+            paint_record(3, "grid", "placeholder"),
+            "entry 3 grid: placeholder"
+        );
+        // The whole record, as it reaches stderr: one INFO line under the one subject a test
+        // filters on.
+        assert_eq!(
+            format_record(
+                Level::Info,
+                PAINT_SUBJECT,
+                &paint_record(2, "grid", "shed title")
+            ),
+            "INFO  paint: entry 2 grid: shed title"
+        );
+    }
+
+    #[test]
+    fn paint_records_are_silent_unless_the_gate_is_set() {
+        // Unset, empty, and whitespace-free presence are the three cases the gate distinguishes.
+        assert!(!records_wanted(None), "no variable means no records");
+        assert!(
+            !records_wanted(Some(std::ffi::OsStr::new(""))),
+            "an empty value is as good as unset"
+        );
+        assert!(records_wanted(Some(std::ffi::OsStr::new("1"))));
+
+        // And in an ordinary run — which is what every test process is — nothing is collected.
+        assert!(
+            !paint_records_enabled() || std::env::var_os(PAINT_RECORDS_VAR).is_some(),
+            "records are only ever enabled by {PAINT_RECORDS_VAR}"
+        );
+    }
+
+    #[test]
+    fn a_paint_record_is_never_a_notifying_condition() {
+        // FR-031: test evidence must not put anything on the user's screen. The paint path does
+        // not go through `Condition` at all, which is what makes that structural.
+        assert_eq!(Level::Info.as_str(), "INFO");
+        assert!(!paint_record(0, "list", "placeholder").contains('\n'));
     }
 
     #[test]
