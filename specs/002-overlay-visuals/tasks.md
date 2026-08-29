@@ -40,11 +40,11 @@ values.** Once that holds, each story is a genuinely independent increment.
 
 **Purpose**: Dependencies and module skeleton
 
-- [ ] T001 Record the pre-feature visual baseline in tests/fixtures/baseline/ — the overlay's `xywh` from `hyprctl layers` and a reference capture of both presentations, taken on the current build before any refactor lands. **This must happen first: once Phase 2 begins the pre-feature renderer no longer exists and the baseline can never be reproduced.** Every later "unchanged from before this feature" assertion (FR-049a, SC-018, SC-019) compares against these files
-- [ ] T002 Add `resvg` to `[dependencies]` in Cargo.toml with `default-features = false` (no `text`, no `system-fonts`, no `svgz` — research.md R18), and add the `png` feature to the existing `cairo-rs` entry (research.md R19)
-- [ ] T003 [P] Create the theming module skeleton — empty src/theme.rs, declared as `mod theme;` in src/main.rs and src/lib.rs (plan.md → Project Structure)
-- [ ] T004 [P] Create the icons module skeleton — src/icons/mod.rs declaring `mod entries; mod iconset; mod decode;` with empty src/icons/entries.rs, src/icons/iconset.rs, src/icons/decode.rs; declare `mod icons;` in src/main.rs and src/lib.rs (plan.md → Project Structure)
-- [ ] T005 [P] Add the placeholder icon asset at assets/placeholder.svg and embed it with `include_bytes!` from src/icons/mod.rs, so a placeholder is always available with no icon set installed (spec Assumptions, SC-016)
+- [X] T001 Record the pre-feature visual baseline in tests/fixtures/baseline/ — the overlay's `xywh` from `hyprctl layers` and a reference capture of both presentations, taken on the current build before any refactor lands. **This must happen first: once Phase 2 begins the pre-feature renderer no longer exists and the baseline can never be reproduced.** Every later "unchanged from before this feature" assertion (FR-049a, SC-018, SC-019) compares against these files
+- [X] T002 Add `resvg` to `[dependencies]` in Cargo.toml with `default-features = false` (no `text`, no `system-fonts`, no `svgz` — research.md R18), and add the `png` feature to the existing `cairo-rs` entry (research.md R19)
+- [X] T003 [P] Create the theming module skeleton — empty src/theme.rs, declared as `mod theme;` in src/main.rs and src/lib.rs (plan.md → Project Structure)
+- [X] T004 [P] Create the icons module skeleton — src/icons/mod.rs declaring `mod entries; mod iconset; mod decode;` with empty src/icons/entries.rs, src/icons/iconset.rs, src/icons/decode.rs; declare `mod icons;` in src/main.rs and src/lib.rs (plan.md → Project Structure)
+- [X] T005 [P] Add the placeholder icon asset at assets/placeholder.svg and embed it with `include_bytes!` from src/icons/mod.rs, so a placeholder is always available with no icon set installed (spec Assumptions, SC-016)
 
 ---
 

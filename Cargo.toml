@@ -10,7 +10,7 @@ license = "MIT"
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 smithay-client-toolkit = { version = "0.21", features = ["calloop", "xkbcommon"] }
-cairo-rs = "0.22"
+cairo-rs = { version = "0.22", features = ["png"] }
 pango = "0.22"
 pangocairo = "0.22"
 serde = { version = "1", features = ["derive"] }
@@ -21,6 +21,11 @@ calloop-wayland-source = "0.4"
 # A proc-macro crate in this line: it expands the vendored protocol XML at compile time rather
 # than generating a file, so it is a normal dependency and build.rs only triggers rebuilds.
 wayland-scanner = "0.31"
+# Vector icon rasterisation, and the only new dependency this project takes (research.md R18,
+# plan.md Complexity Tracking). Every optional feature stays off: `text` and `system-fonts` would
+# pull a font stack in to render `<text>` elements that application icons do not carry, and `svgz`
+# a decompressor for a format essentially no installed icon set uses.
+resvg = { version = "0.48", default-features = false }
 
 [dev-dependencies]
 wayland-protocols-misc = { version = "0.3", features = ["client"] }

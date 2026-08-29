@@ -1,1 +1,11 @@
 /target
+
+# Rust
+**/*.rs.bk
+*.pdb
+
+# Editors and desktops
+.idea/
+.vscode/
+*.swp
+.DS_Store

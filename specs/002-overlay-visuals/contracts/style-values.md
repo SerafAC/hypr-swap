@@ -27,18 +27,26 @@ notation is accepted (research R25).
 | `active_mark` | Active-workspace mark | `#6bb873` |
 | `text` | Primary entry text (workspace name) | `#ebebf0` |
 | `text_highlighted` | Primary text on the highlighted entry | `#ffffff` |
-| `text_dim` | Secondary text (window names) | `#a8a8b2` |
+| `text_dim` | Secondary text (window names) | `#a8a8b3` |
 | `text_dim_highlighted` | Secondary text on the highlighted entry | `#dbe6f5` |
 | `miniature` | Miniature background | `#292930` |
-| `window` | Tiled window rectangle fill | `#4c5261` |
+| `window` | Tiled window rectangle fill | `#4d5261` |
 | `window_floating` | Floating window rectangle fill | `#61667a` |
 | `window_edge` | Window rectangle edge | `#858c9e` |
 
 The `dark` defaults are the constants `ui/render.rs` uses today, so an unconfigured overlay is
-unchanged (FR-049a, SC-018). Those constants are floats; the hex above is their exact 8-bit
-round-trip, so implementing the palette from this table reproduces them byte for byte. If the two
-ever disagree, the constants win and this table is wrong. Contrast is not validated — a low-contrast or fully transparent
-combination renders as asked (spec Assumptions).
+unchanged (FR-049a, SC-018). Those constants are floats; the hex above is their 8-bit round-trip,
+rounded half away from zero. If the two ever disagree, the constants win and this table is wrong.
+
+**The `dark` theme must therefore be built from the float constants, not by parsing the hex above.**
+Two channels land exactly on a half-step — `text_dim`'s blue (`0.70` → 178.5) and `window`'s red
+(`0.30` → 76.5) — so a half-to-even convention would render them one value lower than the renderer
+does. Going through the floats has no tie to break, which is what makes FR-049a's "byte for byte"
+claim safe to rely on. The recorded pre-feature values are in
+`tests/fixtures/baseline/style.json`, whose `rgba` field is authoritative for exactly this reason.
+
+Contrast is not validated — a low-contrast or fully transparent combination renders as asked (spec
+Assumptions).
 
 ---
 

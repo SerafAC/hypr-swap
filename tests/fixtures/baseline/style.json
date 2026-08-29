@@ -1,0 +1,130 @@
+{
+  "derived": {
+    "grid_label_height": 28,
+    "note": "Not settings — derived from the values above (plan.md Complexity Tracking).",
+    "scroll_margin": 1
+  },
+  "font_family": "Sans",
+  "geometry": {
+    "corner_radius": 0.28,
+    "grid_cell_height": 135,
+    "grid_cell_width": 240,
+    "grid_gap": 12,
+    "height_fraction": 0.8,
+    "mark_width": 0.12,
+    "overlay_padding": 12,
+    "row_padding": 8,
+    "text_line_height": 20,
+    "width_fraction": 0.8
+  },
+  "note": "The values ui/render.rs and ui/layout.rs used before feature 002 turned them into resolved style values. The `dark` theme and the geometry defaults must reproduce these exactly (FR-049a, SC-018). `rgba` is authoritative; `hex` is the 8-bit round-trip, rounded half away from zero.",
+  "palette": {
+    "active_mark": {
+      "hex": "#6bb873ff",
+      "rgba": [
+        0.42,
+        0.72,
+        0.45,
+        1.0
+      ]
+    },
+    "backdrop": {
+      "hex": "#17171ced",
+      "rgba": [
+        0.09,
+        0.09,
+        0.11,
+        0.93
+      ]
+    },
+    "highlight": {
+      "hex": "#336bb8ff",
+      "rgba": [
+        0.2,
+        0.42,
+        0.72,
+        1.0
+      ]
+    },
+    "miniature": {
+      "hex": "#292930ff",
+      "rgba": [
+        0.16,
+        0.16,
+        0.19,
+        1.0
+      ]
+    },
+    "text": {
+      "hex": "#ebebf0ff",
+      "rgba": [
+        0.92,
+        0.92,
+        0.94,
+        1.0
+      ]
+    },
+    "text_dim": {
+      "hex": "#a8a8b3ff",
+      "rgba": [
+        0.66,
+        0.66,
+        0.7,
+        1.0
+      ]
+    },
+    "text_dim_highlighted": {
+      "hex": "#dbe6f5ff",
+      "rgba": [
+        0.86,
+        0.9,
+        0.96,
+        1.0
+      ]
+    },
+    "text_highlighted": {
+      "hex": "#ffffffff",
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "window": {
+      "hex": "#4d5261ff",
+      "rgba": [
+        0.3,
+        0.32,
+        0.38,
+        1.0
+      ]
+    },
+    "window_edge": {
+      "hex": "#858c9eff",
+      "rgba": [
+        0.52,
+        0.55,
+        0.62,
+        1.0
+      ]
+    },
+    "window_floating": {
+      "hex": "#61667aff",
+      "rgba": [
+        0.38,
+        0.4,
+        0.48,
+        1.0
+      ]
+    }
+  },
+  "render_scalars": {
+    "corner_radius": 0.28,
+    "mark_width": 0.12,
+    "miniature_edge": 0.008,
+    "miniature_font_fraction": 0.42,
+    "miniature_min_text_height": 9.0,
+    "text_size": 0.78
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "first_cell": [
+    12,
+    12,
+    1512,
+    36
+  ],
+  "metrics": {
+    "cell_width": 1512,
+    "columns": 1,
+    "gap": 0,
+    "height": 168,
+    "logical_height": 168,
+    "logical_width": 1536,
+    "miniature_height": 0,
+    "padding": 12,
+    "row_height": 36,
+    "scale": 1.0,
+    "text_height": 20,
+    "visible_entries": 4,
+    "visible_rows": 4,
+    "width": 1536
+  },
+  "presentation": "list",
+  "scenario": {
+    "entries": [
+      {
+        "label": "1",
+        "windows": [
+          "alpha-window"
+        ]
+      },
+      {
+        "label": "2",
+        "windows": [
+          "beta-window",
+          "gamma-window"
+        ]
+      },
+      {
+        "label": "3",
+        "windows": []
+      },
+      {
+        "label": "4",
+        "windows": [
+          "crowded-window-one",
+          "crowded-window-two",
+          "crowded-window-three",
+          "crowded-window-four",
+          "crowded-window-five"
+        ]
+      }
+    ],
+    "entry_count": 4,
+    "monitor": {
+      "position": [
+        1920,
+        0
+      ],
+      "scale": 1.0,
+      "size": [
+        1920,
+        1080
+      ]
+    }
+  },
+  "surface": {
+    "h": 168,
+    "level": 3,
+    "w": 1536,
+    "x": 2112,
+    "x_on_monitor": 192,
+    "y": 456,
+    "y_on_monitor": 456
+  }
+}

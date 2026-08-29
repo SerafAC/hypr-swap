@@ -1,0 +1,89 @@
+{
+  "first_cell": [
+    12,
+    12,
+    240,
+    163
+  ],
+  "first_label": [
+    12,
+    147,
+    240,
+    28
+  ],
+  "first_miniature": [
+    22.66666666666667,
+    18.0,
+    218.66666666666666,
+    123.0
+  ],
+  "metrics": {
+    "cell_width": 240,
+    "columns": 4,
+    "gap": 12,
+    "height": 187,
+    "logical_height": 187,
+    "logical_width": 1020,
+    "miniature_height": 135,
+    "padding": 12,
+    "row_height": 175,
+    "scale": 1.0,
+    "text_height": 20,
+    "visible_entries": 4,
+    "visible_rows": 1,
+    "width": 1020
+  },
+  "presentation": "grid",
+  "scenario": {
+    "entries": [
+      {
+        "label": "1",
+        "windows": [
+          "alpha-window"
+        ]
+      },
+      {
+        "label": "2",
+        "windows": [
+          "beta-window",
+          "gamma-window"
+        ]
+      },
+      {
+        "label": "3",
+        "windows": []
+      },
+      {
+        "label": "4",
+        "windows": [
+          "crowded-window-one",
+          "crowded-window-two",
+          "crowded-window-three",
+          "crowded-window-four",
+          "crowded-window-five"
+        ]
+      }
+    ],
+    "entry_count": 4,
+    "monitor": {
+      "position": [
+        1920,
+        0
+      ],
+      "scale": 1.0,
+      "size": [
+        1920,
+        1080
+      ]
+    }
+  },
+  "surface": {
+    "h": 187,
+    "level": 3,
+    "w": 1020,
+    "x": 2370,
+    "x_on_monitor": 450,
+    "y": 447,
+    "y_on_monitor": 447
+  }
+}
