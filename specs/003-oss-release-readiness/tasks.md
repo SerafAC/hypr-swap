@@ -1,0 +1,490 @@
+# Tasks: Open-Source Release Readiness
+
+**Input**: Design documents from `/specs/003-oss-release-readiness/`
+
+**Prerequisites**: [plan.md](./plan.md), [spec.md](./spec.md), [research.md](./research.md) (R29–R47),
+[data-model.md](./data-model.md), [contracts/](./contracts/), [quickstart.md](./quickstart.md)
+
+**Tests**: Test tasks are REQUIRED (Constitution IV & V). Every story carries the tests that verify
+it. This feature is unusual in that most of its requirements are *documents, workflows and
+packages* rather than code — for those, plan.md's tier table names the verifying check (`CI`,
+`Release`) or the named checklist item (`Inspection`) instead of a unit test, and that table is
+itself the deliverable FR-092 and SC-036 ask for. Only US7 and the foundational version work add
+Rust, and both are unit- and E2E-tested in the ordinary way.
+
+**Organization**: Tasks are grouped by user story, in the spec's priority order (P1 → P8). Each
+story's requirement block is exactly one of the spec's `### Requirements` headings, so each
+requirement has exactly one owning story. Three are additionally *referenced* from a second story,
+where that story's document links to the answer rather than restating it — FR-075 (T070), FR-115
+(T103) and FR-119 (T074) — but the authoritative task stays in the owning story.
+
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: Can run in parallel (different files, no dependencies)
+- **[Story]**: Which user story this task belongs to (US1–US8)
+- Include exact file paths in descriptions
+
+## Path Conventions
+
+Single Rust project: `src/`, `tests/` at the repository root; `docs/` becomes the mdBook source
+tree; `.github/`, `docker/`, `packaging/`, `scripts/` are new top-level directories
+([plan.md](./plan.md) → Project Structure).
+
+## Shared-file note
+
+Six files are written by more than one story and therefore carry ordering, not `[P]`:
+
+| File | Written by | Order |
+|---|---|---|
+| `scripts/checks.sh` | US1 (`docs-map`/README), US2 (`docs-map`/site), US4 (`changelog`), US6 (`licence-files`) | created in US1, extended after |
+| `Cargo.toml` | US4 (packaging metadata), US6 (source-index metadata) | US4 then US6 |
+| `deny.toml` | US3 (`[advisories]`), US6 (`[licenses]`) | US3 then US6 |
+| `.github/workflows/ci.yml` | US3 (the gating jobs and `ci-required`), US6 (the `licenses` job, added to `ci-required`'s `needs`) | US3 then US6 |
+| `tests/e2e_lifecycle.rs` | US4 (the two version tests), US7 (the seven lifecycle tests) | US4 then US7 |
+| `CONTRIBUTING.md` | US5 (FR-094, FR-095, FR-099, FR-100), US8 (FR-121 dependency policy) | US5 then US8 |
+
+---
+
+## Phase 1: Setup (Shared Infrastructure)
+
+**Purpose**: The things every later phase assumes exist. The spec's assumptions note there is no
+remote configured today and that establishing it is part of this work.
+
+- [ ] T001 Create the GitHub repository **private**, add it as `origin` and push the default branch `master` — the one branch name every workflow trigger, the release precondition and the Pages deployment key off; every workflow, the Pages site, the releases section and the `repository`/`documentation` metadata reference the repository. It stays private until T084a: FR-066a forbids publishing the history before it has been reviewed (spec Assumptions, FR-066a; blocks US2's `docs.yml`, US3, US4)
+- [ ] T002 [P] Install this feature's development tooling and record the exact versions used in `specs/003-oss-release-readiness/quickstart.md`'s prerequisites: `mdbook`, `cargo-deny`, `cargo-deb`, `cargo-generate-rpm`, `gitleaks` — development tools only, none compiled into the binary ([plan.md](./plan.md) → Technical Context)
+
+**Checkpoint**: A remote exists and the local toolchain can build every artefact this feature adds.
+
+---
+
+## Phase 2: Foundational (Blocking Prerequisites)
+
+**Purpose**: The two single definitions that three separate stories read — the version string and
+the supported compositor range. Both exist so that DRY (Principle III) holds across the README,
+the site, the diagnostic and the release workflow rather than by discipline.
+
+**⚠️ CRITICAL**: US1 (README requirements section), US4 (version agreement) and US7 (the start
+record and the version diagnostic) all consume these. No story work should begin until they exist.
+
+- [ ] T003 Query git from `build.rs`: run `git describe --tags --always --dirty` and emit its **raw** output as `cargo::rustc-env=HYPR_SWAP_GIT_DESCRIBE=<output>`, emitting nothing when git is unavailable or the command fails, with `cargo::rerun-if-changed` for `.git/HEAD` and the packed refs. `build.rs` carries no decision — whether a suffix applies is T004's pure function, which is what makes FR-104 unit-testable (FR-104, [research.md](./research.md) R37)
+- [ ] T004 Add the pure `pub fn compose_version(package: &str, describe: Option<&str>) -> String` to `src/lib.rs` — the package version alone when `describe` is `None`, empty, or exactly `v<package>` (a build made from the release tag), and `<package>+<describe>` otherwise — and expose `pub fn version() -> &'static str` over a `LazyLock` applying it to `CARGO_PKG_VERSION` and `option_env!("HYPR_SWAP_GIT_DESCRIBE")`, matching the four forms in [contracts/cli.md](./contracts/cli.md) (FR-103, FR-104)
+- [ ] T005 Add `SUPPORTED_HYPRLAND` to `src/lib.rs` as the single definition of the supported compositor range (minimum `0.55`, no maximum), which the README, the site's requirements page and the FR-118 diagnostic all derive from ([data-model.md](./data-model.md) → Supported version range)
+- [ ] T006 Unit tests in `src/lib.rs` for `compose_version` over its inputs — a describe of exactly `v<version>` yields no suffix, any other describe yields `<version>+<describe>`, and `None` and `Some("")` (a source archive, no git) fall back to the package version — and for `SUPPORTED_HYPRLAND`'s rendered form. Tested as a function because a test can only ever observe the one form the test binary was itself built as (FR-104)
+- [ ] T007 Point `src/main.rs`'s `--version` (main.rs:532), its usage text (main.rs:570) and the FR-112 start record at `hypr_swap::version()`, replacing the removed `VERSION` const's inline `{VERSION}` format captures with explicit arguments, and update the existing assertion in `tests/e2e_config.rs:806` in the same change, so the flag, the usage line and the start record read one value ([contracts/cli.md](./contracts/cli.md))
+
+**Checkpoint**: `cargo test --lib` passes; `cargo run -- --version` prints the composed string.
+
+---
+
+## Phase 3: User Story 1 - A stranger installs and runs it without building it (Priority: P1) 🎯 MVP
+
+**Goal**: The project's front page tells a prospective user what it is, what it is for, what it
+requires, how to install it, how to configure it and how to use it — and nothing else (FR-067–FR-071).
+
+**Independent Test**: On a clean supported system with no development toolchain, follow only the
+README and reach a working overlay. Then read the README cold and state the program's purpose, the
+supported compositor range, the required system libraries, the optional dependencies with what
+degrades without each, and the licence — without following a link.
+
+**Note on scope**: this story owns the README. The *packages* it points at are built by US4 and the
+runtime facts of acceptance scenarios 5 and 6 (the compositor-version diagnostic, the reported
+version) are delivered by US7 and Foundational respectively — see Dependencies below.
+
+### Implementation for User Story 1
+
+- [ ] T008 [US1] Rewrite `README.md` to answer exactly the six end-user questions in order — what it is, what it is for, what it requires, how to install it, how to configure it, how to use it (FR-067, [contracts/documentation.md](./contracts/documentation.md))
+- [ ] T009 [US1] Write the README's requirements section: the supported compositor range taken from `SUPPORTED_HYPRLAND`, the minimum toolchain taken from `Cargo.toml`'s `rust-version`, the required system libraries (cairo, pango, pangocairo), and each optional dependency with what degrades without it — an icon set (every window shows the placeholder, FR-041) and `notify-send` (no desktop notifications) (FR-069)
+- [ ] T010 [US1] Write the README's scope and privacy statement: Hyprland on Wayland only, what the project deliberately does not do, and that it performs no network access, collects no telemetry, and reads nothing beyond the compositor's state, the user's configuration file and the desktop's icon files (FR-071)
+- [ ] T011 [US1] Strip every development instruction from `README.md` — building for development, test invocation, architecture, contribution mechanics — replacing each with a link to `DEVELOPMENT.md` and `CONTRIBUTING.md` (FR-068)
+- [ ] T012 [US1] Update `README.md`'s `docs/binds.md` link to the site's `user/binds.md` location, in step with US2's move (README.md:64)
+- [ ] T013 [P] [US1] Capture the two overlay screenshots — one per presentation — with `grim` from the E2E harness's own nested instance, and commit them under `docs/src/assets/` (FR-070, [research.md](./research.md) R47)
+- [ ] T014 [US1] Embed both screenshots in `README.md` so a prospective user sees the overlay before installing it (FR-070)
+
+### Verification for User Story 1
+
+- [ ] T015 [US1] Create `scripts/checks.sh` with the `docs-map` check's README assertions: the README carries no `cargo test`, no `cargo clippy` and no architecture heading (FR-068); its stated compositor range matches `SUPPORTED_HYPRLAND` and its stated toolchain matches `rust-version` (FR-069); both screenshots are referenced and present (FR-070) — each failure naming the local command that reproduces it ([contracts/ci.md](./contracts/ci.md))
+- [ ] T016 [US1] Walk the inspection items for FR-067, FR-070 and FR-071 from [quickstart.md](./quickstart.md)'s release checklist and record the outcome — the README answers the six questions in order, the screenshots are current, the scope and privacy statement are present
+
+**Checkpoint**: `./scripts/checks.sh` passes; a reader who has never seen the project can state its
+purpose, requirements and licence from the front page alone.
+
+---
+
+## Phase 4: User Story 2 - Everything is documented, at the depth the reader needs (Priority: P2)
+
+**Goal**: Three readers, three documents. `DEVELOPMENT.md` gets a developer productive
+(FR-072–FR-075); the mdBook site carries the complete user and developer reference
+(FR-076–FR-084b), with its configuration and style pages *included* from the 002 contracts so the
+published reference cannot drift from the program (FR-083, [research.md](./research.md) R32).
+
+**Independent Test**: Confirm each of the three readers is served by exactly one document and finds
+their answer without reading the other two; then hand someone the site's styling page alone and ask
+them to assemble a complete custom overlay appearance without reading source.
+
+### Implementation for User Story 2
+
+- [ ] T017 [US2] Write `DEVELOPMENT.md`: development requirements, project setup and dependency installation, how to run the program, and how to run every test tier (FR-072)
+- [ ] T018 [US2] Add `DEVELOPMENT.md`'s architecture section conveying the organising seam — pure decision logic separated from the thin I/O shell — and stating where a new decision rule belongs (FR-073)
+- [ ] T019 [US2] Add `DEVELOPMENT.md`'s tree description naming every top-level directory and every module under `src/` with its responsibility (FR-074)
+- [ ] T020 [US2] Add `DEVELOPMENT.md`'s per-tier requirements: which tier needs a live compositor, and how a contributor without one runs it in the published container image instead (FR-075)
+- [ ] T021 [P] [US2] Create the mdBook skeleton — `docs/book.toml` with `specs/` in `extra-watch-dirs`, and `docs/src/SUMMARY.md` with two parts, `User guide` and `Developer guide` (FR-076, FR-077, [research.md](./research.md) R31)
+- [ ] T022 [US2] Write `docs/src/index.md`: what the program is, which released version the site documents, and how behaviour not yet in a release is marked (FR-078a)
+- [ ] T023 [US2] Move `docs/binds.md` to `docs/src/user/binds.md` and repoint every path that names it: `src/ui/shortcuts.rs`'s `include_str!("../../docs/binds.md")` (shortcuts.rs:148) and its two doc comments (shortcuts.rs:90, shortcuts.rs:145), `src/main.rs`'s usage-text reference (main.rs:555, main.rs:590), and `README.md`'s link (T012) — the `include_str!` is compile-time, so the move fails `cargo build` and silently drops the FR-022b bind-line assertion until it is repointed (FR-033, plan.md → Structure Decision)
+- [ ] T024 [P] [US2] Write `docs/src/user/install.md` covering every published channel — the Debian package, the RPM package, the Arch recipe, the prebuilt binary and building from source (FR-081)
+- [ ] T025 [P] [US2] Write `docs/src/user/configuration.md` as prose around an `{{#include}}` of `specs/001-workspace-swap-overlay/contracts/config.md` and `specs/002-overlay-visuals/contracts/config.md`, covering every setting, its accepted values, its range, its default and the override → theme → default precedence (FR-079, [research.md](./research.md) R32)
+- [ ] T026 [P] [US2] Write `docs/src/user/styling.md` as prose around an `{{#include}}` of `specs/002-overlay-visuals/contracts/style-values.md`, sufficient for a reader to assemble a complete custom appearance without reading source (FR-080)
+- [ ] T027 [P] [US2] Write `docs/src/user/icons.md` covering program icons and icon-set selection, and that `icon_set` is independent of `theme` (FR-081)
+- [ ] T028 [P] [US2] Write `docs/src/user/troubleshooting.md`: where the compositor collects the daemon's output and how to retrieve it (FR-115), plus the five named failures — shortcuts not firing, the overlay not appearing, the daemon exiting at start-up, missing or wrong icons, a second instance already running — each tied to the `diag::Condition` the program actually emits (FR-081)
+- [ ] T029 [P] [US2] Write `docs/src/dev/architecture.md`: the pure/shell seam in full, module by module (FR-082)
+- [ ] T030 [P] [US2] Write `docs/src/dev/workflow.md`: the spec-driven flow, linking to `specs/` rather than restating it (FR-082, FR-084a, FR-084b)
+- [ ] T031 [P] [US2] Write `docs/src/dev/testing.md`: every tier, the E2E harness, and the container image (FR-082)
+- [ ] T032 [P] [US2] Write `docs/src/dev/verification.md` as prose around an `{{#include}}` of [plan.md](./plan.md)'s `verification-tiers` anchor — the table is included, not copied, so the published statement and the plan cannot diverge (FR-084, [research.md](./research.md) R32) — and add to the same page the tier rows for features 001 and 002 (FR-001–FR-061 and their lettered variants), derived from those plans' E2E coverage mappings — FR-092's "every requirement" is the project's, not only this feature's — so that every requirement has a named tier and none is unknown (FR-092, SC-036)
+- [ ] T033 [P] [US2] Write `docs/src/dev/releasing.md` as prose around an `{{#include}}` of [contracts/release.md](./contracts/release.md)'s `release-procedure` anchor, included rather than restated for the same reason as T032 (FR-082, FR-084, [research.md](./research.md) R32)
+- [ ] T034 [US2] Create `.github/workflows/docs.yml`: build the site with `mdbook build docs` and deploy it to GitHub Pages on every push to the default branch, reporting a build failure rather than leaving the site stale. It does **not** run on pull requests — the pull-request build is T041's gating `docs` job in `ci.yml`, so a broken book fails the change that broke it (FR-078, [research.md](./research.md) R46). The deployment itself cannot be exercised until T084a makes the repository public
+
+### Tests for User Story 2
+
+- [ ] T035 [US2] Extend the settings-catalogue walk in `src/theme.rs`'s test module to cover every setting `src/config.rs` accepts, not only the colours, font and geometry: walk `specs/001-workspace-swap-overlay/contracts/config.md` and `specs/002-overlay-visuals/contracts/config.md` in addition to `style-values.md`, extending `catalogue()`'s "first column is `Key`" table rule to those two pages' shape (or normalising their tables to a `Key` first column) — so a setting added without documenting it fails `cargo test --lib` (FR-079, FR-080, FR-083, SC-030, [research.md](./research.md) R32)
+- [ ] T036 [US2] Extend `scripts/checks.sh`'s `docs-map` check: the required page set of [contracts/documentation.md](./contracts/documentation.md) exists; `SUMMARY.md` carries both parts (FR-077); `DEVELOPMENT.md` names every top-level directory and every `src/**/*.rs` module (FR-074); the site's front page names a released version (FR-078a); every troubleshooting entry names a real `diag::Condition` (FR-081); developer pages link to `specs/` rather than restating them (FR-084a) (FR-084)
+- [ ] T037 [US2] Confirm `mdbook build docs` resolves every `{{#include}}` out of `docs/src` into `specs/` and the site renders both parts (FR-076, quickstart scenario 3)
+- [ ] T038 [US2] Walk the inspection items for FR-072, FR-073, FR-075 and FR-084b from [quickstart.md](./quickstart.md) — a newcomer reaches a running test suite, the seam is conveyed, the compositor-dependent tier is named, and the published tree still carries `specs/`, `.specify/`, `.claude/` and `CLAUDE.md`
+
+**Checkpoint**: The site builds and publishes itself; adding a setting to `theme.rs` without
+documenting it fails `cargo test --lib` (quickstart scenario 3).
+
+---
+
+## Phase 5: User Story 3 - Every proposed change is automatically verified (Priority: P3)
+
+**Goal**: Build, unit tests, lint, formatting, the minimum toolchain, the documentation build, the
+document checks and the E2E suite all run on every proposed change without a maintainer acting, and
+produce one unambiguous verdict (FR-085–FR-093).
+
+**Independent Test**: Open a deliberately broken change of each gated kind — a failing unit test, a
+formatting violation, a lint warning, a minimum-toolchain build failure, and an overlay regression
+only the E2E tier catches — and confirm each is caught without human involvement
+([quickstart.md](./quickstart.md) scenario 6).
+
+### Implementation for User Story 3
+
+- [ ] T039 [US3] Write `docker/e2e/Dockerfile`: an `archlinux:latest` base pinned by digest, carrying `hyprland`, `foot`, `seatd`, `mesa`, the cairo/pango development libraries and a `rustup` toolchain matching `rust-version`; create and drop to an unprivileged user because Hyprland refuses to run as root; run `setcap -r` on `Hyprland` and `sway` because file capabilities fail under Docker's default bounding set; entry point `cargo test --test 'e2e_*'` against the repository mounted at `/work` (FR-089, [research.md](./research.md) R29, R30)
+- [ ] T040 [US3] Publish the image to `ghcr.io` from a workflow so automation and a contributor use the identical image (FR-089)
+- [ ] T041 [US3] Create `.github/workflows/ci.yml` with one job per gating check — `build` (`cargo build --release`), `unit` (`cargo test --lib`), `clippy` (`cargo clippy --all-targets -- -D warnings`), `fmt` (`cargo fmt --check`), `msrv` (a build on the toolchain named by `Cargo.toml`'s `rust-version`), `docs` (`mdbook build docs`, the pull-request build of the site that T034's deploy workflow deliberately leaves to it) and `checks` (`./scripts/checks.sh`) — triggered on every pull request and every push to the default branch (FR-085, FR-086, FR-087)
+- [ ] T042 [US3] Add the aggregating `ci-required` job to `.github/workflows/ci.yml`, depending on exactly the gating jobs of [contracts/ci.md](./contracts/ci.md) — `build`, `unit`, `clippy`, `fmt`, `msrv`, `docs`, `checks`, `licenses` and `e2e` — and make it the single branch-protection requirement so a renamed or newly added job cannot silently start or stop gating. Any later task that adds a gating job (T044's `e2e`, T081's `licenses`) MUST add it to this `needs:` list in the same change: that list **is** the gating set FR-091 makes visible (FR-085, FR-091, SC-033, [research.md](./research.md) R39)
+- [ ] T043 [US3] Give every job in `.github/workflows/ci.yml` a failure step printing the exact local command from [contracts/ci.md](./contracts/ci.md)'s "reproduce locally" column (FR-090)
+- [ ] T044 [US3] Create `.github/workflows/e2e.yml` declared `on: workflow_call`, running `cargo test --test 'e2e_*'` in the T039 image against a compositor automation supplies — a virtual GPU and a seat, since a plain container cannot start Hyprland at all — and call it from `.github/workflows/ci.yml` as the `e2e` job named in T042's `needs:` list, because a job in a workflow `ci.yml` does not call cannot be a dependency of `ci-required` and a second required check would defeat FR-091's single visible gate (FR-088, FR-091, [research.md](./research.md) R29)
+- [ ] T045 [US3] Make the `e2e` job assert the parent session is up *before* invoking `cargo test`, so an environment failure — a broken runner — reports distinctly from a genuine test failure ([contracts/ci.md](./contracts/ci.md), spec edge case)
+- [ ] T046 [P] [US3] Create `deny.toml` with the `[advisories]` section, and `.github/workflows/advisories.yml` running `cargo deny check advisories` as an **informational** job, so an advisory is surfaced without blocking every contributor on someone else's disclosure (FR-093, [research.md](./research.md) R38)
+
+### Tests for User Story 3
+
+- [ ] T047 [US3] Add a unit test parsing `deny.toml` that fails when an `ignore` entry's `reason` does not begin `until YYYY-MM-DD:` or when that date has passed — the gating half of FR-093's bounded acceptance, in `cargo test --lib` where a contributor sees it ([research.md](./research.md) R38)
+- [ ] T048 [US3] Run [quickstart.md](./quickstart.md) scenario 6: open five deliberately broken changes, one of each gated kind, and confirm each fails in its own job naming its own reproducing command, arriving within 30 minutes of submission (SC-034, SC-033, FR-090)
+- [ ] T049 [US3] Run [quickstart.md](./quickstart.md) scenario 5: reproduce an E2E failure locally in the published image against your own Wayland session (FR-089, SC-035)
+- [ ] T050 [US3] Walk the inspection item for FR-091 — branch protection requires `ci-required` and nothing else — and confirm [contracts/ci.md](./contracts/ci.md) lists both the gating and the informational set
+
+**Checkpoint**: A proposed change gets one pass/fail verdict with no maintainer action, and the E2E
+tier runs against a real compositor in automation.
+
+---
+
+## Phase 6: User Story 4 - A maintainer cuts a release by triggering one procedure (Priority: P4)
+
+**Goal**: One `workflow_dispatch` with one input raises the version, closes the changelog entry,
+tags, builds the five artefacts, verifies their integrity and publishes them — refusing rather than
+publishing anything unreproducible (FR-101–FR-111).
+
+**Independent Test**: Trigger the release workflow for a version, then confirm an independent person
+can obtain that version's package, verify its integrity, install it on a clean system of both the
+oldest and the current release of its family, and read what changed in it.
+
+### Implementation for User Story 4
+
+- [ ] T051 [US4] Create `CHANGELOG.md` in Keep a Changelog form with an `[Unreleased]` section and its `Added`/`Changed`/`Deprecated`/`Removed`/`Fixed`/`Security` headings, written by hand for users and never derived from commit messages, with a header link to [contracts/versioning.md](./contracts/versioning.md) (FR-102, FR-102a)
+- [ ] T052 [US4] Add the `[package.metadata.deb]` and `[package.metadata.generate-rpm]` sections to `Cargo.toml` — the install map and declared dependencies of [contracts/packaging.md](./contracts/packaging.md), both reading the one `version` (FR-106, FR-109, [research.md](./research.md) R33)
+- [ ] T053 [P] [US4] Create `packaging/aur/PKGBUILD` building from the release's **source archive** rather than the default branch, with `depends`, `makedepends` and `optdepends` per [contracts/packaging.md](./contracts/packaging.md), installing to Arch's conventional locations (FR-107, [research.md](./research.md) R35)
+- [ ] T054 [US4] Create `.github/workflows/release.yml` as a `workflow_dispatch` with one `version` input, validated as semver, strictly greater than the current `Cargo.toml` version, and exactly `1.0.0` for the first release (FR-101, FR-105)
+- [ ] T055 [US4] Add the release workflow's preconditions, all checked before anything is written: triggered on the default branch with a clean tree; the tag `v<version>` does not exist unless a *draft* release exists for it; the gating checks are green on the commit being released; `CHANGELOG.md` has a non-empty `[Unreleased]` section (FR-110). Because T056 then creates a new commit, the gate is re-run against the tag in T057 — the artefacts must never be built from a commit no check has seen
+- [ ] T056 [US4] Add the release workflow's version steps: raise `version` in `Cargo.toml`, refresh `Cargo.lock`, rename `[Unreleased]` to `## [<version>] - <date>` and open a fresh empty one, assert the runtime version, the new tag and the changelog heading agree, then commit and tag (FR-102a, FR-103, FR-105)
+- [ ] T057 [US4] Add the release workflow's build steps, gated on a green `ci-required` run against the newly created tag (FR-110, T055): the `x86_64` release binary; the `.deb` built in the oldest supported Ubuntu LTS container and the `.rpm` in the oldest supported Fedora container (FR-106, FR-109a, [research.md](./research.md) R34)
+- [ ] T058 [US4] Add the release workflow's package smoke test: install each package in a clean container of that family's oldest *and* current release and run `--version` and `--environment`, asserting the licence is on disk at the path in [contracts/packaging.md](./contracts/packaging.md) (FR-066, FR-109, SC-039)
+- [ ] T059 [US4] Add the release workflow's AUR step, **after** the release is published and verified (T060), so a run that fails late never leaves the AUR pointing at a release that does not exist: regenerate `packaging/aur/PKGBUILD`'s `pkgver` and `sha256sums` from the published archive, commit, and push to the AUR — failing the step loudly when the key is absent rather than skipping it, since FR-107's "in step with the released version" is not conditional (FR-107, FR-110)
+- [ ] T060 [US4] Add the release workflow's integrity steps: compute `SHA256SUMS` over every artefact, publish, then verify every published asset by re-downloading (FR-108)
+- [ ] T061 [US4] Add the release notes: the changelog entry plus the packager block — build dependencies with minimum versions, runtime dependencies, the build steps and the install map from [contracts/packaging.md](./contracts/packaging.md) (FR-111)
+- [ ] T062 [US4] Make the release a **draft** until the final verification step, and make a re-run for an existing tag fail on a published release but resume on a draft — checking out the existing tag and rebuilding from that exact commit, so one version can never have two different artefact sets (FR-110, [research.md](./research.md) R36)
+
+### Tests for User Story 4
+
+- [ ] T063 [US4] Extend `scripts/checks.sh` with the `changelog` check: a change touching `src/` requires a non-empty `[Unreleased]` section (FR-102a)
+- [ ] T064 [US4] Create `tests/e2e_lifecycle.rs` with `e2e_version_reports_build` — `--version` from a non-tag build carries the git-describe suffix (FR-104, US1-AS6) — and `e2e_version_matches_metadata` — `--version` agrees with `Cargo.toml` (FR-103)
+- [ ] T065 [US4] Run [quickstart.md](./quickstart.md) scenario 7 end to end: trigger a release, download it as an outsider, `sha256sum -c SHA256SUMS`, install each package in a clean container of its family's oldest and current release, then confirm all four refusals (existing published tag, dirty tree, red checks, resumed draft) — the clean-system install taking under 5 minutes with no compilation (FR-108, FR-110, SC-027, SC-037, SC-038, SC-039)
+- [ ] T066 [US4] Walk the inspection items for FR-101a, FR-102, FR-109a and FR-111 — the breaking-change definition in [contracts/versioning.md](./contracts/versioning.md), a changelog entry written for users, a distribution matrix naming releases that are actually supported, and release notes carrying the packager block
+
+**Checkpoint**: A release exists that an outsider can obtain, verify, install and read about.
+
+---
+
+## Phase 7: User Story 5 - A contributor knows how to take part (Priority: P5)
+
+**Goal**: The rules, the spec-driven workflow, what review looks for, the conduct expectations, and
+forms that collect what the maintainer would otherwise have to ask for (FR-094–FR-100).
+
+**Independent Test**: A developer new to the project produces a change that passes every check and
+carries its tests, documentation, changelog entry and specification updates, using only the
+published contribution guidance.
+
+### Implementation for User Story 5
+
+- [ ] T067 [US5] Write `CONTRIBUTING.md`: the design rules the project holds to (KISS/YAGNI/DRY from the constitution), how the spec-driven workflow applies to a behavioural change, and what review will examine — referring to `DEVELOPMENT.md` for setup rather than restating it (FR-094)
+- [ ] T068 [US5] Add to `CONTRIBUTING.md` the convention that code cites FR numbers, and that a behavioural change updates the feature specification, the plan's coverage table and the task list alongside the code (FR-095)
+- [ ] T069 [US5] Add to `CONTRIBUTING.md` what response a contributor should expect, including that the project is maintained by a single maintainer on a best-effort basis (FR-100)
+- [ ] T070 [US5] Add to `CONTRIBUTING.md` a **link** to `DEVELOPMENT.md`'s per-tier section (T020) for which tier a contributor without a live compositor cannot run locally and how to run it in the published container instead, plus one line on what automation verifies on their behalf — the answer itself stays in `DEVELOPMENT.md`, which the document map makes authoritative (US5-AS2, FR-075, FR-084)
+- [ ] T071 [P] [US5] Write `CODE_OF_CONDUCT.md` with the conduct expectations and a reporting address (FR-096)
+- [ ] T072 [P] [US5] Create `.github/ISSUE_TEMPLATE/bug.yml` whose required fields are exactly the `EnvironmentReport` lines — program version, compositor version, configuration, diagnostic output — plus expected versus observed behaviour (FR-097, [data-model.md](./data-model.md) → Bug report)
+- [ ] T073 [P] [US5] Create `.github/ISSUE_TEMPLATE/feature.yml` asking what the reporter is trying to achieve rather than the change they have designed, showing the project's scope boundaries at the point of asking (FR-098)
+- [ ] T074 [P] [US5] Create `.github/ISSUE_TEMPLATE/config.yml` pointing security reports at `SECURITY.md` rather than the public tracker (FR-119)
+- [ ] T075 [P] [US5] Create `.github/pull_request_template.md` with the checklist covering tests, documentation, changelog and specification updates (FR-099)
+
+### Tests for User Story 5
+
+- [ ] T076 [US5] Walk the inspection items for FR-094–FR-100 from [quickstart.md](./quickstart.md)'s release checklist: the guidance states the rules, the spec-driven flow, what review looks for and the best-effort expectation; the conduct document carries a reporting address; the issue forms mark the environment fields required and ask for the goal; the pull-request checklist covers all four; a report arriving through the form carries the version, the compositor version and the diagnostic output with no follow-up needed (SC-040)
+
+**Checkpoint**: A newcomer can find, without asking, what a good change carries and what happens
+after they submit it.
+
+---
+
+## Phase 8: User Story 6 - Provenance and licensing are unambiguous (Priority: P6)
+
+**Goal**: One authoritative licence text, the copyright holder, an account of every bundled
+third-party component, and a stated position on the dependency graph's licences (FR-062–FR-066a).
+
+**Independent Test**: Given only the distributed source, a reviewer enumerates every third-party
+component shipping inside it, names each licence, and finds the project's full licence text.
+
+### Implementation for User Story 6
+
+- [ ] T077 [P] [US6] Create `LICENSE` with the full MIT text at the repository root, naming the copyright holder and year, matching the `license` already declared in `Cargo.toml` (FR-062, [research.md](./research.md) R45)
+- [ ] T078 [P] [US6] Create `THIRD-PARTY.md` accounting for every component shipping inside the tree — `protocols/hyprland-global-shortcuts-v1.xml` and `assets/placeholder.svg` at minimum — each with its upstream origin, its version or revision and its own licence, and add the same header to each file itself (FR-063)
+- [ ] T079 [US6] Add the source-index metadata to `Cargo.toml`: `repository`, `documentation`, `homepage`, `keywords`, `categories` and `readme`, beside the existing `description` and `license` (FR-065)
+- [ ] T080 [US6] Add the `[licenses]` section to `deny.toml` and state the project's position on its build-time and runtime dependency licences in `THIRD-PARTY.md`, so a packager can judge redistributability without auditing the graph themselves (FR-064, [research.md](./research.md) R38)
+- [ ] T081 [US6] Add `cargo deny check licenses` as a **gating** job named `licenses` in `.github/workflows/ci.yml` **and add it to `ci-required`'s `needs:` list** (T042) — a gate nothing requires is exactly what FR-091 forbids — distinct from the informational `advisories` job of T046 (FR-064, FR-091)
+- [ ] T082 [US6] Confirm both distribution packages ship `LICENSE` to their family's conventional path — `/usr/share/doc/hypr-swap/copyright` and `/usr/share/licenses/hypr-swap/LICENSE` — via the `Cargo.toml` metadata of T052 (FR-066, [contracts/packaging.md](./contracts/packaging.md))
+
+### Tests for User Story 6
+
+- [ ] T083 [US6] Extend `scripts/checks.sh` with the `licence-files` check: `LICENSE` exists and names a holder and a year; `Cargo.toml`'s `license` agrees with it; `Cargo.toml` carries description, licence, repository, documentation and keywords; every path under `protocols/` and `assets/` is accounted for in `THIRD-PARTY.md`, so zero files are unattributed (FR-062, FR-063, FR-065, SC-041)
+- [ ] T084 [US6] Run `gitleaks detect --log-opts=--all` over the entire history for credentials, personal data and material the project has no right to publish, and record the outcome in `specs/003-oss-release-readiness/history-review.md` — **before** the repository is made public (FR-066a, [research.md](./research.md) R44)
+
+- [ ] T084a [US6] Make the repository public and turn on what only a public repository can do — GitHub Pages for T034's deployment and branch protection requiring `ci-required` (T042) — **only once** T084's review is recorded and clean (FR-066a, FR-078, FR-091)
+
+**Checkpoint**: Every file in the tree is attributable to an origin and a licence; the history has
+been reviewed, the review recorded, and only then is the repository public.
+
+---
+
+## Phase 9: User Story 7 - The daemon leaves a record of itself (Priority: P7)
+
+**Goal**: The daemon says that it started and which version it is, says why it stopped on every exit
+path including the ones that never finish start-up, reports the environment facts a bug report needs
+on demand, and names a compositor-version mismatch rather than failing obscurely (FR-112–FR-118).
+
+**Independent Test**: Start the daemon through the compositor, exercise it, terminate it, and
+confirm the session's collected output contains a start record with the version, every error
+reported in between, and a shutdown record naming the cause.
+
+### Implementation for User Story 7
+
+- [ ] T085 [US7] Add `Started`, `Stopping` and `CompositorVersionUnsupported` to `src/diag.rs`'s `Condition` enum — `Info`/`Info`/`Warn`, subjects `daemon`/`daemon`/`compositor`, none notifying — leaving the levels, the format and the notification policy untouched (FR-112, FR-113, FR-114, FR-118, [research.md](./research.md) R40, [contracts/diagnostics.md](./contracts/diagnostics.md))
+- [ ] T086 [US7] Add `CompositorVersion` to `src/model.rs`: deserialised from Hyprland's `j/version` response, reading `version` and `tag` only ([data-model.md](./data-model.md))
+- [ ] T087 [US7] Add the pure `parse(&str) -> Option<(u32, u32, u32)>` and `supported(&self) -> Support` to `src/model.rs` — `MAJOR.MINOR[.PATCH]` with an optional `v` prefix and any trailing suffix ignored, yielding `Supported`, `TooOld { found, minimum }` or `Unknown { found }` against `SUPPORTED_HYPRLAND` (FR-118, [research.md](./research.md) R42)
+- [ ] T088 [US7] Report `Started` from `src/main.rs`'s `serve`, once per connected lifetime, after the world, the Wayland client and the event stream are all up — not on reconnection, which keeps reporting its existing `CompositorConnection` record (FR-112, [contracts/diagnostics.md](./contracts/diagnostics.md))
+- [ ] T089 [US7] Report `Stopping` from every exit path in `src/main.rs` — `SIGTERM`, `SIGINT`, a compositor unreachable at start-up, a second instance already running, a usage error — as the last line the process writes, before the exit code is returned (FR-113, SC-042)
+- [ ] T090 [US7] Add the start-up compositor-version check to `src/main.rs`: query `j/version`, report `CompositorVersionUnsupported` at most once when the version is below the minimum or cannot be parsed, and **continue anyway** rather than taking the user's switcher away over a version comparison (FR-118)
+- [ ] T091 [US7] Add `--environment` to `src/main.rs`'s argument parser: print the six `key: value` lines of [contracts/cli.md](./contracts/cli.md) to stdout in order and exit 0 without starting the daemon, with an explicit word where a value is unavailable, listing only settings that differ from their defaults, and never printing the configuration file's contents, window titles or any path outside the configuration and icon-set locations — and add `--environment` to the usage text's OPTIONS block so the binary keeps listing its own options (FR-116, FR-071, FR-033, [research.md](./research.md) R41)
+- [ ] T092 [US7] Record the FR-117 obligation **without new machinery** ([research.md](./research.md) R43): state in [contracts/versioning.md](./contracts/versioning.md) → Deprecation and on [quickstart.md](./quickstart.md)'s release checklist that a setting renamed or removed between releases keeps its old name recognised, reporting what replaced it. No compatibility layer is built — the existing `UnknownConfigKey` diagnostic, FR-024's per-setting fallback and FR-101a's major-version rule are the whole mechanism, and T100 is the test that would notice (FR-117, plan.md → Constitution Check II)
+- [ ] T093 [US7] Add the env-gated compositor-version override used only by the FR-118 E2E test, following the existing precedent of `hypr/ipc.rs`'s fault injection and `diag.rs`'s paint records — inert in normal operation (plan.md → Complexity Tracking)
+
+### Tests for User Story 7
+
+- [ ] T094 [P] [US7] Unit tests in `src/model.rs` for `parse` and `supported`: the accepted forms, the `v` prefix, a trailing suffix, a two-component version, an unparseable version, and each `Support` outcome against `SUPPORTED_HYPRLAND` (FR-118)
+- [ ] T095 [P] [US7] Unit tests in `src/diag.rs` asserting the three new conditions' levels, subjects and that none notifies — the policy table is unchanged for every existing condition (FR-114)
+- [ ] T096 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_records_start_with_version` (FR-112, US7-AS1, SC-042) and `e2e_records_stop_on_signal` (FR-113, US7-AS2)
+- [ ] T097 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_records_stop_on_fatal_startup` — the daemon started with no compositor reachable still says why, then exits 3 (FR-113, spec edge case)
+- [ ] T098 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_existing_diagnostics_unchanged` — an invalid configuration value still reports at its existing level in the existing format (FR-114, US7-AS3)
+- [ ] T099 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_environment_report` — `--environment` against the nested instance produces every line, with no configuration file contents (FR-116, US7-AS5)
+- [ ] T100 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_config_from_previous_release`, running against the committed fixture `tests/fixtures/config-previous-release.toml` — a copy of the configuration contract as of the last release, which at 1.0.0 is the 1.0.0 contract itself and asserts a clean run with no diagnostics — so the test has something to run against before there is a previous release, and a release-checklist item refreshes the fixture at each release (FR-117, US7-AS6, SC-043)
+- [ ] T101 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_unsupported_compositor_version` — the T093 override below the minimum produces the `WARN compositor:` record and the daemon continues (FR-118, US1-AS5)
+- [ ] T102 [US7] Run the whole 001/002 E2E suite unchanged (`cargo test --test 'e2e_*'`) and confirm it passes untouched — the check that the lifecycle records joined the existing record rather than reshaping it (FR-114, quickstart scenario 2)
+- [ ] T103 [US7] Walk the inspection item for FR-115 — the troubleshooting page still names where the compositor collects the daemon's output and how to retrieve it
+
+**Checkpoint**: No daemon run ends without a record of why (SC-042); a bug reporter can produce the
+environment block with one flag.
+
+---
+
+## Phase 10: User Story 8 - Vulnerabilities and dependency rot have a path (Priority: P8)
+
+**Goal**: A private reporting channel distinct from the public tracker, a supported-version
+statement, and a stated dependency bar (FR-119–FR-121). The advisory watch itself was built in US3.
+
+**Independent Test**: Confirm the reporting channel and supported-version statement are published
+and reachable, and that the dependency check surfaces a deliberately introduced vulnerable
+dependency.
+
+### Implementation for User Story 8
+
+- [ ] T104 [P] [US8] Write `SECURITY.md` with a private reporting channel distinct from the public tracker and an expected acknowledgement time (FR-119)
+- [ ] T105 [US8] Add the supported-version statement to `SECURITY.md` — which released versions receive fixes ([data-model.md](./data-model.md) → Supported version range) (FR-120)
+- [ ] T106 [US8] Add the dependency policy to `CONTRIBUTING.md`: a new dependency requires written justification in the plan's Complexity Tracking table, consistent with the constitution's simplicity principle, so a contributor proposing one knows the bar in advance (FR-121)
+
+### Tests for User Story 8
+
+- [ ] T107 [US8] Confirm `cargo deny check advisories` surfaces a deliberately introduced vulnerable dependency, and that an `ignore` entry with an `until YYYY-MM-DD:` reason accepts it without the project sitting permanently red — with T047's test failing once that date passes (FR-093, US8-AS3)
+- [ ] T108 [US8] Walk the inspection items for FR-119 and FR-120 — the channel works and the supported-version list is current
+
+**Checkpoint**: Someone with a security finding has somewhere private to send it, and the
+maintainer learns about a vulnerable dependency from the project's own checks.
+
+---
+
+## Phase 11: Polish & Cross-Cutting Concerns
+
+**Purpose**: The whole-feature verification, and the human measurements the plan says are measured
+by walking the published path once.
+
+- [ ] T109 Run the full gate locally — `cargo build --release`, `cargo test --lib`, `cargo test --test 'e2e_*'`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`, `mdbook build docs`, `./scripts/checks.sh` — and confirm all are green
+- [ ] T110 [P] Confirm every requirement of features 001, 002 and 003 — FR-001 through FR-121, lettered variants included — has a named tier at `docs/src/dev/verification.md`: this feature's included from [plan.md](./plan.md)'s `verification-tiers` anchor, 001's and 002's derived from their plans' E2E coverage mappings, and that no requirement's status is unknown (FR-092, SC-036)
+- [ ] T111 [P] Measure SC-026 — landing page to working overlay, under 15 minutes — and record the walk in [quickstart.md](./quickstart.md) (quickstart scenario 4, item 3)
+- [ ] T112 [P] Measure SC-032 — `DEVELOPMENT.md` to every test tier run, under 30 minutes — and record the walk (quickstart scenario 4, item 4)
+- [ ] T113 [P] Measure SC-031 — someone assembles a complete custom appearance from the site's styling page alone, no source reading — and record the outcome (quickstart scenario 4, item 5)
+- [ ] T114 Run [quickstart.md](./quickstart.md) scenario 4 items 1–2: the README answers the six questions in order, and five questions picked from [contracts/documentation.md](./contracts/documentation.md)'s map each have exactly one authoritative answer with the others linking; and a reader can state the licence, the supported compositor range, the requirements and how to report a vulnerability within 60 seconds of arriving (FR-084, SC-028, SC-029)
+- [ ] T115 Walk the complete release checklist at the foot of [quickstart.md](./quickstart.md) — every Inspection-tier requirement in one pass — before the repository is made public
+- [ ] T116 Write the `[Unreleased]` changelog entry for this feature in `CHANGELOG.md`: the lifecycle records, `--environment`, the compositor-version diagnostic (FR-102a)
+- [ ] T117 Mark every task complete in this file and update [plan.md](./plan.md)'s tier and E2E tables if any test name or tier changed during implementation (CLAUDE.md: keep `tasks.md` current)
+
+---
+
+## Dependencies & Execution Order
+
+### Phase Dependencies
+
+- **Setup (Phase 1)**: No dependencies — start immediately.
+- **Foundational (Phase 2)**: Depends on Setup. **Blocks every story**: US1's requirements section, US4's version agreement and US7's start record all read `VERSION` and `SUPPORTED_HYPRLAND`.
+- **User Stories (Phases 3–10)**: All depend on Foundational. In priority order P1 → P8, but see the cross-story notes below.
+- **Polish (Phase 11)**: Depends on every story being complete.
+
+### Cross-story notes (honest, not incidental)
+
+The spec's priority order is by *value to a reader*, and three stories lean on later ones for their
+full end-to-end demonstration. Nothing here breaks a story's own requirement set — each is
+independently implementable and its own FRs are independently verifiable — but the walk-throughs
+land in this order:
+
+- **US1's install instructions** describe packages that **US4** builds. US1's own requirements
+  (FR-067–FR-071 — what the README says) are complete without US4; US1's acceptance scenarios 1 and
+  2 (a clean-system install) can only be *walked* once US4 has published a release.
+- **US1's acceptance scenarios 5 and 6** exercise FR-118 (**US7**) and FR-103/FR-104
+  (**Foundational**). The README's *statement* of the supported range is US1's own work.
+- **US3's `checks` job** runs `scripts/checks.sh`, which US1 creates and US2, US4 and US6 extend.
+  The job is written once and gains coverage as those stories land.
+- **US8's advisory watch** is US3's `deny.toml` and `advisories.yml`; US8 adds only the human-facing
+  policy documents.
+
+### Within Each User Story
+
+- Tests MAY come before or after the code they cover, but MUST pass before the story is done.
+- In US7: the `Condition` variants (T085) and `CompositorVersion` (T086–T087) precede the `main.rs`
+  call sites (T088–T092), which precede the E2E tests that observe them.
+- In US4: the changelog and the packaging metadata precede the workflow that consumes them.
+- In US2: the mdBook skeleton (T021) precedes every page written into it.
+
+### Parallel Opportunities
+
+- **Setup**: T002 runs alongside T001.
+- **US1**: T013 (screenshots) runs alongside the README prose.
+- **US2**: T024–T033 are ten different files and all run in parallel once T021 exists.
+- **US3**: T046 (`deny.toml` + advisories) is independent of the CI and E2E workflow work.
+- **US5**: T071–T075 are five different files under `.github/` and `CODE_OF_CONDUCT.md`.
+- **US6**: T077 and T078 are independent files.
+- **US7**: T094 and T095 are unit tests in two different modules.
+- **US8**: T104 is independent of the `CONTRIBUTING.md` addition.
+- **Polish**: T110–T113 are four independent measurements.
+- **Across stories**: once Foundational is done, US2, US5, US6 and US8's document work is
+  independent of US3's automation and US7's Rust — three people could take a lane each.
+
+---
+
+## Parallel Example: User Story 2
+
+```bash
+# Once the mdBook skeleton (T021) exists, the ten pages are ten independent files:
+Task: "Write docs/src/user/install.md covering every published channel"
+Task: "Write docs/src/user/configuration.md as prose around an {{#include}} of the 002 config contract"
+Task: "Write docs/src/user/styling.md as prose around an {{#include}} of style-values.md"
+Task: "Write docs/src/user/icons.md covering program icons and icon sets"
+Task: "Write docs/src/user/troubleshooting.md with the five named failures"
+Task: "Write docs/src/dev/architecture.md covering the pure/shell seam"
+Task: "Write docs/src/dev/workflow.md linking to specs/"
+Task: "Write docs/src/dev/testing.md covering every tier and the image"
+Task: "Write docs/src/dev/verification.md carrying plan.md's tier table"
+Task: "Write docs/src/dev/releasing.md presenting contracts/release.md"
+```
+
+---
+
+## Implementation Strategy
+
+### MVP First (Setup + Foundational + User Story 1)
+
+1. Phase 1: Setup — the remote exists.
+2. Phase 2: Foundational — `VERSION` and `SUPPORTED_HYPRLAND` are single definitions.
+3. Phase 3: US1 — the README answers the six questions and `./scripts/checks.sh` holds it to them.
+4. **STOP and VALIDATE**: hand the README to someone who has never seen the project and ask them
+   to state its purpose, requirements and licence.
+
+At this point the project is *presentable* but not yet *installable without building* — which is
+why US4 follows closely rather than last.
+
+### Incremental Delivery
+
+1. Setup + Foundational → the shared definitions exist.
+2. **US1** → the front page is right. *(MVP)*
+3. **US2** → every reader has exactly one document, and the reference cannot drift.
+4. **US3** → every change is verified, overlay behaviour included.
+5. **US4** → the install instructions in US1 point at something real. *(first public release possible)*
+6. **US5** → outside contribution is safe to accept.
+7. **US6** → the tree is redistributable. *(T084 records the history review; T084a then goes public)*
+8. **US7** → no run ends without saying why.
+9. **US8** → vulnerabilities and dependency rot have a path.
+
+**The publication gate**: T084 (the FR-066a history review) must complete before T084a makes the
+repository public, whatever else has landed. It is the one task with a hard ordering constraint
+against the outside world rather than against another task. Two effects cannot be demonstrated
+until T084a runs — the Pages deployment of FR-078 and the branch protection of FR-091 — so US2's
+and US3's checkpoints are met by a green workflow run, and their published effect is confirmed at
+T084a.
+
+### Parallel Team Strategy
+
+With more than one person, after Foundational:
+
+- **Documents lane**: US1 → US2 → US5 → US6 → US8
+- **Automation lane**: US3 → US4
+- **Program lane**: US7 (the only Rust in the feature beyond Foundational)
+
+The lanes meet at `scripts/checks.sh` (documents lane writes it, automation lane runs it) and at
+`tests/e2e_lifecycle.rs` (automation lane creates it in T064, program lane extends it).
+
+---
+
+## Notes
+
+- `[P]` tasks = different files, no dependencies.
+- Every E2E task names the FR or acceptance scenario it covers, per Constitution V.
+- Requirements whose subject is a document, a workflow or a package are verified by a CI check, a
+  release step, or a named checklist item — [plan.md](./plan.md)'s tier table is the authority, and
+  publishing it is itself FR-092.
+- Code comments cite FR numbers; research decisions cite `R29`–`R47`, continuous across features.
+- Commit after each task or logical group.
+- Stop at any checkpoint to validate a story independently.
