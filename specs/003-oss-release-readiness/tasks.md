@@ -52,10 +52,29 @@ Six files are written by more than one story and therefore carry ordering, not `
 **Purpose**: The things every later phase assumes exist. The spec's assumptions note there is no
 remote configured today and that establishing it is part of this work.
 
-- [ ] T001 Create the GitHub repository **private**, add it as `origin` and push the default branch `master` — the one branch name every workflow trigger, the release precondition and the Pages deployment key off; every workflow, the Pages site, the releases section and the `repository`/`documentation` metadata reference the repository. It stays private until T084a: FR-066a forbids publishing the history before it has been reviewed (spec Assumptions, FR-066a; blocks US2's `docs.yml`, US3, US4)
+- [X] T001 Create the GitHub repository **private**, add it as `origin` and push the default branch `master` — the one branch name every workflow trigger, the release precondition and the Pages deployment key off; every workflow, the Pages site, the releases section and the `repository`/`documentation` metadata reference the repository. It stays private until T084a: FR-066a forbids publishing the history before it has been reviewed (spec Assumptions, FR-066a; blocks US2's `docs.yml`, US3, US4)
 - [X] T002 [P] Install this feature's development tooling and record the exact versions used in `specs/003-oss-release-readiness/quickstart.md`'s prerequisites: `cargo-deny`, `cargo-deb`, `cargo-generate-rpm`, `gitleaks`, and Node.js ≥ 22 with pnpm for the documentation site ([research.md](./research.md) R31, R31a) — development tools only, none compiled into the binary ([plan.md](./plan.md) → Technical Context)
 
 **Checkpoint**: A remote exists and the local toolchain can build every artefact this feature adds.
+
+**T001 record (2026-08-31).** `git@github.com:SerafAC/hypr-swap.git` is `origin` and `master` is
+pushed and tracking. Two things are settings on GitHub rather than work in the tree, and are
+**still open**:
+
+- **The default branch is `main`, not `master`.** GitHub created the repository with a `main`
+  holding one commit. `master` is the name this feature keys off — every workflow trigger, the
+  release precondition and the Pages deployment — so the default must be switched to `master` and
+  `main` deleted before US2's `docs.yml` or US3's branch protection can mean anything.
+- **Visibility is unverified.** FR-066a forbids publishing the history before T084's review, and
+  there is no `gh` CLI on this machine to check with. Confirm the repository is private; T084a is
+  the task that deliberately makes it public.
+
+**The merge brought `LICENSE` in early.** GitHub's initial commit carried the MIT text — holder
+`SerafAC`, year 2026, matching `Cargo.toml`'s `license = "MIT"` — so it was merged onto `master`
+with `--allow-unrelated-histories` rather than re-created, which satisfies **T077** (US6) ahead of
+its phase. The rest of US6 is untouched: `THIRD-PARTY.md`, the source-index metadata, the
+`[licenses]` policy and the `licence-files` check are still to come, and T083's check is what will
+hold the file to FR-062 mechanically.
 
 ---
 
@@ -146,10 +165,11 @@ part:
 | FR-071 — scope and the privacy statement | ✅ *Scope and privacy*: Hyprland on Wayland only and what the project deliberately does not do; no network access, no telemetry, and nothing read beyond compositor state, the configuration file and the desktop's icon files |
 
 **Known dangling links, each closed by a later story.** FR-068 requires the README to link to
-`DEVELOPMENT.md` and `CONTRIBUTING.md`, so the links exist before their targets do. Seven targets
-are not written yet: `DEVELOPMENT.md` and `docs/user/{install,configuration,styling,troubleshooting}.md`
-(US2), `CONTRIBUTING.md` (US5), `CHANGELOG.md` (US4) and `LICENSE` (US6). T036's extension of
-`docs-map` asserts the required page set exists and is what turns this from a note into a check.
+`DEVELOPMENT.md` and `CONTRIBUTING.md`, so the links exist before their targets do. Six targets are
+not written yet: `DEVELOPMENT.md` and `docs/user/{install,configuration,styling,troubleshooting}.md`
+(US2), `CONTRIBUTING.md` (US5) and `CHANGELOG.md` (US4). `LICENSE` was the seventh and arrived with
+the remote's initial commit (see the T001 record above). T036's extension of `docs-map` asserts the
+required page set exists and is what turns this from a note into a check.
 
 ---
 
@@ -309,7 +329,7 @@ component shipping inside it, names each licence, and finds the project's full l
 
 ### Implementation for User Story 6
 
-- [ ] T077 [P] [US6] Create `LICENSE` with the full MIT text at the repository root, naming the copyright holder and year, matching the `license` already declared in `Cargo.toml` (FR-062, [research.md](./research.md) R45)
+- [X] T077 [P] [US6] Create `LICENSE` with the full MIT text at the repository root, naming the copyright holder and year, matching the `license` already declared in `Cargo.toml` (FR-062, [research.md](./research.md) R45)
 - [ ] T078 [P] [US6] Create `THIRD-PARTY.md` accounting for every component shipping inside the tree — `protocols/hyprland-global-shortcuts-v1.xml` and `assets/placeholder.svg` at minimum — each with its upstream origin, its version or revision and its own licence, and add the same header to each file itself (FR-063)
 - [ ] T079 [US6] Add the source-index metadata to `Cargo.toml`: `repository`, `documentation`, `homepage`, `keywords`, `categories` and `readme`, beside the existing `description` and `license` (FR-065)
 - [ ] T080 [US6] Add the `[licenses]` section to `deny.toml` and state the project's position on its build-time and runtime dependency licences in `THIRD-PARTY.md`, so a packager can judge redistributability without auditing the graph themselves (FR-064, [research.md](./research.md) R38)
