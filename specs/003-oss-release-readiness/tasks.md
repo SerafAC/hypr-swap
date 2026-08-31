@@ -57,17 +57,18 @@ remote configured today and that establishing it is part of this work.
 
 **Checkpoint**: A remote exists and the local toolchain can build every artefact this feature adds.
 
-**T001 record (2026-08-31).** `git@github.com:SerafAC/hypr-swap.git` is `origin` and `master` is
-pushed and tracking. Two things are settings on GitHub rather than work in the tree, and are
-**still open**:
+**T001 record (2026-08-31).** `git@github.com:SerafAC/hypr-swap.git` is `origin`, `master` is
+pushed and tracking, and both settings this task depends on are **confirmed**:
 
-- **The default branch is `main`, not `master`.** GitHub created the repository with a `main`
-  holding one commit. `master` is the name this feature keys off — every workflow trigger, the
-  release precondition and the Pages deployment — so the default must be switched to `master` and
-  `main` deleted before US2's `docs.yml` or US3's branch protection can mean anything.
-- **Visibility is unverified.** FR-066a forbids publishing the history before T084's review, and
-  there is no `gh` CLI on this machine to check with. Confirm the repository is private; T084a is
-  the task that deliberately makes it public.
+- **`master` is the default branch**, and the `main` GitHub created the repository with is deleted
+  — `git ls-remote --symref origin HEAD` reports `ref: refs/heads/master`, and `master` is the only
+  head. That one name is what every workflow trigger, the release precondition and the Pages
+  deployment key off, so US2's `docs.yml` and US3's branch protection now have the right branch to
+  attach to.
+- **The repository is private.** An anonymous HTTPS request to `github.com/SerafAC/hypr-swap`
+  returns 404 for a repository known to exist. FR-066a is therefore still satisfied: the history is
+  not published, and T084a is the task that deliberately makes it public once T084's `gitleaks`
+  review is recorded and clean.
 
 **The merge brought `LICENSE` in early.** GitHub's initial commit carried the MIT text — holder
 `SerafAC`, year 2026, matching `Cargo.toml`'s `license = "MIT"` — so it was merged onto `master`
