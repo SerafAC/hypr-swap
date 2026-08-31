@@ -94,21 +94,62 @@ version) are delivered by US7 and Foundational respectively — see Dependencies
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Rewrite `README.md` to answer exactly the six end-user questions in order — what it is, what it is for, what it requires, how to install it, how to configure it, how to use it (FR-067, [contracts/documentation.md](./contracts/documentation.md))
-- [ ] T009 [US1] Write the README's requirements section: the supported compositor range taken from `SUPPORTED_HYPRLAND`, the minimum toolchain taken from `Cargo.toml`'s `rust-version`, the required system libraries (cairo, pango, pangocairo), and each optional dependency with what degrades without it — an icon set (every window shows the placeholder, FR-041) and `notify-send` (no desktop notifications) (FR-069)
-- [ ] T010 [US1] Write the README's scope and privacy statement: Hyprland on Wayland only, what the project deliberately does not do, and that it performs no network access, collects no telemetry, and reads nothing beyond the compositor's state, the user's configuration file and the desktop's icon files (FR-071)
-- [ ] T011 [US1] Strip every development instruction from `README.md` — building for development, test invocation, architecture, contribution mechanics — replacing each with a link to `DEVELOPMENT.md` and `CONTRIBUTING.md` (FR-068)
+- [X] T008 [US1] Rewrite `README.md` to answer exactly the six end-user questions in order — what it is, what it is for, what it requires, how to install it, how to configure it, how to use it (FR-067, [contracts/documentation.md](./contracts/documentation.md))
+- [X] T009 [US1] Write the README's requirements section: the supported compositor range taken from `SUPPORTED_HYPRLAND`, the minimum toolchain taken from `Cargo.toml`'s `rust-version`, the required system libraries (cairo, pango, pangocairo), and each optional dependency with what degrades without it — an icon set (every window shows the placeholder, FR-041) and `notify-send` (no desktop notifications) (FR-069)
+- [X] T010 [US1] Write the README's scope and privacy statement: Hyprland on Wayland only, what the project deliberately does not do, and that it performs no network access, collects no telemetry, and reads nothing beyond the compositor's state, the user's configuration file and the desktop's icon files (FR-071)
+- [X] T011 [US1] Strip every development instruction from `README.md` — building for development, test invocation, architecture, contribution mechanics — replacing each with a link to `DEVELOPMENT.md` and `CONTRIBUTING.md` (FR-068)
 - [X] T012 [US1] Update `README.md`'s `docs/binds.md` link to the site's `user/binds.md` location, in step with US2's move (README.md:64)
-- [ ] T013 [P] [US1] Capture the two overlay screenshots — one per presentation — with `grim` from the E2E harness's own nested instance, and commit them under `docs/assets/` (FR-070, [research.md](./research.md) R47)
-- [ ] T014 [US1] Embed both screenshots in `README.md` so a prospective user sees the overlay before installing it (FR-070)
+- [X] T013 [P] [US1] Capture the two overlay screenshots — one per presentation — with `grim` from the E2E harness's own nested instance, and commit them under `docs/assets/` (FR-070, [research.md](./research.md) R47)
+- [X] T014 [US1] Embed both screenshots in `README.md` so a prospective user sees the overlay before installing it (FR-070)
 
 ### Verification for User Story 1
 
-- [ ] T015 [US1] Create `scripts/checks.sh` with the `docs-map` check's README assertions: the README carries no `cargo test`, no `cargo clippy` and no architecture heading (FR-068); its stated compositor range matches `SUPPORTED_HYPRLAND` and its stated toolchain matches `rust-version` (FR-069); both screenshots are referenced and present (FR-070) — each failure naming the local command that reproduces it ([contracts/ci.md](./contracts/ci.md))
-- [ ] T016 [US1] Walk the inspection items for FR-067, FR-070 and FR-071 from [quickstart.md](./quickstart.md)'s release checklist and record the outcome — the README answers the six questions in order, the screenshots are current, the scope and privacy statement are present
+- [X] T015 [US1] Create `scripts/checks.sh` with the `docs-map` check's README assertions: the README carries no `cargo test`, no `cargo clippy` and no architecture heading (FR-068); its stated compositor range matches `SUPPORTED_HYPRLAND` and its stated toolchain matches `rust-version` (FR-069); both screenshots are referenced and present (FR-070) — each failure naming the local command that reproduces it ([contracts/ci.md](./contracts/ci.md))
+- [X] T016 [US1] Walk the inspection items for FR-067, FR-070 and FR-071 from [quickstart.md](./quickstart.md)'s release checklist and record the outcome — the README answers the six questions in order, the screenshots are current, the scope and privacy statement are present
 
 **Checkpoint**: `./scripts/checks.sh` passes; a reader who has never seen the project can state its
 purpose, requirements and licence from the front page alone.
+
+### Story 1 record (T013, T016)
+
+**How the screenshots were captured (T013)**, so they can be regenerated when the appearance
+changes. A throwaway `tests/e2e_screenshots.rs` drove the ordinary harness and was deleted
+afterwards (Principle II), exactly as 001 T095 and 002 T097 did; what it did is the reproducible
+part:
+
+1. `Nested::start_with` a documented setup, then **frame the nested compositor's own window on the
+   host**: it is an ordinary tiled client (class `aquamarine`, ~700px here), and left alone every
+   window title is truncated. Move it to a host output at scale 1, float it, and
+   `resizewindowpixel exact 1280 800`. The Wayland backend's output follows its window, so
+   `WAYLAND-1` becomes a 1280x800 panel — smaller than the baseline's 1920x1080 on purpose, so the
+   overlay fills more of the frame and stays legible at a README's rendered width.
+2. Stage a representative desktop rather than the baseline's `alpha-window` placeholders: real
+   program classes (`firefox`, `code`, `foot`, `chromium`, `org.gnome.Nautilus`, `vlc`, `gimp`) so
+   the icons resolve against the installed set, and real-looking titles so the list reads as a
+   desktop would. Note that an empty workspace cannot be staged — Hyprland destroys one the moment
+   focus leaves it (001 T095), so the captures show workspaces 1, 2 and 4.
+3. Open the overlay with `overlay::open_while`, `hyprctl dismissnotify` inside the nested instance
+   (Hyprland greets a nested one with two configuration warnings that are the host's business, not
+   the overlay's), then `grim -o WAYLAND-1`. **A headless output is never composited**, so `grim`
+   reads nothing but the background back from one — the captures have to be taken on the nested
+   instance's own `WAYLAND-1`, which is not the output the rest of the suite uses.
+4. Once with no configuration file (the flat list, `docs/assets/overlay-list.png`) and once with
+   `presentation = "grid"` (`docs/assets/overlay-grid.png`).
+
+**Inspection outcome (T016)** — the three release-checklist items this story owns, walked on
+2026-08-31:
+
+| Item | Outcome |
+|---|---|
+| FR-067 — the six questions, in order | ✅ intro (what it is) → *What it is for* → *Requirements* → *Install* → *Configure it* → *Use it*, with *Scope and privacy*, *Documentation* and *Licence* after them |
+| FR-070 — both screenshots current | ✅ recaptured 2026-08-31 from this build; 1280x800, 27 KB and 21 KB |
+| FR-071 — scope and the privacy statement | ✅ *Scope and privacy*: Hyprland on Wayland only and what the project deliberately does not do; no network access, no telemetry, and nothing read beyond compositor state, the configuration file and the desktop's icon files |
+
+**Known dangling links, each closed by a later story.** FR-068 requires the README to link to
+`DEVELOPMENT.md` and `CONTRIBUTING.md`, so the links exist before their targets do. Seven targets
+are not written yet: `DEVELOPMENT.md` and `docs/user/{install,configuration,styling,troubleshooting}.md`
+(US2), `CONTRIBUTING.md` (US5), `CHANGELOG.md` (US4) and `LICENSE` (US6). T036's extension of
+`docs-map` asserts the required page set exists and is what turns this from a note into a check.
 
 ---
 
