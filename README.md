@@ -61,7 +61,7 @@ bind = SUPER, N, global, hypr-swap:new-workspace
 
 Use `bind`, not `binde`. Either line may be left out. Verify registration with
 `hyprctl globalshortcuts`. The key combinations above are suggestions — any combination works, and
-[`docs/binds.md`](docs/binds.md) is the full reference for what each line does and why.
+[`docs/user/binds.md`](docs/user/binds.md) is the full reference for what each line does and why.
 
 A modifier in the switcher bind is what makes hold-and-release work. Bound to a bare key with no
 modifier there is no release to commit on, so the overlay falls back to **sticky mode**: it stays

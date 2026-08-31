@@ -19,8 +19,9 @@ visible to the user via `hyprctl globalshortcuts` once the application is runnin
 
 ## Bind lines (FR-022b)
 
-These exact lines go in the user's `hyprland.conf`. The application ships them in `docs/binds.md`
-and they are reproduced in [quickstart.md](../quickstart.md).
+These exact lines go in the user's `hyprland.conf`. The application ships them in
+`docs/user/binds.md` (moved there by feature 003) and they are reproduced in
+[quickstart.md](../quickstart.md).
 
 ```ini
 # Hold ALT, tap TAB to browse, release ALT to switch

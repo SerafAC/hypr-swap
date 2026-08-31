@@ -228,6 +228,9 @@ tests/
 
 docs/
 └── binds.md                 # the documented bind lines (FR-022b), generated from contracts
+                             #   (feature 003 moves this to docs/user/binds.md; the unit test
+                             #   asserting it quotes the generated bind lines moves with it, and
+                             #   drops its three exact-prose assertions — see 003 R48, T023a)
 ```
 
 **Structure Decision**: A single Rust binary crate. The spec describes one process with one job;

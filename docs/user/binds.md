@@ -1,4 +1,7 @@
-# Bind lines
+---
+title: Binding the shortcuts
+description: The two bind lines to copy into hyprland.conf, and the keys the overlay handles itself.
+---
 
 `hypr-swap` never grabs keys. It registers two **named global shortcuts** over
 `hyprland-global-shortcuts-v1`, and your `hyprland.conf` decides which keys trigger them

@@ -10,8 +10,35 @@ scenarios that need a human, and the checklists FR-092 counts as a verification 
 
 - A live Hyprland session (≥ 0.55) with `foot`, for the E2E scenarios.
 - Docker, for the container scenarios.
-- `mdbook`, `cargo-deny`, `cargo-deb`, `cargo-generate-rpm` — `cargo install` each; they are
-  development tools only and are not compiled into the binary.
+- Development tooling — none of it is compiled into the binary. The versions below are the ones
+  this feature was developed and validated against (T002); anything newer is expected to work, and
+  a mismatch is worth noting before blaming a check.
+
+  | Tool | Version | Installed with | Needed for |
+  |---|---|---|---|
+  | `rustc` / `cargo` | 1.96.0 | rustup (the toolchain the crate already pins) | everything |
+  | `cargo-deny` | 0.20.2 | `cargo install cargo-deny --locked` | advisories, licences |
+  | `cargo-deb` | 3.7.0 | `cargo install cargo-deb --locked` | the Debian package |
+  | `cargo-generate-rpm` | 0.21.0 | `cargo install cargo-generate-rpm --locked` | the RPM package |
+  | `gitleaks` | 8.30.1 | `go install github.com/zricethezav/gitleaks/v8@latest` | FR-066a, once |
+  | Node.js | 24.11.1 | nvm (**≥ 22 required**) | the site only |
+  | pnpm | 11.3.0 | the distribution's package | the site only |
+
+  The three `cargo install` targets can be installed in one invocation. `gitleaks` is needed once,
+  for the FR-066a history review, and is not a Rust tool — a distribution package of the same
+  version does just as well. A `go install` build does not embed its version, so `gitleaks version`
+  prints `version is set by build process` rather than a number; read the real one with
+  `go version -m $(command -v gitleaks)`.
+
+  **Node and pnpm are for the documentation site and nothing else.** They are needed only to
+  build `docs/.fumadocs/` ([research.md](./research.md) R31, R31a, R48); a contributor working on
+  the program never installs either, a contributor *writing documentation* needs them only to
+  preview it, and no check outside the `docs` job uses them. The site's own dependencies are pinned
+  in `docs/.fumadocs/pnpm-lock.yaml` and installed with `pnpm install --frozen-lockfile` — they
+  are not global tools, so they are not listed here. The versions that tree resolved to when the
+  decision was validated were Fumadocs 16.15.4, `fumadocs-mdx` 15.4.0, Next.js 16.3.3 and React
+  19.2.8, across 432 packages; pnpm hardlinks them from one store shared by every checkout on the
+  machine, which is the thing CI caches.
 
 ## 1. The program's own additions (FR-112–FR-118)
 
@@ -56,7 +83,7 @@ records joined the existing record rather than reshaping it.
 ## 3. The documentation cannot drift (FR-083, SC-030)
 
 ```bash
-mdbook build docs && ./scripts/checks.sh
+( cd docs/.fumadocs && pnpm install --frozen-lockfile && pnpm build ) && ./scripts/checks.sh
 ```
 
 Then break it deliberately:

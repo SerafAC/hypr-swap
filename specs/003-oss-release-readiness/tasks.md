@@ -26,8 +26,10 @@ where that story's document links to the answer rather than restating it — FR-
 
 ## Path Conventions
 
-Single Rust project: `src/`, `tests/` at the repository root; `docs/` becomes the mdBook source
-tree; `.github/`, `docker/`, `packaging/`, `scripts/` are new top-level directories
+Single Rust project: `src/`, `tests/` at the repository root; `docs/` becomes the published
+documentation — plain Markdown in `user/` and `dev/`, with the framework hidden in
+`docs/.fumadocs/` ([research.md](./research.md) R48); `.github/`, `docker/`, `packaging/`,
+`scripts/` are new top-level directories
 ([plan.md](./plan.md) → Project Structure).
 
 ## Shared-file note
@@ -36,7 +38,7 @@ Six files are written by more than one story and therefore carry ordering, not `
 
 | File | Written by | Order |
 |---|---|---|
-| `scripts/checks.sh` | US1 (`docs-map`/README), US2 (`docs-map`/site), US4 (`changelog`), US6 (`licence-files`) | created in US1, extended after |
+| `scripts/checks.sh` | US1 (`docs-map`/README), US2 (`docs-map`/site, `docs-build-hazards`), US4 (`changelog`), US6 (`licence-files`) | created in US1, extended after |
 | `Cargo.toml` | US4 (packaging metadata), US6 (source-index metadata) | US4 then US6 |
 | `deny.toml` | US3 (`[advisories]`), US6 (`[licenses]`) | US3 then US6 |
 | `.github/workflows/ci.yml` | US3 (the gating jobs and `ci-required`), US6 (the `licenses` job, added to `ci-required`'s `needs`) | US3 then US6 |
@@ -51,7 +53,7 @@ Six files are written by more than one story and therefore carry ordering, not `
 remote configured today and that establishing it is part of this work.
 
 - [ ] T001 Create the GitHub repository **private**, add it as `origin` and push the default branch `master` — the one branch name every workflow trigger, the release precondition and the Pages deployment key off; every workflow, the Pages site, the releases section and the `repository`/`documentation` metadata reference the repository. It stays private until T084a: FR-066a forbids publishing the history before it has been reviewed (spec Assumptions, FR-066a; blocks US2's `docs.yml`, US3, US4)
-- [ ] T002 [P] Install this feature's development tooling and record the exact versions used in `specs/003-oss-release-readiness/quickstart.md`'s prerequisites: `mdbook`, `cargo-deny`, `cargo-deb`, `cargo-generate-rpm`, `gitleaks` — development tools only, none compiled into the binary ([plan.md](./plan.md) → Technical Context)
+- [X] T002 [P] Install this feature's development tooling and record the exact versions used in `specs/003-oss-release-readiness/quickstart.md`'s prerequisites: `cargo-deny`, `cargo-deb`, `cargo-generate-rpm`, `gitleaks`, and Node.js ≥ 22 with pnpm for the documentation site ([research.md](./research.md) R31, R31a) — development tools only, none compiled into the binary ([plan.md](./plan.md) → Technical Context)
 
 **Checkpoint**: A remote exists and the local toolchain can build every artefact this feature adds.
 
@@ -96,8 +98,8 @@ version) are delivered by US7 and Foundational respectively — see Dependencies
 - [ ] T009 [US1] Write the README's requirements section: the supported compositor range taken from `SUPPORTED_HYPRLAND`, the minimum toolchain taken from `Cargo.toml`'s `rust-version`, the required system libraries (cairo, pango, pangocairo), and each optional dependency with what degrades without it — an icon set (every window shows the placeholder, FR-041) and `notify-send` (no desktop notifications) (FR-069)
 - [ ] T010 [US1] Write the README's scope and privacy statement: Hyprland on Wayland only, what the project deliberately does not do, and that it performs no network access, collects no telemetry, and reads nothing beyond the compositor's state, the user's configuration file and the desktop's icon files (FR-071)
 - [ ] T011 [US1] Strip every development instruction from `README.md` — building for development, test invocation, architecture, contribution mechanics — replacing each with a link to `DEVELOPMENT.md` and `CONTRIBUTING.md` (FR-068)
-- [ ] T012 [US1] Update `README.md`'s `docs/binds.md` link to the site's `user/binds.md` location, in step with US2's move (README.md:64)
-- [ ] T013 [P] [US1] Capture the two overlay screenshots — one per presentation — with `grim` from the E2E harness's own nested instance, and commit them under `docs/src/assets/` (FR-070, [research.md](./research.md) R47)
+- [X] T012 [US1] Update `README.md`'s `docs/binds.md` link to the site's `user/binds.md` location, in step with US2's move (README.md:64)
+- [ ] T013 [P] [US1] Capture the two overlay screenshots — one per presentation — with `grim` from the E2E harness's own nested instance, and commit them under `docs/assets/` (FR-070, [research.md](./research.md) R47)
 - [ ] T014 [US1] Embed both screenshots in `README.md` so a prospective user sees the overlay before installing it (FR-070)
 
 ### Verification for User Story 1
@@ -113,7 +115,7 @@ purpose, requirements and licence from the front page alone.
 ## Phase 4: User Story 2 - Everything is documented, at the depth the reader needs (Priority: P2)
 
 **Goal**: Three readers, three documents. `DEVELOPMENT.md` gets a developer productive
-(FR-072–FR-075); the mdBook site carries the complete user and developer reference
+(FR-072–FR-075); the Fumadocs site carries the complete user and developer reference
 (FR-076–FR-084b), with its configuration and style pages *included* from the 002 contracts so the
 published reference cannot drift from the program (FR-083, [research.md](./research.md) R32).
 
@@ -127,26 +129,28 @@ them to assemble a complete custom overlay appearance without reading source.
 - [ ] T018 [US2] Add `DEVELOPMENT.md`'s architecture section conveying the organising seam — pure decision logic separated from the thin I/O shell — and stating where a new decision rule belongs (FR-073)
 - [ ] T019 [US2] Add `DEVELOPMENT.md`'s tree description naming every top-level directory and every module under `src/` with its responsibility (FR-074)
 - [ ] T020 [US2] Add `DEVELOPMENT.md`'s per-tier requirements: which tier needs a live compositor, and how a contributor without one runs it in the published container image instead (FR-075)
-- [ ] T021 [P] [US2] Create the mdBook skeleton — `docs/book.toml` with `specs/` in `extra-watch-dirs`, and `docs/src/SUMMARY.md` with two parts, `User guide` and `Developer guide` (FR-076, FR-077, [research.md](./research.md) R31)
-- [ ] T022 [US2] Write `docs/src/index.md`: what the program is, which released version the site documents, and how behaviour not yet in a release is marked (FR-078a)
-- [ ] T023 [US2] Move `docs/binds.md` to `docs/src/user/binds.md` and repoint every path that names it: `src/ui/shortcuts.rs`'s `include_str!("../../docs/binds.md")` (shortcuts.rs:148) and its two doc comments (shortcuts.rs:90, shortcuts.rs:145), `src/main.rs`'s usage-text reference (main.rs:555, main.rs:590), and `README.md`'s link (T012) — the `include_str!` is compile-time, so the move fails `cargo build` and silently drops the FR-022b bind-line assertion until it is repointed (FR-033, plan.md → Structure Decision)
-- [ ] T024 [P] [US2] Write `docs/src/user/install.md` covering every published channel — the Debian package, the RPM package, the Arch recipe, the prebuilt binary and building from source (FR-081)
-- [ ] T025 [P] [US2] Write `docs/src/user/configuration.md` as prose around an `{{#include}}` of `specs/001-workspace-swap-overlay/contracts/config.md` and `specs/002-overlay-visuals/contracts/config.md`, covering every setting, its accepted values, its range, its default and the override → theme → default precedence (FR-079, [research.md](./research.md) R32)
-- [ ] T026 [P] [US2] Write `docs/src/user/styling.md` as prose around an `{{#include}}` of `specs/002-overlay-visuals/contracts/style-values.md`, sufficient for a reader to assemble a complete custom appearance without reading source (FR-080)
-- [ ] T027 [P] [US2] Write `docs/src/user/icons.md` covering program icons and icon-set selection, and that `icon_set` is independent of `theme` (FR-081)
-- [ ] T028 [P] [US2] Write `docs/src/user/troubleshooting.md`: where the compositor collects the daemon's output and how to retrieve it (FR-115), plus the five named failures — shortcuts not firing, the overlay not appearing, the daemon exiting at start-up, missing or wrong icons, a second instance already running — each tied to the `diag::Condition` the program actually emits (FR-081)
-- [ ] T029 [P] [US2] Write `docs/src/dev/architecture.md`: the pure/shell seam in full, module by module (FR-082)
-- [ ] T030 [P] [US2] Write `docs/src/dev/workflow.md`: the spec-driven flow, linking to `specs/` rather than restating it (FR-082, FR-084a, FR-084b)
-- [ ] T031 [P] [US2] Write `docs/src/dev/testing.md`: every tier, the E2E harness, and the container image (FR-082)
-- [ ] T032 [P] [US2] Write `docs/src/dev/verification.md` as prose around an `{{#include}}` of [plan.md](./plan.md)'s `verification-tiers` anchor — the table is included, not copied, so the published statement and the plan cannot diverge (FR-084, [research.md](./research.md) R32) — and add to the same page the tier rows for features 001 and 002 (FR-001–FR-061 and their lettered variants), derived from those plans' E2E coverage mappings — FR-092's "every requirement" is the project's, not only this feature's — so that every requirement has a named tier and none is unknown (FR-092, SC-036)
-- [ ] T033 [P] [US2] Write `docs/src/dev/releasing.md` as prose around an `{{#include}}` of [contracts/release.md](./contracts/release.md)'s `release-procedure` anchor, included rather than restated for the same reason as T032 (FR-082, FR-084, [research.md](./research.md) R32)
-- [ ] T034 [US2] Create `.github/workflows/docs.yml`: build the site with `mdbook build docs` and deploy it to GitHub Pages on every push to the default branch, reporting a build failure rather than leaving the site stale. It does **not** run on pull requests — the pull-request build is T041's gating `docs` job in `ci.yml`, so a broken book fails the change that broke it (FR-078, [research.md](./research.md) R46). The deployment itself cannot be exercised until T084a makes the repository public
+- [ ] T021 [P] [US2] Scaffold the Fumadocs site into `docs/.fumadocs/` from the upstream static template — `npx create-fumadocs-app .fumadocs --template '+next+fuma-docs-mdx+static' --search orama --pm pnpm` — then make the changes the repository needs, none of which the template supplies. In `docs/.fumadocs/next.config.mjs`: set `turbopack.root` to the repository root, `path.join(import.meta.dirname, '..', '..')` (**without it every `::include` of T025/T026/T032/T033 fails the build**, with an error naming neither page nor include — [research.md](./research.md) R32), set `basePath`/`assetPrefix` to `/hypr-swap` and `images.unoptimized`, and emit `.nojekyll` into the export. In `src/lib/source.ts`: point the collection at the prose with `defineDocs({ dir: '..' })`, delete the template's `content/` directory, and add `mdxOptions: { remarkPlugins: [remarkDirective] }` — **the array form; the function form fails under the macro** (R32). In `src/app/api/search/route.ts`: add the `buildIndex` that builds each record with `structure()` from the page's processed text, without which a tree of plain Markdown produces no search index at all (R48). Add `docs/meta.json` and `docs/{user,dev}/meta.json` as FR-077's two sections. Then run `pnpm approve-builds --all` and **commit the `docs/.fumadocs/pnpm-workspace.yaml` it writes** (`allowBuilds: esbuild: true`) — pnpm 11 treats an unapproved dependency build script as an error, so without it every install fails, in CI most of all, with `ERR_PNPM_IGNORED_BUILDS` ([research.md](./research.md) R46). Commit `pnpm-lock.yaml`; gitignore `docs/.fumadocs/{node_modules,.next,out,.source}` and `docs/.fumadocs/public/assets` (FR-076, FR-077, R31, R31a, R46)
+- [ ] T022 [US2] Write `docs/index.md` — the site's front page, and the first thing a reader opening the folder sees: what the program is, which released version the site documents, and how behaviour not yet in a release is marked (FR-078a)
+- [X] T023 [US2] Move `docs/binds.md` to `docs/user/binds.md` — its place in the published tree (R48) — adding the `title`/`description` frontmatter every page carries, and repoint the three references that name the path: `src/ui/shortcuts.rs`'s `include_str!` (shortcuts.rs:148), `src/main.rs`'s usage text (main.rs:590) and `README.md`'s link (T012). The `include_str!` is compile-time, so a missed reference fails `cargo build` rather than going unnoticed. Its fences are already `ini`, not `conf` — keep them that way, since `conf` is a language Shiki does not know and fails the site build with an error naming no file (R32)
+- [X] T023a [US2] **Narrow** the documentation-consistency test in `src/ui/shortcuts.rs` rather than dropping it: `the_documented_bind_lines_are_the_ones_this_module_generates` still `include_str!`s the page — now `docs/user/binds.md` — and still asserts it contains every line `Shortcut::suggested_bind` generates, so changing a combination in the code fails the build until the page agrees. What is removed is the three exact-prose assertions (`` "`bind`, not `binde`" ``, `"sticky mode"`, `"Either line may be left out"`), which froze editorial wording rather than checking anything against the code. The distinction is the point: the test verifies **agreement**, not phrasing. Negative-tested — altering a bind line in the page fails the test naming the missing line
+- [ ] T024 [P] [US2] Write `docs/user/install.md` covering every published channel — the Debian package, the RPM package, the Arch recipe, the prebuilt binary and building from source (FR-081)
+- [ ] T025 [P] [US2] Write `docs/user/configuration.md` as prose around `::include[]` of `specs/001-workspace-swap-overlay/contracts/config.md` and `specs/002-overlay-visuals/contracts/config.md` (paths relative to the page: `../../specs/…`), covering every setting, its accepted values, its range, its default and the override → theme → default precedence (FR-079, [research.md](./research.md) R32)
+- [ ] T026 [P] [US2] Write `docs/user/styling.md` as prose around an `::include[]` of `specs/002-overlay-visuals/contracts/style-values.md` — whole-file, or section by section with the `#heading` form if the prose reads better interleaved (R32), sufficient for a reader to assemble a complete custom appearance without reading source (FR-080)
+- [ ] T027 [P] [US2] Write `docs/user/icons.md` covering program icons and icon-set selection, and that `icon_set` is independent of `theme` (FR-081)
+- [ ] T028 [P] [US2] Write `docs/user/troubleshooting.md`: where the compositor collects the daemon's output and how to retrieve it (FR-115), plus the five named failures — shortcuts not firing, the overlay not appearing, the daemon exiting at start-up, missing or wrong icons, a second instance already running — each tied to the `diag::Condition` the program actually emits (FR-081)
+- [ ] T029 [P] [US2] Write `docs/dev/architecture.md`: the pure/shell seam in full, module by module (FR-082)
+- [ ] T030 [P] [US2] Write `docs/dev/workflow.md`: the spec-driven flow, linking to `specs/` rather than restating it (FR-082, FR-084a, FR-084b)
+- [ ] T031 [P] [US2] Write `docs/dev/testing.md`: every tier, the E2E harness, and the container image (FR-082)
+- [ ] T032 [P] [US2] Write `docs/dev/verification.md` as prose around an `::include[]` of [plan.md](./plan.md)'s `verification-tiers` section — the table is included, not copied, so the published statement and the plan cannot diverge (FR-084, [research.md](./research.md) R32) — and add to the same page the tier rows for features 001 and 002 (FR-001–FR-061 and their lettered variants), derived from those plans' E2E coverage mappings — FR-092's "every requirement" is the project's, not only this feature's — so that every requirement has a named tier and none is unknown (FR-092, SC-036). **FR-022b keeps both halves verified**: "start normally when unbound" is E2E (`e2e_unbound_shortcut_is_harmless`) and "documents the exact bind lines" is Unit (`the_documented_bind_lines_are_the_ones_this_module_generates`, narrowed and repointed by T023a) — the tier is unchanged from 001, only the path is
+- [ ] T033 [P] [US2] Write `docs/dev/releasing.md` as prose around an `::include[]` of [contracts/release.md](./contracts/release.md)'s `release-procedure` section, included rather than restated for the same reason as T032 (FR-082, FR-084, [research.md](./research.md) R32)
+- [ ] T034 [US2] Create `.github/workflows/docs.yml`: build the site with `pnpm install --frozen-lockfile && pnpm build` in `docs/.fumadocs/` (`pnpm/action-setup`, then `actions/setup-node` with Node 22 and `cache: 'pnpm'`, which caches the pnpm store on `docs/.fumadocs/pnpm-lock.yaml`) and deploy `docs/.fumadocs/out` to GitHub Pages on every push to the default branch, reporting a build failure rather than leaving the site stale. It does **not** run on pull requests — the pull-request build is T041's gating `docs` job in `ci.yml`, so a broken book fails the change that broke it (FR-078, [research.md](./research.md) R46). The deployment itself cannot be exercised until T084a makes the repository public
 
 ### Tests for User Story 2
 
 - [ ] T035 [US2] Extend the settings-catalogue walk in `src/theme.rs`'s test module to cover every setting `src/config.rs` accepts, not only the colours, font and geometry: walk `specs/001-workspace-swap-overlay/contracts/config.md` and `specs/002-overlay-visuals/contracts/config.md` in addition to `style-values.md`, extending `catalogue()`'s "first column is `Key`" table rule to those two pages' shape (or normalising their tables to a `Key` first column) — so a setting added without documenting it fails `cargo test --lib` (FR-079, FR-080, FR-083, SC-030, [research.md](./research.md) R32)
-- [ ] T036 [US2] Extend `scripts/checks.sh`'s `docs-map` check: the required page set of [contracts/documentation.md](./contracts/documentation.md) exists; `SUMMARY.md` carries both parts (FR-077); `DEVELOPMENT.md` names every top-level directory and every `src/**/*.rs` module (FR-074); the site's front page names a released version (FR-078a); every troubleshooting entry names a real `diag::Condition` (FR-081); developer pages link to `specs/` rather than restating them (FR-084a) (FR-084)
-- [ ] T037 [US2] Confirm `mdbook build docs` resolves every `{{#include}}` out of `docs/src` into `specs/` and the site renders both parts (FR-076, quickstart scenario 3)
+- [ ] T036 [US2] Extend `scripts/checks.sh`'s `docs-map` check: the required page set of [contracts/documentation.md](./contracts/documentation.md) exists; `content/docs/{user,dev}/meta.json` carry both sections (FR-077); `DEVELOPMENT.md` names every top-level directory and every `src/**/*.rs` module (FR-074); the site's front page names a released version (FR-078a); every troubleshooting entry names a real `diag::Condition` (FR-081); developer pages link to `specs/` rather than restating them (FR-084a) (FR-084)
+- [ ] T037 [US2] Confirm `pnpm build` in `docs/.fumadocs/` resolves every `::include[]` out of `docs/` into `specs/`, that a heading-scoped include emits only its own section, that the export carries both sections and a populated `out/api/search` index, and that **a relative link between two pages works both ways** — `[binds](./user/binds.md)` opens the neighbouring file in an editor and lands on `/docs/user/binds` in the built site, which is what makes the folder and the site equivalent (FR-076, FR-077, R48, quickstart scenario 3)
+- [ ] T037a [P] [US2] Add a `docs-build-hazards` rule to `scripts/checks.sh` covering the two documentation edits that fail the site build with an error naming no file ([research.md](./research.md) R32): a bare `<tag>` outside backticks in any file reached by an `::include[]` — the 001/002 config contracts, `style-values.md`, `plan.md`, `contracts/release.md` — which is raw HTML to the Markdown parser (`Cannot handle unknown node 'raw'`); and a code fence in `docs/**/*.md` naming a language Shiki does not know, `conf` above all (`ShikiError: Language 'conf' not found`). Both fail with the file, the line and the fix
 - [ ] T038 [US2] Walk the inspection items for FR-072, FR-073, FR-075 and FR-084b from [quickstart.md](./quickstart.md) — a newcomer reaches a running test suite, the seam is conveyed, the compositor-dependent tier is named, and the published tree still carries `specs/`, `.specify/`, `.claude/` and `CLAUDE.md`
 
 **Checkpoint**: The site builds and publishes itself; adding a setting to `theme.rs` without
@@ -169,7 +173,7 @@ only the E2E tier catches — and confirm each is caught without human involveme
 
 - [ ] T039 [US3] Write `docker/e2e/Dockerfile`: an `archlinux:latest` base pinned by digest, carrying `hyprland`, `foot`, `seatd`, `mesa`, the cairo/pango development libraries and a `rustup` toolchain matching `rust-version`; create and drop to an unprivileged user because Hyprland refuses to run as root; run `setcap -r` on `Hyprland` and `sway` because file capabilities fail under Docker's default bounding set; entry point `cargo test --test 'e2e_*'` against the repository mounted at `/work` (FR-089, [research.md](./research.md) R29, R30)
 - [ ] T040 [US3] Publish the image to `ghcr.io` from a workflow so automation and a contributor use the identical image (FR-089)
-- [ ] T041 [US3] Create `.github/workflows/ci.yml` with one job per gating check — `build` (`cargo build --release`), `unit` (`cargo test --lib`), `clippy` (`cargo clippy --all-targets -- -D warnings`), `fmt` (`cargo fmt --check`), `msrv` (a build on the toolchain named by `Cargo.toml`'s `rust-version`), `docs` (`mdbook build docs`, the pull-request build of the site that T034's deploy workflow deliberately leaves to it) and `checks` (`./scripts/checks.sh`) — triggered on every pull request and every push to the default branch (FR-085, FR-086, FR-087)
+- [ ] T041 [US3] Create `.github/workflows/ci.yml` with one job per gating check — `build` (`cargo build --release`), `unit` (`cargo test --lib`), `clippy` (`cargo clippy --all-targets -- -D warnings`), `fmt` (`cargo fmt --check`), `msrv` (a build on the toolchain named by `Cargo.toml`'s `rust-version`), `docs` (`pnpm install --frozen-lockfile && pnpm build` in `docs/.fumadocs/`, on the same `pnpm/action-setup` + `setup-node` pair as T034; the pull-request build of the site that T034's deploy workflow deliberately leaves to it) and `checks` (`./scripts/checks.sh`) — triggered on every pull request and every push to the default branch (FR-085, FR-086, FR-087)
 - [ ] T042 [US3] Add the aggregating `ci-required` job to `.github/workflows/ci.yml`, depending on exactly the gating jobs of [contracts/ci.md](./contracts/ci.md) — `build`, `unit`, `clippy`, `fmt`, `msrv`, `docs`, `checks`, `licenses` and `e2e` — and make it the single branch-protection requirement so a renamed or newly added job cannot silently start or stop gating. Any later task that adds a gating job (T044's `e2e`, T081's `licenses`) MUST add it to this `needs:` list in the same change: that list **is** the gating set FR-091 makes visible (FR-085, FR-091, SC-033, [research.md](./research.md) R39)
 - [ ] T043 [US3] Give every job in `.github/workflows/ci.yml` a failure step printing the exact local command from [contracts/ci.md](./contracts/ci.md)'s "reproduce locally" column (FR-090)
 - [ ] T044 [US3] Create `.github/workflows/e2e.yml` declared `on: workflow_call`, running `cargo test --test 'e2e_*'` in the T039 image against a compositor automation supplies — a virtual GPU and a seat, since a plain container cannot start Hyprland at all — and call it from `.github/workflows/ci.yml` as the `e2e` job named in T042's `needs:` list, because a job in a workflow `ci.yml` does not call cannot be a dependency of `ci-required` and a second required check would defeat FR-091's single visible gate (FR-088, FR-091, [research.md](./research.md) R29)
@@ -335,6 +339,7 @@ dependency.
 ### Implementation for User Story 8
 
 - [ ] T104 [P] [US8] Write `SECURITY.md` with a private reporting channel distinct from the public tracker and an expected acknowledgement time (FR-119)
+- [ ] T104a [P] [US8] Create `.github/dependabot.yml` with two ecosystems: `cargo` for the program and `npm` for `docs/.fumadocs/` (Dependabot's `npm` ecosystem is the one that reads `pnpm-lock.yaml`). The npm tree is the part `cargo-deny` structurally cannot see, so without this FR-093's advisory watch covers only half the repository ([research.md](./research.md) R38, R31)
 - [ ] T105 [US8] Add the supported-version statement to `SECURITY.md` — which released versions receive fixes ([data-model.md](./data-model.md) → Supported version range) (FR-120)
 - [ ] T106 [US8] Add the dependency policy to `CONTRIBUTING.md`: a new dependency requires written justification in the plan's Complexity Tracking table, consistent with the constitution's simplicity principle, so a contributor proposing one knows the bar in advance (FR-121)
 
@@ -353,8 +358,8 @@ maintainer learns about a vulnerable dependency from the project's own checks.
 **Purpose**: The whole-feature verification, and the human measurements the plan says are measured
 by walking the published path once.
 
-- [ ] T109 Run the full gate locally — `cargo build --release`, `cargo test --lib`, `cargo test --test 'e2e_*'`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`, `mdbook build docs`, `./scripts/checks.sh` — and confirm all are green
-- [ ] T110 [P] Confirm every requirement of features 001, 002 and 003 — FR-001 through FR-121, lettered variants included — has a named tier at `docs/src/dev/verification.md`: this feature's included from [plan.md](./plan.md)'s `verification-tiers` anchor, 001's and 002's derived from their plans' E2E coverage mappings, and that no requirement's status is unknown (FR-092, SC-036)
+- [ ] T109 Run the full gate locally — `cargo build --release`, `cargo test --lib`, `cargo test --test 'e2e_*'`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`, `pnpm build` in `docs/.fumadocs/`, `./scripts/checks.sh` — and confirm all are green
+- [ ] T110 [P] Confirm every requirement of features 001, 002 and 003 — FR-001 through FR-121, lettered variants included — has a named tier at `docs/dev/verification.md`: this feature's included from [plan.md](./plan.md)'s `verification-tiers` anchor, 001's and 002's derived from their plans' E2E coverage mappings, and that no requirement's status is unknown (FR-092, SC-036)
 - [ ] T111 [P] Measure SC-026 — landing page to working overlay, under 15 minutes — and record the walk in [quickstart.md](./quickstart.md) (quickstart scenario 4, item 3)
 - [ ] T112 [P] Measure SC-032 — `DEVELOPMENT.md` to every test tier run, under 30 minutes — and record the walk (quickstart scenario 4, item 4)
 - [ ] T113 [P] Measure SC-031 — someone assembles a complete custom appearance from the site's styling page alone, no source reading — and record the outcome (quickstart scenario 4, item 5)
@@ -397,7 +402,7 @@ land in this order:
 - In US7: the `Condition` variants (T085) and `CompositorVersion` (T086–T087) precede the `main.rs`
   call sites (T088–T092), which precede the E2E tests that observe them.
 - In US4: the changelog and the packaging metadata precede the workflow that consumes them.
-- In US2: the mdBook skeleton (T021) precedes every page written into it.
+- In US2: the Fumadocs scaffold (T021) precedes every page written into it — including its `turbopack.root` setting, without which no page carrying an `::include[]` builds at all.
 
 ### Parallel Opportunities
 
@@ -418,17 +423,17 @@ land in this order:
 ## Parallel Example: User Story 2
 
 ```bash
-# Once the mdBook skeleton (T021) exists, the ten pages are ten independent files:
-Task: "Write docs/src/user/install.md covering every published channel"
-Task: "Write docs/src/user/configuration.md as prose around an {{#include}} of the 002 config contract"
-Task: "Write docs/src/user/styling.md as prose around an {{#include}} of style-values.md"
-Task: "Write docs/src/user/icons.md covering program icons and icon sets"
-Task: "Write docs/src/user/troubleshooting.md with the five named failures"
-Task: "Write docs/src/dev/architecture.md covering the pure/shell seam"
-Task: "Write docs/src/dev/workflow.md linking to specs/"
-Task: "Write docs/src/dev/testing.md covering every tier and the image"
-Task: "Write docs/src/dev/verification.md carrying plan.md's tier table"
-Task: "Write docs/src/dev/releasing.md presenting contracts/release.md"
+# Once the Fumadocs scaffold (T021) exists, the ten pages are ten independent files:
+Task: "Write docs/user/install.md covering every published channel"
+Task: "Write docs/user/configuration.md as prose around an ::include[] of the 002 config contract"
+Task: "Write docs/user/styling.md as prose around an ::include[] of style-values.md"
+Task: "Write docs/user/icons.md covering program icons and icon sets"
+Task: "Write docs/user/troubleshooting.md with the five named failures"
+Task: "Write docs/dev/architecture.md covering the pure/shell seam"
+Task: "Write docs/dev/workflow.md linking to specs/"
+Task: "Write docs/dev/testing.md covering every tier and the image"
+Task: "Write docs/dev/verification.md carrying plan.md's tier table"
+Task: "Write docs/dev/releasing.md presenting contracts/release.md"
 ```
 
 ---

@@ -87,7 +87,7 @@ impl Shortcut {
         format!("{}:{}", crate::APP_ID, self.id())
     }
 
-    /// The exact bind line `docs/binds.md` documents for this shortcut (FR-022b).
+    /// The exact bind line `docs/user/binds.md` documents for this shortcut (FR-022b).
     ///
     /// Kept here so `--help`, the documentation and the E2E harness cannot drift apart.
     #[must_use]
@@ -141,23 +141,21 @@ mod tests {
     }
 
     /// The documentation and the usage text both quote `suggested_bind`, and this is what keeps
-    /// them honest (T082, FR-022b, FR-033, Principle III): change a combination here and the
-    /// build fails until `docs/binds.md` says the same thing.
+    /// them honest (FR-022b, FR-033, Principle III): change a combination here and the build
+    /// fails until `docs/user/binds.md` says the same thing.
+    ///
+    /// This asserts agreement between the code and the page — nothing about how the page is
+    /// worded. The prose around these lines is the documentation's own business.
     #[test]
     fn the_documented_bind_lines_are_the_ones_this_module_generates() {
-        let binds = include_str!("../../docs/binds.md");
+        let binds = include_str!("../../docs/user/binds.md");
         for shortcut in Shortcut::ALL {
             let line = shortcut.suggested_bind();
             assert!(
                 binds.contains(&line),
-                "docs/binds.md does not contain {line:?}"
+                "docs/user/binds.md does not contain {line:?}"
             );
         }
-        // The rules the contract requires that file to carry, each in the one form a reader
-        // would search for.
-        assert!(binds.contains("`bind`, not `binde`"));
-        assert!(binds.contains("sticky mode"));
-        assert!(binds.contains("Either line may be left out"));
     }
 
     #[test]

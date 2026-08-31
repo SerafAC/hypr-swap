@@ -9,3 +9,8 @@
 .vscode/
 *.swp
 .DS_Store
+
+# Local environment and logs — never publish (FR-066a)
+.env
+.env.*
+*.log
