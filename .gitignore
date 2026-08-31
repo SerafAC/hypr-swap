@@ -14,3 +14,7 @@
 .env
 .env.*
 *.log
+
+# Documentation site (docs/.fumadocs) — dependencies and build output
+node_modules/
+.next/

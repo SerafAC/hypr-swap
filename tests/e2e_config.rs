@@ -24,6 +24,7 @@ use e2e::notify::NotifyLog;
 use e2e::overlay::{measure, paint_colours, pinned_panel, stage_scenario};
 use e2e::style::{LIST_ELEMENTS, assert_drawn_in};
 
+use hypr_swap::APP_ID;
 use hypr_swap::config::Order;
 use hypr_swap::diag::PAINT_RECORDS_VAR;
 use hypr_swap::ordering;
@@ -31,7 +32,6 @@ use hypr_swap::state::World;
 use hypr_swap::theme::{DARK, Geometry, LIGHT};
 use hypr_swap::ui::layout;
 use hypr_swap::ui::shortcuts::Shortcut;
-use hypr_swap::{APP_ID, VERSION};
 
 /// Long enough for the overlay to map and take keyboard focus between taps.
 const SETTLE: Duration = Duration::from_millis(200);
@@ -803,7 +803,7 @@ fn e2e_version_and_help() {
     assert_eq!(version.status.code(), Some(0), "contracts/cli.md: exit 0");
     assert_eq!(
         String::from_utf8_lossy(&version.stdout).trim(),
-        format!("{APP_ID} {VERSION}"),
+        format!("{APP_ID} {}", hypr_swap::version()),
         "--version prints the version and nothing else"
     );
 

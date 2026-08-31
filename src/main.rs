@@ -29,7 +29,7 @@ use hypr_swap::session;
 use hypr_swap::state::{Applied, World};
 use hypr_swap::ui::shortcuts::Shortcut;
 use hypr_swap::ui::{self, App, Request, StartupError};
-use hypr_swap::{APP_ID, VERSION};
+use hypr_swap::{APP_ID, version};
 
 /// Clean shutdown, `--version`, or `--help`.
 const EXIT_OK: u8 = 0;
@@ -529,7 +529,7 @@ impl Options {
         while let Some(argument) = args.next() {
             match argument.as_str() {
                 "--version" => {
-                    println!("{APP_ID} {VERSION}");
+                    println!("{APP_ID} {}", version());
                     return Ok(None);
                 }
                 "--help" | "-h" => {
@@ -567,7 +567,7 @@ fn usage() -> String {
         .join("\n");
     format!(
         "\
-{APP_ID} {VERSION} — Alt-Tab style workspace switcher for Hyprland
+{APP_ID} {version} — Alt-Tab style workspace switcher for Hyprland
 
 USAGE:
     {APP_ID} [--config <path>] [--version] [--help]
@@ -594,6 +594,7 @@ CONFIGURATION (all keys optional; defaults shown):
     placement    = \"active\"    # \"active\" | \"all\"
     order        = \"mru\"       # \"mru\" | \"compositor\" | \"monitor\"
 
-Diagnostics go to standard error. Exit codes: 0 success, 2 usage, 3 no compositor."
+Diagnostics go to standard error. Exit codes: 0 success, 2 usage, 3 no compositor.",
+        version = version()
     )
 }
