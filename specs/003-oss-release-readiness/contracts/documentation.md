@@ -38,9 +38,9 @@ authoritatively in exactly one document**, and the others link to it. The `docs-
 | What counts as a breaking change? | `specs/003/contracts/versioning.md` | `CHANGELOG.md` header links |
 
 **Included, not restated** is the mechanism that makes this survive contact with editing: where a
-site page and a contract would otherwise say the same thing, the page uses Fumadocs'
-`::include[]` directive so the two are the same bytes ([research.md](../research.md) R32) —
-whole-file, or a single section of it by heading. The settings
+site page and a contract would otherwise say the same thing, the page carries an `::include[]`
+directive so the two are the same bytes ([research.md](../research.md) R32) — whole-file, or a
+single section of it by heading. The settings
 catalogue is additionally walked by a unit test against `theme.rs` and `config.rs`, so the
 published reference cannot drift from what the program accepts (FR-083).
 

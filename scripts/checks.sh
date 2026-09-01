@@ -126,7 +126,228 @@ docs_map() {
     done
 }
 
+# ---------------------------------------------------------------------------
+# docs-map — the required pages exist and each answers what it is meant to
+# (FR-074, FR-077, FR-078a, FR-081, FR-082, FR-084, FR-084a)
+# ---------------------------------------------------------------------------
+
+# The site's required page set, from contracts/documentation.md's "The site's shape".
+readonly USER_PAGES="install binds configuration styling icons troubleshooting"
+readonly DEV_PAGES="architecture workflow testing verification releasing"
+
+docs_pages() {
+    local page
+
+    for page in $USER_PAGES; do
+        if [ -f "docs/user/$page.md" ]; then
+            pass "docs-map: docs/user/$page.md exists (FR-081)"
+        else
+            fail "docs-map: docs/user/$page.md is missing (FR-081)" \
+                "The end-user section's page set is fixed by specs/003-oss-release-readiness/contracts/documentation.md."
+        fi
+    done
+
+    for page in $DEV_PAGES; do
+        if [ -f "docs/dev/$page.md" ]; then
+            pass "docs-map: docs/dev/$page.md exists (FR-082)"
+        else
+            fail "docs-map: docs/dev/$page.md is missing (FR-082)" \
+                "The developer section's page set is fixed by specs/003-oss-release-readiness/contracts/documentation.md."
+        fi
+    done
+
+    # FR-077: two navigable sections, each titled, and every page reachable from the navigation.
+    # The navigation is the list in docmd.config.mjs; a page that exists but is not in it is a
+    # page no reader arrives at, which the build itself has no reason to complain about.
+    local config=docmd.config.mjs section title
+
+    [ -f "$config" ] || {
+        fail "docs-map: $config is missing (FR-076)" \
+            "The site's navigation, its published URL and its include settings all live there."
+        return
+    }
+
+    for section in user:'User guide' dev:'Developer guide'; do
+        title=${section#*:}
+        section=${section%%:*}
+        if grep -qF -- "'$title'" "$config"; then
+            pass "docs-map: the navigation titles the $section section \"$title\" (FR-077)"
+        else
+            fail "docs-map: $config does not title the $section section \"$title\" (FR-077)" \
+                "FR-077's two sections are \"User guide\" and \"Developer guide\"."
+        fi
+    done
+
+    local missing="" route
+    for page in $USER_PAGES; do
+        route="/user/$page/"
+        grep -qF -- "'$route'" "$config" || missing="$missing $route"
+    done
+    for page in $DEV_PAGES; do
+        route="/dev/$page/"
+        grep -qF -- "'$route'" "$config" || missing="$missing $route"
+    done
+    if [ -n "$missing" ]; then
+        fail "docs-map: the navigation in $config does not reach:$missing (FR-077)" \
+            "A page absent from the navigation is a page no reader arrives at. Add it to the section's children."
+    else
+        pass "docs-map: the navigation reaches every page of both sections (FR-077)"
+    fi
+}
+
+# FR-074: DEVELOPMENT.md names every top-level directory and every module under src/.
+docs_development_tree() {
+    local development=DEVELOPMENT.md
+
+    [ -f "$development" ] || {
+        fail "docs-map: $development is missing (FR-072)" \
+            "The developer's document is required."
+        return
+    }
+
+    local directory missing_dirs=""
+    for directory in */; do
+        directory=${directory%/}
+        # target/ is Cargo's output and is not in the repository.
+        [ "$directory" = "target" ] && continue
+        grep -qF -- "$directory/" "$development" || missing_dirs="$missing_dirs $directory"
+    done
+    if [ -n "$missing_dirs" ]; then
+        fail "docs-map: $development does not name the top-level director(ies):$missing_dirs (FR-074)" \
+            "Name each one and what it holds, in the tree section."
+    else
+        pass "docs-map: $development names every top-level directory (FR-074)"
+    fi
+
+    local module missing_mods=""
+    while IFS= read -r module; do
+        # Named as `ui/layout.rs` would be, i.e. relative to src/.
+        grep -qF -- "${module#src/}" "$development" || missing_mods="$missing_mods ${module#src/}"
+    done <<EOF
+$(find src -name '*.rs' | sort)
+EOF
+    if [ -n "$missing_mods" ]; then
+        fail "docs-map: $development does not name the module(s):$missing_mods (FR-074)" \
+            "Every module under src/ is named with its responsibility, on one side of the seam or the other."
+    else
+        pass "docs-map: $development names every module under src/ (FR-074)"
+    fi
+}
+
+# FR-078a: the front page states which release it documents, and cannot drift from the version the
+# tree actually carries. Below 1.0.0 nothing has been released (FR-101 makes the first release
+# exactly 1.0.0), so the only true statement is that the site documents the default branch.
+docs_front_page_version() {
+    local front=docs/index.md
+
+    [ -f "$front" ] || {
+        fail "docs-map: $front is missing (FR-078a)" \
+            "The site's front page is also the first thing a reader opening docs/ sees."
+        return
+    }
+
+    local version
+    version=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+    if [ -z "$version" ]; then
+        fail "docs-map: version is not readable from Cargo.toml" \
+            "The check derives what the front page must say from the manifest; keep the key."
+        return
+    fi
+
+    case "$version" in
+        0.*)
+            if grep -qF -- 'master' "$front"; then
+                pass "docs-map: $front states it documents the default branch, and nothing is released yet (FR-078a)"
+            else
+                fail "docs-map: $front does not say which version it documents (FR-078a)" \
+                    "Cargo.toml is at $version, so nothing is released: the front page must say it documents \`master\`."
+            fi
+            ;;
+        *)
+            if grep -qF -- "$version" "$front"; then
+                pass "docs-map: $front names the released version \`$version\` (FR-078a)"
+            else
+                fail "docs-map: $front does not name the released version \`$version\` (FR-078a)" \
+                    "Cargo.toml says \`$version\`; the front page states which release the site documents."
+            fi
+            ;;
+    esac
+}
+
+# FR-081: every failure the troubleshooting page names is tied to a condition the program really
+# emits, so the page cannot describe a diagnostic that does not exist.
+docs_troubleshooting_conditions() {
+    local page=docs/user/troubleshooting.md
+
+    [ -f "$page" ] || {
+        fail "docs-map: $page is missing (FR-081)" \
+            "The end-user section's page set is fixed by contracts/documentation.md."
+        return
+    }
+
+    # FR-115: where the compositor collects the daemon's output.
+    if grep -qF -- 'hyprland.log' "$page"; then
+        pass "docs-map: $page says where the compositor collects the output (FR-115)"
+    else
+        fail "docs-map: $page does not say where the compositor collects the output (FR-115)" \
+            "Name the log and how to retrieve it."
+    fi
+
+    # The five failures FR-081 names, each recognised by the condition it is tied to.
+    local condition missing=""
+    for condition in ShortcutRegistrationFailed OverlayFocusRefused SecondInstance \
+        CompositorUnreachableAtStartup IconUnreadable InvalidConfigValue; do
+        grep -qF -- "$condition" "$page" || missing="$missing $condition"
+    done
+    if [ -n "$missing" ]; then
+        fail "docs-map: $page does not name the condition(s):$missing (FR-081)" \
+            "Each of FR-081's named failures is tied to the diag::Condition the program emits for it."
+    else
+        pass "docs-map: $page ties each of FR-081's failures to a real diag::Condition (FR-081)"
+    fi
+
+    # And the other direction: nothing the page presents *as* a condition may be one the program
+    # cannot emit. A mention is a backticked CamelCase name in a table's first column — which is
+    # the shape the page's condition tables use, and which excludes the all-capital level names
+    # (`WARN`, `ERROR`, `INFO`) that share those tables.
+    local mentioned bogus=""
+    while IFS= read -r mentioned; do
+        [ -z "$mentioned" ] && continue
+        grep -qE "^[[:space:]]+${mentioned}(,|\$)" src/diag.rs || bogus="$bogus $mentioned"
+    done <<EOF
+$(grep -oE '^\| `[A-Z][a-zA-Z]*[a-z][a-zA-Z]*` \|' "$page" | tr -d '`|' | tr -d ' ' | sort -u)
+EOF
+    if [ -n "$bogus" ]; then
+        fail "docs-map: $page names condition(s) src/diag.rs does not define:$bogus (FR-081)" \
+            "A troubleshooting entry must name a condition the program can actually emit."
+    else
+        pass "docs-map: every condition $page names is a variant of diag::Condition (FR-081)"
+    fi
+}
+
+# FR-084a: the developer pages link to specs/ rather than restating it — the contracts stay
+# authoritative and the site presents them.
+docs_dev_links_to_specs() {
+    local page silent=""
+    for page in $DEV_PAGES; do
+        [ -f "docs/dev/$page.md" ] || continue
+        grep -qE 'specs/00[0-9]|::include\[[^]]*specs/' "docs/dev/$page.md" ||
+            silent="$silent docs/dev/$page.md"
+    done
+    if [ -n "$silent" ]; then
+        fail "docs-map: developer page(s) never reach specs/:$silent (FR-084a)" \
+            "A developer page links to the specification or includes it; it does not restate it."
+    else
+        pass "docs-map: every developer page links to or includes specs/ (FR-084a)"
+    fi
+}
+
 docs_map
+docs_pages
+docs_development_tree
+docs_front_page_version
+docs_troubleshooting_conditions
+docs_dev_links_to_specs
 
 if [ "$failures" -ne 0 ]; then
     printf '\n%d check(s) failed. Reproduce with: ./scripts/checks.sh\n' "$failures" >&2

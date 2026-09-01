@@ -1,0 +1,12 @@
+# pnpm 11 refuses to run a dependency's build script until the project has approved it, and it
+# treats an unapproved one as an error rather than a warning — so without this file every install
+# fails, in CI most of all, with ERR_PNPM_IGNORED_BUILDS (research.md R46).
+#
+# Both entries are decisions, not boilerplate:
+allowBuilds:
+  # esbuild's postinstall places its platform binary; docmd needs it to load configuration.
+  esbuild: true
+  # docmd's optional native accelerator. Denied: building it would put a Rust compile inside a
+  # job that installs Node and nothing else, to speed up a build that already takes under two
+  # seconds on the JavaScript engine.
+  '@docmd/engine-rust': false

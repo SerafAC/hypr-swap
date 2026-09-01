@@ -22,8 +22,8 @@ setting, and no change to the diagnostic format or notification policy.
 
 **What changes around the program**: the licence text and the third-party account; a README aimed
 at the end user alone and a `DEVELOPMENT.md` aimed at the contributor; `docs/` turned into the
-published documentation — plain Markdown split into a user half and a developer half, with the
-Fumadocs machinery hidden in `docs/.fumadocs/` — whose configuration reference *includes*
+published documentation — plain Markdown split into a user half and a developer half, generated
+by docmd from three files at the repository root — whose configuration reference *includes*
 the 002 contract pages rather than restating them, so the existing catalogue unit test keeps the
 published reference and the program's actual behaviour from ever diverging; a GitHub Actions
 workflow whose gating checks are build, unit tests, clippy, fmt, the minimum toolchain, the
@@ -47,10 +47,10 @@ harness itself does not change.
 **Primary Dependencies**: unchanged. This feature adds **no runtime dependency**. It adds
 development and release tooling, none of which is compiled into the binary: `cargo-deb`,
 `cargo-generate-rpm`, `cargo-deny`, `gitleaks` (once, for FR-066a), and — for the documentation
-site alone — a Node.js toolchain (≥ 22) with Fumadocs, whose dependencies live in
-`docs/.fumadocs/package.json`, are managed with **pnpm** (R31a) and are installed by nothing but
-the `docs` jobs and people changing the site's *appearance* — editing the prose needs none of it
-(R31, R48, and one entry in Complexity Tracking).
+site alone — a Node.js toolchain (≥ 22) with **docmd**, whose dependencies live in the root
+`package.json`, are managed with **pnpm** (R31a) and are installed by nothing but the `docs` jobs
+and people building the site locally — editing the prose needs none of it (R31, R48, and one entry
+in Complexity Tracking).
 
 **Storage**: N/A.
 
@@ -91,8 +91,8 @@ tier can run in automation at all (FR-088). The spec names it the feature's larg
 Principle V's standing depends on the answer: if the tier could not run in automation, either the
 requirement or the constitution's E2E principle would have had to give. It is resolved in
 [research.md](./research.md) R29 and leaves one entry in Complexity Tracking. A second entry
-was added after the fact, when the documentation framework was changed from mdBook to Fumadocs
-and brought a Node toolchain with it (R31).
+was added after the fact, when the documentation framework brought a Node toolchain with it
+(R31).
 
 **Post-design re-evaluation (post-Phase 1)**:
 
@@ -100,7 +100,7 @@ and brought a Node toolchain with it (R31).
       four changes are a new `Condition` pair on an existing policy table, a flag on an existing
       argument parser, one pure function, and a `build.rs` addition beside the one already there.
       Around the program, every tool chosen is the smallest thing that answers a requirement:
-      Fumadocs' `::include[]` instead of a generator (R32), `cargo-deb`/`cargo-generate-rpm` because they read `Cargo.toml` instead of adding a
+      `::include[]` instead of a generator (R32), `cargo-deb`/`cargo-generate-rpm` because they read `Cargo.toml` instead of adding a
       second metadata file (R33), and one `cargo-deny` answering both the advisory watch and the
       packager's licence question (R38). The container image is in Complexity Tracking, because it
       is genuinely new machinery.
@@ -134,8 +134,6 @@ Tiers: **Unit** (`cargo test --lib`) · **E2E** (`cargo test --test 'e2e_*'`) ·
 the pull-request workflow) · **Release** (a precondition or step of the release workflow) ·
 **Inspection** (a named item on the release checklist in [quickstart.md](./quickstart.md)).
 
-<!-- ANCHOR: verification-tiers -->
-
 | Requirement | Tier | Verified by |
 |---|---|---|
 | FR-062 licence text present, matches metadata | CI | `licence-files` check: `LICENSE` exists, holder/year present, `Cargo.toml` `license` agrees |
@@ -153,8 +151,8 @@ the pull-request workflow) · **Release** (a precondition or step of the release
 | FR-073 architecture conveys the pure/shell seam | Inspection | same |
 | FR-074 every top-level directory and module described | CI | `docs-map` check: every `src/**/*.rs` and top-level directory named in `DEVELOPMENT.md` |
 | FR-075 per-tier requirements, container route stated | Inspection | `DEVELOPMENT.md` review item |
-| FR-076 site builds | CI | `docs` job: `pnpm install --frozen-lockfile && pnpm build` in `docs/.fumadocs/` |
-| FR-077 two navigable sections | CI | `docs/{user,dev}/meta.json` asserted by the `docs-map` check |
+| FR-076 site builds | CI | `docs` job: `pnpm install --frozen-lockfile && pnpm build && pnpm validate` |
+| FR-077 two navigable sections | CI | the `navigation` in `docmd.config.mjs`, asserted by the `docs-map` check |
 | FR-078 auto-published, failure reported | CI | the `docs` workflow itself (R46) |
 | FR-078a one version, states its release | CI | `docs-map` check: front page names a released version |
 | FR-079 complete configuration reference | Unit + CI | catalogue walk (extended, R32); include resolves at build |
@@ -205,8 +203,6 @@ the pull-request workflow) · **Release** (a precondition or step of the release
 | FR-119 private security channel | Inspection | `SECURITY.md` review item |
 | FR-120 supported versions published | Inspection | same |
 | FR-121 dependency policy stated | Inspection | `CONTRIBUTING.md` review item |
-
-<!-- ANCHOR_END: verification-tiers -->
 
 ### E2E coverage mapping
 
@@ -283,11 +279,9 @@ src/
 tests/
 └── e2e_lifecycle.rs         # NEW: the nine tests in the mapping above
 
-docs/                        # NOW the published documentation (FR-076, R48) — plain Markdown
-├── index.md                 # What it is; which release this documents (FR-078a)
-├── meta.json                # Section order
+docs/                        # NOW the published documentation (FR-076, R48) — plain Markdown,
+├── index.md                 #   and nothing but. What it is; which release this documents (FR-078a)
 ├── user/                    # FR-077's first section
-│   ├── meta.json            # "User guide"
 │   ├── install.md           # Every published channel (FR-081)
 │   ├── binds.md             # moved here; `shortcuts.rs` include_str!s it (FR-022b)
 │   ├── configuration.md     # ::include of 002 contracts/config.md (FR-079, R32)
@@ -295,24 +289,21 @@ docs/                        # NOW the published documentation (FR-076, R48) —
 │   ├── icons.md             # Program icons and icon sets (FR-081)
 │   └── troubleshooting.md   # Diagnostics, and the five named failures (FR-081, FR-115)
 ├── dev/                     # FR-077's second section
-│   ├── meta.json            # "Developer guide"
 │   ├── architecture.md      # The pure/shell seam, in full (FR-082)
 │   ├── workflow.md          # Spec-driven flow; links to specs/ (FR-082, FR-084a)
 │   ├── testing.md           # Every tier, the harness, the image (FR-082)
 │   ├── verification.md      # The tier table above (FR-092)
 │   └── releasing.md         # The release procedure (FR-082)
-├── assets/                  # NEW: the two overlay screenshots (FR-070, R47)
-└── .fumadocs/               # NEW: the framework, hidden from the prose (R31, R48)
-    ├── package.json         # fumadocs-ui, fumadocs-mdx, next, react
-    ├── pnpm-lock.yaml       # committed; the `docs` jobs run `pnpm install --frozen-lockfile`
-    ├── pnpm-workspace.yaml  # allowBuilds: esbuild — without it every install fails (R46)
-    ├── next.config.mjs      # output:'export', basePath, turbopack.root=../.. (R32, R46)
-    └── src/
-        ├── app/             # scaffolded routes, including the search index route (R48)
-        └── lib/source.ts    # defineDocs({ dir: '..' }) — the collection is docs/ itself
+└── assets/                  # NEW: the two overlay screenshots (FR-070, R47)
+
+docmd.config.mjs             # NEW: the site — url, navigation, theme, the include plugin (R31, R48)
+package.json                 # NEW: @docmd/core, pinned exactly; dev/build/validate scripts
+pnpm-lock.yaml               # NEW: committed; the `docs` jobs run `pnpm install --frozen-lockfile`
+pnpm-workspace.yaml          # NEW: allowBuilds — without it every install fails (R46)
 
 docker/e2e/Dockerfile        # NEW: the test environment image (FR-089, R29, R30)
 scripts/checks.sh            # NEW: licence-files, docs-map, changelog — runnable locally
+scripts/docmd-include.mjs    # NEW: `::include[]`, the whole of FR-084's mechanism (R32)
 packaging/aur/PKGBUILD       # NEW: the Arch recipe (FR-107)
 
 .github/
@@ -333,7 +324,8 @@ packaging/aur/PKGBUILD       # NEW: the Arch recipe (FR-107)
 **Structure Decision**: The single-binary layout is unchanged, and no source module is added — a
 feature about releasing the program should not restructure it. Two structural choices are worth
 naming. First, **`docs/` becomes the published documentation itself**, plain Markdown organised
-into `user/` and `dev/`, with the framework hidden in `docs/.fumadocs/` (R48). The tree is meant to
+into `user/` and `dev/`, with nothing else in it: the generator reads that tree from four files at
+the repository root and owns no directory inside it (R48). The tree is meant to
 be read either way — open the folder in an editor, or open the site — and relative links of the
 form `[binds](./user/binds.md)` work in both, which is the property that makes the two equivalent.
 
@@ -345,7 +337,8 @@ also asserted three exact sentences, which froze editorial wording, and those ar
 remains checks agreement between the documentation and the code — the only thing a test here can
 usefully hold — and leaves the prose around it free. The cost is that this one page cannot be
 renamed without a one-line change in `shortcuts.rs`, which `cargo build` reports immediately.
-Every Node artefact stays inside `.fumadocs/`, which a Rust contributor never opens. Second, the
+The Node artefacts are `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` and
+`docmd.config.mjs`, which a Rust contributor never opens. Second, the
 checks that verify documents (`docs-map`,
 `licence-files`, `changelog`) are **shell steps in the workflow**, not Rust code, except where a
 check needs to compare a document against the program's own values — the settings catalogue and
@@ -358,6 +351,6 @@ contributor will see the failure first.
 |-----------|------------|-------------------------------------|
 | A container image carrying a compositor, plus a virtual GPU in automation, to run the E2E tier | FR-088 requires the E2E suite to run against a compositor supplied by automation, and Principle V makes that tier the evidence for this project's headline behaviour. Measurement ([research.md](./research.md) R29) shows there is no cheaper way: Hyprland 0.56 has no headless-only mode, refuses to start without a seat, and its Wayland backend needs a dmabuf allocator no GPU-less parent can supply. Upstream Hyprland reached the same conclusion and runs its own compositor tests in a QEMU VM with `virtio-gpu`. | **A plain container** — measured, does not work, with the exact failures recorded in R29. **A newer wlroots parent** — fixes the xdg-shell version mismatch but not the allocator, and buys a dependency on someone else's release cadence for half a fix. **A mock compositor** — would replace the only evidence the project has that it works against a real one, which is 001 R14's rejected trade in a new costume. **Marking E2E informational** — fails FR-088 outright and makes the merge gate blind to the behaviour users actually see. The cost is bounded: one Dockerfile, one workflow job, and a harness that does not change at all. |
 | A second document tree (`docs/`) beside `specs/` | FR-076–FR-082 require a published site for users and developers, and FR-084a keeps `specs/` authoritative for requirements and contracts. Two trees with two audiences and one rule about which answers what ([contracts/documentation.md](./contracts/documentation.md)). | **Publishing `specs/` as the site** — the specification is a record of decisions, not a user manual; a user looking for "how do I set a colour" should not land in an FR list. **Keeping only the README** — cannot hold the complete configuration and theming reference FR-079/FR-080 demand without becoming the thing FR-067 forbids. The duplication risk is the real cost, and it is answered structurally: the site *includes* the contract pages rather than restating them (R32), so the two trees share bytes rather than agreeing by discipline. |
-| A Node.js toolchain and a pnpm dependency tree, for the documentation site only (R31, R31a, R48) | FR-076 requires a published site, and the project owner chose Fumadocs for it. It buys working search — which the site otherwise has none of — and an include that extracts by heading rather than by line range, which is what FR-084's "one authoritative answer" is built on (R32). | **mdBook**, which this plan originally chose and which costs no second toolchain — displaced by that decision, and the honest accounting is in R31: it has no search and only line-range includes. **MkDocs Material** — the same second-toolchain cost in Python, plus plugins. The cost is contained rather than argued away: everything Node lives under `docs/.fumadocs/`, no Rust job installs it, a contributor who never edits documentation never sees it, and the one thing it genuinely breaks — `cargo-deny` cannot see npm advisories — is answered by a separate Dependabot ecosystem (R38, FR-093). |
+| A Node.js toolchain and a pnpm dependency tree, for the documentation site only (R31, R31a, R48) | FR-076 requires a published site, and no Rust tool answers it well. docmd is the smallest thing that does: 60 packages, one command, plain Markdown in and static HTML out. It buys working search — which the site otherwise has none of — and a link checker, and it leaves the include that FR-084's "one authoritative answer" is built on as a hundred-line local plugin rather than a framework feature (R32). | **mdBook**, which costs no second toolchain — rejected in R31: no search, and only line-range includes, which silently follow the wrong lines when a contract is edited. **MkDocs Material** — the same second-toolchain cost in Python, plus plugins. **A React documentation framework** — a web application to publish twelve Markdown pages. The cost is contained rather than argued away: four files at the root, no Rust job installs it, a contributor who never builds the site never sees it, and the one thing it genuinely breaks — `cargo-deny` cannot see npm advisories — is answered by a separate Dependabot ecosystem (R38, FR-093). |
 | Shell modules unit-test-exempt (Principle IV) | The lifecycle records, the `--environment` flag and the start-up version check live in `main.rs`, the deliberately logic-free shell described in `CLAUDE.md`. Their behaviour is process lifecycle and stderr, which a unit test can only assert by re-implementing the process. The one decision rule this feature adds — parsing a compositor version and comparing it to a range — is pure, in `model.rs`, and **is** unit-tested. | **Unit-testing the shell** would mean mocking a compositor and a signal disposition to assert against the mock. **Extracting a lifecycle module** to make three `diag::report` calls testable would add an abstraction to test a call site, against Principle I. This is the same deviation 001 and 002 recorded, restated here because the constitution requires it in *this* feature's table. |
 | An env-gated compositor-version override for the FR-118 E2E test | The nested compositor is whatever version the machine has, so the "below the minimum" path cannot be reached by driving the real interface. Without the hook, FR-118 would have unit coverage only. | **Pinning an old Hyprland in the image** — a second compositor build to maintain, and it would drift out of support exactly when the test mattered. **Leaving FR-118 unit-only** — acceptable, and rejected because the requirement is about what the daemon *reports at start-up*, which is a stderr behaviour. The hook follows the existing precedent: `hypr/ipc.rs`'s fault injection (001) and `diag.rs`'s paint records (002), both env-gated and inert in normal operation. |

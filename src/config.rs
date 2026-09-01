@@ -253,16 +253,7 @@ pub fn parse(source: &str) -> (Configuration, Vec<Diagnostic>) {
     };
 
     for key in table.keys() {
-        if !matches!(
-            key.as_str(),
-            Presentation::KEY
-                | Placement::KEY
-                | Order::KEY
-                | ICONS_KEY
-                | ICON_SET_KEY
-                | THEME_KEY
-                | STYLE_KEY
-        ) {
+        if !ACCEPTED_KEYS.contains(&key.as_str()) {
             diagnostics.push(Diagnostic::new(
                 Condition::UnknownConfigKey,
                 format!("config.{key}"),
@@ -273,6 +264,22 @@ pub fn parse(source: &str) -> (Configuration, Vec<Diagnostic>) {
 
     (configuration, diagnostics)
 }
+
+/// Every top-level key the configuration file accepts, in one place (FR-024, FR-079).
+///
+/// `load` reports anything absent from this list as an unknown key, and the catalogue walk in
+/// `theme.rs` checks it against the published configuration contracts — so a key added here
+/// without being documented fails `cargo test --lib`, and a key documented but never accepted
+/// fails the same way (FR-083).
+pub const ACCEPTED_KEYS: &[&str] = &[
+    Presentation::KEY,
+    Placement::KEY,
+    Order::KEY,
+    ICONS_KEY,
+    ICON_SET_KEY,
+    THEME_KEY,
+    STYLE_KEY,
+];
 
 /// The keys feature 002 adds (`contracts/config.md`).
 const ICONS_KEY: &str = "icons";

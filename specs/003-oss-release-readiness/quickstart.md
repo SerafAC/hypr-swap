@@ -22,7 +22,7 @@ scenarios that need a human, and the checklists FR-092 counts as a verification 
   | `cargo-generate-rpm` | 0.21.0 | `cargo install cargo-generate-rpm --locked` | the RPM package |
   | `gitleaks` | 8.30.1 | `go install github.com/zricethezav/gitleaks/v8@latest` | FR-066a, once |
   | Node.js | 24.11.1 | nvm (**≥ 22 required**) | the site only |
-  | pnpm | 11.3.0 | the distribution's package | the site only |
+  | pnpm | 11.3.0 | `corepack enable` (**≥ 11 required**) | the site only |
 
   The three `cargo install` targets can be installed in one invocation. `gitleaks` is needed once,
   for the FR-066a history review, and is not a Rust tool — a distribution package of the same
@@ -31,14 +31,15 @@ scenarios that need a human, and the checklists FR-092 counts as a verification 
   `go version -m $(command -v gitleaks)`.
 
   **Node and pnpm are for the documentation site and nothing else.** They are needed only to
-  build `docs/.fumadocs/` ([research.md](./research.md) R31, R31a, R48); a contributor working on
-  the program never installs either, a contributor *writing documentation* needs them only to
-  preview it, and no check outside the `docs` job uses them. The site's own dependencies are pinned
-  in `docs/.fumadocs/pnpm-lock.yaml` and installed with `pnpm install --frozen-lockfile` — they
-  are not global tools, so they are not listed here. The versions that tree resolved to when the
-  decision was validated were Fumadocs 16.15.4, `fumadocs-mdx` 15.4.0, Next.js 16.3.3 and React
-  19.2.8, across 432 packages; pnpm hardlinks them from one store shared by every checkout on the
-  machine, which is the thing CI caches.
+  build the site ([research.md](./research.md) R31, R31a, R48); a contributor working on the
+  program never installs either, a contributor *writing documentation* needs them only to preview
+  the result, and no check outside the `docs` job uses them. **pnpm is the project's package
+  manager and the only one supported** — it is pinned in `package.json`'s `packageManager` field,
+  so `corepack enable` gets the exact version; npm or Yarn would write a second lockfile and ignore
+  the build approvals in `pnpm-workspace.yaml`. The site's own dependencies are pinned in the root
+  `pnpm-lock.yaml` and installed with `pnpm install --frozen-lockfile` — they are not global tools,
+  so they are not listed here. The tree is `@docmd/core` 0.9.4 and 60 packages in total, which pnpm
+  hardlinks from one store shared by every checkout on the machine, and which is what CI caches.
 
 ## 1. The program's own additions (FR-112–FR-118)
 
@@ -83,7 +84,7 @@ records joined the existing record rather than reshaping it.
 ## 3. The documentation cannot drift (FR-083, SC-030)
 
 ```bash
-( cd docs/.fumadocs && pnpm install --frozen-lockfile && pnpm build ) && ./scripts/checks.sh
+pnpm install --frozen-lockfile && pnpm build && pnpm validate && ./scripts/checks.sh
 ```
 
 Then break it deliberately:

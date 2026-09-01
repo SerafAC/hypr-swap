@@ -1659,11 +1659,32 @@ mod tests {
     /// the ranges would agree with the code and say nothing about the page a user actually reads,
     /// which is what SC-024 and SC-025 are about.
     fn catalogue(heading: &str) -> Vec<Row> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("specs")
-            .join("002-overlay-visuals")
-            .join("contracts")
-            .join("style-values.md");
+        catalogue_of(STYLE_VALUES, heading)
+    }
+
+    /// The published style catalogue: every colour, font and geometry value.
+    const STYLE_VALUES: &str = "specs/002-overlay-visuals/contracts/style-values.md";
+
+    /// The two published configuration contracts, with the heading whose table lists the keys
+    /// each one introduces. Together they are the complete account of the file's top-level keys,
+    /// which is what `every_accepted_configuration_key_is_documented` holds `config.rs` to.
+    const CONFIG_CONTRACTS: &[(&str, &str)] = &[
+        (
+            "specs/001-workspace-swap-overlay/contracts/config.md",
+            "Schema",
+        ),
+        ("specs/002-overlay-visuals/contracts/config.md", "Settings"),
+    ];
+
+    /// The catalogue rows under one `##` heading of a published contract, header and separator
+    /// dropped, every cell stripped of the backticks the pages set values in.
+    ///
+    /// The rule is the same for all three pages and is what makes them walkable together: only a
+    /// table whose first column is `Key` is a catalogue. The other tables these pages carry —
+    /// the values that deliberately are *not* settings, the layout constants that are not
+    /// configurable — name no keys and have nothing to check against the code.
+    fn catalogue_of(page: &str, heading: &str) -> Vec<Row> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(page);
         let source = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
 
@@ -1700,7 +1721,7 @@ mod tests {
         }
         assert!(
             !rows.is_empty(),
-            "`## {heading}` no longer holds a catalogue table"
+            "`## {heading}` in {page} no longer holds a catalogue table"
         );
         rows
     }
@@ -1736,6 +1757,53 @@ mod tests {
         let mut rows = catalogue("Fonts");
         rows.extend(catalogue("Geometry"));
         rows
+    }
+
+    #[test]
+    fn every_accepted_configuration_key_is_documented() {
+        // FR-079, FR-083: the catalogue walk covers the *whole* configuration file, not only the
+        // values that reach `Style`. The two published contracts between them are the complete
+        // account of the file's top-level keys, and `config::ACCEPTED_KEYS` is the complete
+        // account of what `load` will accept — so this holds one against the other in both
+        // directions. A key added to the code without a row on the page fails here, and so does a
+        // row on the page naming a key the program never accepts.
+        //
+        // The pages are read rather than transcribed for the same reason the style catalogue is:
+        // a test carrying its own copy of the key set would agree with the code and say nothing
+        // about the page a user actually reads (SC-030).
+        let mut documented: Vec<String> = Vec::new();
+        for (page, heading) in CONFIG_CONTRACTS {
+            for row in catalogue_of(page, heading) {
+                // `[style].*` is one accepted key, `style`, written on the page the way a user
+                // meets it in the file — as a table with keys of its own, catalogued separately
+                // in `style-values.md`.
+                let key = row[0].trim_start_matches('[').replace("].*", "");
+                assert!(
+                    !key.is_empty(),
+                    "{page}: `## {heading}` has a catalogue row with no key"
+                );
+                assert!(
+                    !documented.contains(&key),
+                    "`{key}` is documented twice; each key has one home"
+                );
+                documented.push(key);
+            }
+        }
+
+        for key in &documented {
+            assert!(
+                crate::config::ACCEPTED_KEYS.contains(&key.as_str()),
+                "`{key}` is documented in a configuration contract but `load` does not accept it"
+            );
+        }
+
+        for key in crate::config::ACCEPTED_KEYS {
+            assert!(
+                documented.iter().any(|d| d == key),
+                "`{key}` is accepted by `load` but appears in neither configuration contract — \
+                 add it to the table the feature that introduced it owns"
+            );
+        }
     }
 
     #[test]

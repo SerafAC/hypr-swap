@@ -15,6 +15,8 @@
 .env.*
 *.log
 
-# Documentation site (docs/.fumadocs) — dependencies and build output
-node_modules/
-.next/
+# The documentation site (research.md R31). Committed: package.json, pnpm-lock.yaml,
+# pnpm-workspace.yaml, docmd.config.mjs and scripts/docmd-include.mjs — everything else the site
+# produces is derived from docs/ and is rebuilt by `pnpm build`.
+/node_modules
+/site

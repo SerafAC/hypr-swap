@@ -107,84 +107,104 @@ project's contributors to learn, against Principle I.
 
 ## R31: The documentation framework (FR-076)
 
-**Decision.** **Fumadocs** — `fumadocs-ui` / `fumadocs-mdx` on Next.js — scaffolded from the
-upstream `+next+fuma-docs-mdx+static` template, static-exported (`output: 'export'`) and published
-to GitHub Pages. **`docs/` is the documentation root and holds plain Markdown**; the framework is
-tucked into `docs/.fumadocs/`, which is the Next.js project. Pages live in a `user/` and a `dev/`
-folder that are FR-077's two sections. The shape is R48's decision; this one is only the framework.
+**Decision.** **docmd** (`@docmd/core`), a zero-configuration Markdown site generator, run from
+the repository root against `docs/` and published to GitHub Pages. **`docs/` is the documentation
+and holds nothing but plain Markdown**; the whole of the framework is three files beside
+`Cargo.toml` — `docmd.config.mjs`, `package.json`, `pnpm-lock.yaml` and `pnpm-workspace.yaml` —
+plus the one plugin in `scripts/docmd-include.mjs` that R32 needs. Pages live in a `user/` and a `dev/` folder that are
+FR-077's two sections. The shape is R48's decision; this one is only the framework.
 
-**Rationale.** This decision was **revised after the fact**: R31 originally chose mdBook, on the
-grounds that it kept the project to a single language toolchain, and the project owner
-subsequently directed the change to Fumadocs. The rationale below is what survives re-examination
-rather than a retrofit — the cost the original decision was avoiding is real, is still real, and is
-recorded in Complexity Tracking rather than argued away.
+**Rationale.** This decision has been revised twice. It first chose mdBook, on the grounds that it
+kept the project to a single language toolchain; it was then directed to Fumadocs, for search and
+for a heading-scoped include; and it was directed to docmd after review, on the grounds that a
+Next.js application is disproportionate machinery for twelve Markdown pages. Both earlier choices
+are discarded and nothing in the repository refers to them. What follows is the case for what is
+here now, not a defence of the route taken to it.
 
-What the change buys:
+What docmd gives, against the requirements as written:
 
-- **Search that exists.** The original R31 conceded that real search was MkDocs Material's
-  advantage over mdBook and accepted going without. Fumadocs' Orama integration builds a search
-  index at build time and queries it in the browser, so a static site keeps working search with no
-  server and no third-party account — the `+static` template wires this up as a supported
-  configuration, not a workaround.
-- **A stronger include.** FR-084's "exactly one authoritative answer" rests entirely on the site
-  including the `specs/` contracts rather than restating them. Fumadocs' include extracts by
-  **heading or `<section id>`**, where mdBook's `{{#include}}` extracts by line range or anchor
-  comment — a line-range include silently follows the wrong lines when the included file is
-  edited, and this project edits its contracts. It also registers each included file as a build
-  dependency, which removes the need for mdBook's `extra-watch-dirs` bookkeeping (R32).
-- **Components where prose is not enough.** The install, troubleshooting and configuration pages
-  are the ones a reader arrives at in trouble; callouts, tabs and cards are worth having there, and
-  in mdBook each would be a preprocessor.
+- **Search that exists, with nothing to configure.** The index is built at build time and queried
+  in the browser. Nothing is sent anywhere and no account is needed, which keeps FR-071's privacy
+  statement true of the site as well as of the program. Under the previous framework this needed
+  a hand-written index builder, because plain Markdown pages carried no structured data; here
+  plain Markdown *is* the input format and the index covers included text without being asked.
+- **A site that does not care where it is served from.** Every generated URL is relative, so the
+  same output works at a domain root, at `/hypr-swap/` on GitHub Pages, and on a dev server at
+  `http://localhost:3000`. There is no base path to set and no way to get it wrong — which is the
+  one thing the previous framework did get wrong, silently, in development.
+- **`.nojekyll`, `sitemap.xml` and `robots.txt` written for us**, rather than being a publishing
+  step to remember (R46).
+- **A link checker.** `docmd validate` walks every internal link and reference. A documentation
+  site's characteristic defect is a link that stopped resolving, and this catches it in the same
+  run that builds the site.
+- **Proportion.** 60 packages, a 1.6-second build, and one command. The tree it replaced was 432
+  packages and a React application whose configuration had to be understood before a page could be
+  added. Constitution Principle I is the reason this matters: the simplest thing that satisfies
+  the requirement is the thing to build.
 
-What the change costs, stated plainly:
+What it costs, stated plainly:
 
-- **A second language toolchain in a Rust repository** — Node.js ≥ 22, pnpm, a `package.json` and
-  a `pnpm-lock.yaml`, all confined to `docs/.fumadocs/` — which is precisely the objection the
-  original R31 raised against
-  Docusaurus. It is accepted deliberately, not overlooked. It is confined to `docs/.fumadocs/`: a
-  contributor who touches only Rust never installs Node, and no CI job outside `docs` needs it.
-  Someone editing documentation touches Markdown in `docs/` and need not open `.fumadocs/` at all.
+- **A second language toolchain in a Rust repository** — Node.js ≥ 22, a `package.json` and a
+  lockfile. This cost is inherent to any documentation site richer than raw Markdown, and it is
+  accepted deliberately rather than overlooked. A contributor who touches only Rust never installs
+  Node, and no CI job outside `docs` needs it.
 - **A dependency tree `cargo-deny` cannot see.** FR-093's advisory watch is Cargo-only, so the
   site's npm dependencies need their own watch (R38).
-- **A package manager the repository has to pin.** pnpm is the choice (R31a).
-- **A heavier build** than a single static binary — a dependency install and a Next.js build,
-  against mdBook's one command.
+- **No transclusion of its own.** FR-084 rests on including the `specs/` contracts rather than
+  restating them, and docmd has no directive for it. This is the one real gap, and R32 closes it
+  with a local plugin.
+- **A young project.** docmd is at 0.9.x and moves quickly. The version is pinned exactly in
+  `package.json` and installed with `--frozen-lockfile`, so a release upstream cannot change what
+  this repository builds; upgrading is a deliberate act with the site build as its test.
 
-**R31a: the package manager is pnpm.** Chosen by the project owner. It is the right shape for this
-repository for a reason worth recording: pnpm hardlinks packages from one content-addressed store,
-so the 432-package tree costs disk **once per machine** rather than once per checkout, and the
-`docs` job caches that store rather than a tarball cache. `pnpm install --frozen-lockfile` also
-fails on a lockfile that disagrees with `package.json` instead of quietly resolving around it,
-which is the behaviour a merge gate wants. The costs are a second binary a documentation
-contributor installs (`pnpm`, not shipped with Node) and the approval precondition recorded in R46.
-**npm** — one fewer thing to install, and the default the scaffolder assumes; rejected on the
-owner's instruction. **Yarn**, **Bun** — the template supports both; neither was asked for.
+**R31a: the package manager is pnpm, and it is the only one this project supports.** Chosen by
+the project owner. It is pinned in `package.json`'s `packageManager` field, so `corepack` resolves
+the exact version rather than whatever a contributor happens to have, and both the documentation
+and the workflow name it explicitly. `pnpm install --frozen-lockfile` installs exactly the lockfile
+and fails on one that disagrees with `package.json` rather than quietly resolving around it, which
+is the behaviour a merge gate wants. pnpm also hardlinks packages from one content-addressed store,
+so the tree costs disk once per machine rather than once per checkout, and the `docs` jobs cache
+that store rather than a tarball cache.
 
-**Alternatives considered.** **mdBook** — the displaced choice, and still the cheapest: one static
-Rust binary, no second toolchain, no lockfile from another language. It loses on search and on the
-include mechanism FR-084 depends on. **MkDocs Material** — the same second-toolchain cost as
-Fumadocs (Python instead of Node) with a plugin set to maintain, and no advantage over it.
-**Docusaurus** — the same Node cost for a heavier, less documentation-focused framework.
-**GitHub's own wiki or bare Markdown in the repository** — no navigation, no build to fail, and
-FR-078's "a build failure MUST be reported" then has nothing to report on.
+Using another manager is not a neutral choice here, which is why both documents that name the
+command say so: npm or Yarn would write a second lockfile that nothing in the repository
+describes, and would ignore `pnpm-workspace.yaml` — which is not decoration but the file that
+decides which dependencies may run a build script (below). The costs are a second binary a
+documentation contributor installs, `pnpm/action-setup` as a second CI step, and that approval
+file. **npm** — one fewer thing to install, and the default a scaffolder assumes; rejected on the
+owner's instruction. **Yarn**, **Bun** — neither was asked for.
+
+**Alternatives considered.** **mdBook** — one static Rust binary and no second toolchain, which is
+genuinely the cheapest thing here; it loses on search, and its `{{#include}}` extracts by line
+range, which silently follows the wrong lines when the included file is edited, and this project
+edits its contracts. **MkDocs Material** — the same second-toolchain cost in Python, plus a plugin
+set to maintain. **Fumadocs, Docusaurus** and the other React documentation frameworks — a web
+application, its build system and its component model, to publish twelve Markdown pages.
+**GitHub's own wiki, or bare Markdown in the repository** — no navigation, no search, and no build
+to fail, so FR-078's "a build failure MUST be reported" would have nothing to report on.
 
 ## R32: Making documentation drift impossible (FR-083, FR-084)
 
 **Decision.** The configuration and style reference is **included, not restated**. The site's
 `docs/user/configuration.md` and `docs/user/styling.md` pull
-`specs/002-overlay-visuals/contracts/config.md` and `contracts/style-values.md` in with Fumadocs'
-include directive, and the existing unit test that walks the style-value catalogue against
-`theme.rs`'s `COLOURS`/`GEOMETRY`/`TEXT_SIZE` catalogues is extended to cover every setting
-`config.rs` accepts, by walking `specs/001-workspace-swap-overlay/contracts/config.md` and
-`specs/002-overlay-visuals/contracts/config.md` as well — which means extending `catalogue()`'s
-"first column is `Key`" table rule to those two pages' shape, or normalising their tables to it.
+`specs/002-overlay-visuals/contracts/config.md` and `contracts/style-values.md` in at build time,
+and the existing unit test that walks the style-value catalogue against `theme.rs`'s
+`COLOURS`/`GEOMETRY`/`TEXT_SIZE` catalogues is extended to cover every setting `config.rs` accepts,
+by walking `specs/001-workspace-swap-overlay/contracts/config.md` and
+`specs/002-overlay-visuals/contracts/config.md` as well.
 
-Because the pages are Markdown rather than MDX (R48), the syntax is the directive form:
+docmd ships no transclusion (R31), so the directive is a local plugin —
+`scripts/docmd-include.mjs`, about a hundred lines, named from `docmd.config.mjs` — hooked into
+`onBeforeParse`, which docmd calls with each page's raw Markdown and its path before parsing it:
 
 ```md
 ::include[../../specs/002-overlay-visuals/contracts/config.md]
 ::include[../../specs/002-overlay-visuals/contracts/style-values.md#colours]
 ```
+
+Because the expansion happens before the parser, everything downstream — the table of contents,
+the search index, `docmd validate` — sees the included text as ordinary page content, with no
+second code path to keep in step.
 
 **Rationale.** This is the cheapest possible answer to FR-083 and it already half exists — feature
 002 built the catalogue test precisely so that a new setting cannot be added without documenting
@@ -192,78 +212,55 @@ it. Including rather than copying means the published page and the tested page a
 so "the documentation drifted" is not a state the repository can reach: the check that fails is
 the existing unit test, in `cargo test --lib`, with no new tooling and no new format.
 
-**Verified against a real build**, because the whole guarantee rests on it and most of what follows
-is not stated in Fumadocs' documentation (`+next+fuma-docs-mdx+static` scaffold, Fumadocs 16.15.4 /
-`fumadocs-mdx` 15.4.0 / Next 16.3.3, against this repository's actual 002 contracts):
+**Writing the directive was preferred to doing without it.** A plugin is code this project now
+maintains, which Principle I says to justify rather than assume. The justification is that the
+alternative is not "a simpler include" but *no* include — and without one, FR-079 (the end-user
+section contains the complete configuration specification) and FR-084 (exactly one authoritative
+answer) cannot both hold: the page either restates the contract or sends the reader away to it.
+The plugin is a pure Markdown-to-Markdown transformation with no framework knowledge in it, which
+is also why the two earlier documentation frameworks left no trace in it and a third would not
+either.
 
-1. **A path out of the documentation tree resolves.** The include plugin calls `path.resolve` on
-   the including file's directory with no containment check, so a page in `docs/user/` reaches
-   `../../specs/…`. The included file is registered with the bundler as a build dependency, so
-   editing a contract rebuilds the page — mdBook's `extra-watch-dirs` has no counterpart here and
-   is not needed.
-2. **But only if Turbopack's root is widened** — see the constraint below. This is the single
-   configuration line the whole mechanism depends on.
-3. **A `.md` include is parsed as Markdown, not MDX**, so a brace in a contract — `{like_this}` —
-   is literal text rather than a JSX expression. Confirmed by building one in. This is what makes
-   it safe to point the site at files written for a different audience by people not thinking
-   about MDX.
-4. **Heading extraction is real and scoped.** `style-values.md#colours` emitted the `Colours`
-   section and demonstrably *not* the `Built-in themes`, `Geometry` or `Values that are
-   deliberately absent` sections that follow it. So a page may take one section of a contract
-   without taking the whole file, which mdBook could only do by line range.
+**Four behaviours, each chosen because the obvious version is wrong:**
 
-**Constraint: `turbopack.root` must name the repository root.** Left at its default, Next resolves
-the module graph against the Next project directory and refuses the include outright — the build
-fails with `FileSystemPath("").join("../specs/…") leaves the filesystem root`, which names neither
-the page nor the include. `docs/.fumadocs/next.config.mjs` therefore sets:
+1. **Paths resolve against the including page, and reach outside `docs/`.** `../../specs/…` from
+   `docs/user/` is the whole point; there is no containment check because the tree being reached
+   into is the same repository.
+2. **`#slug` takes one section**, from the heading whose GitHub-style slug matches to the next
+   heading at the same or a shallower level, and **without that heading itself** — the page has
+   already given the section a heading of its own. A whole-file include drops the file's leading
+   level-1 title for the same reason. Line-range includes are what mdBook offered and what this
+   deliberately is not: a slug survives an edit to the file, a line number does not.
+3. **Headings are demoted to fit.** Included headings are shifted so the shallowest sits one level
+   below the page heading the directive appears under. Without this a contract's `## Schema`
+   lands beside the page's own `##` headings and the page has two interleaved hierarchies; with
+   it, one.
+4. **Relative links inside an included file are re-pointed at the repository.** A contract links
+   to its siblings under `specs/`, which are not pages on this site. They are resolved against the
+   included file and rewritten to `repoBlobUrl`, so the link still reaches the document it names —
+   which is FR-084a working as intended: `specs/` stays authoritative, and stays where it is.
 
-```js
-turbopack: { root: path.join(import.meta.dirname, '..', '..') },
-```
+Two smaller properties matter for the same reason: fenced code blocks are tracked, so a `#`
+comment inside a TOML fence is not mistaken for a heading (the contracts are full of them), and a
+missing file or an unknown slug **throws**, failing the build with both the page and the target
+named, rather than publishing a page with a hole in it.
 
-This is load-bearing, not tidiness: without it FR-084's mechanism does not build at all. It is
-recorded here because the failure is opaque enough to cost an afternoon otherwise.
-
-**Constraint: plugins are configured as an array, never as a function.** The include directive
-needs `remark-directive`, and the only form that survives `defineDocs`' macro expansion is the
-array:
-
-```ts
-mdxOptions: { remarkPlugins: [remarkDirective] }
-```
-
-The function form the type signature also advertises — `(v) => [remarkDirective, ...v]` — fails at
-build time with `TypeError: (mdxOptions.remarkPlugins ?? []) is not iterable`, because the macro
-serialises the configuration and the callback never receives the default list. The array form is
-**not** a replacement: Fumadocs splices the project's plugins into the middle of its own chain
-(`[gfm, heading, include, image, codeTab, npm, ...yours, structure]`, from `preset-bundler.js`), so
-GitHub-flavoured tables, heading anchors, the include plugin itself and the search-structure pass
-all survive. Verified by building tables and search out of the result.
-
-**Constraint: no bare raw HTML in an included contract.** An included `.md` is Markdown, so
-`<NotAComponent>` in it is a raw-HTML node, and the pipeline fails with `Cannot handle unknown
-node 'raw'` — again naming no file. Backticked generics (`` `Vec<String>` ``) are code nodes and
-are safe, which is what the contracts already write. `rehype-raw`, the remedy Fumadocs suggests,
-was tried and set aside: it needs a `passThrough` list for every MDX node type before it compiles
-at all, and it rewrites the tree in a way that cost the search index in testing. Since the
-contracts have no reason to contain raw HTML, `scripts/checks.sh` grows a `docs-html` rule that
-greps the included files for a bare tag outside backticks and fails with the file, the line and the
-fix — a better message than either tool produces, for a shell one-liner and no dependency.
-
-**Constraint: code fences must name a language Shiki knows.** ` ```conf ` — the obvious fence for a
-`hyprland.conf` snippet, and the bind page is full of them — fails the build with `ShikiError:
-Language 'conf' not found`. Use ` ```ini `. The `docs-html` rule checks this too, since it is the
-same class of mistake: a documentation edit that breaks a build with an error naming no file.
+**Not a constraint any more, and worth recording as removed.** The previous framework failed the
+build, with an error naming no file, on a bare `<tag>` in an included contract and on a code fence
+naming a language its highlighter did not know — and `scripts/checks.sh` carried a rule for each.
+docmd does neither: unknown fence languages degrade to plain highlighting, and raw HTML is a
+configuration setting. Both rules were deleted. The site sets `security: { html: 'escape' }` so
+that a stray `<path>` in a contract renders as the text it is rather than disappearing silently
+into the markup, which is the failure a reader would never notice.
 
 **Alternatives considered.** **Generating the reference from the code** (a `--dump-settings` flag
 feeding a build step) — a new external surface nobody asked for, plus a generator to maintain, to
-replace a table that a human should be writing prose around anyway. **Copying the catalogue into
-the site tree at build time** — the honest fallback if the cross-tree include had not worked, and
-it would still have preserved single-authorship, but it adds a generated tree to gitignore and a
-copy step to explain; the include makes it unnecessary. **Copying the catalogue into `docs/` and
-testing both copies** — two files holding one truth, which is the duplication Principle III exists
-to prevent. **Moving the catalogue out of `specs/` into the site** — would break FR-084a: the
-contracts stay authoritative and the site presents them.
+replace a table a human should be writing prose around anyway. **Copying the catalogue into `docs/`
+at build time** — preserves single authorship, but adds a generated tree to gitignore and a copy
+step to explain, and leaves the copy in the reader's editor looking like a source of truth.
+**Copying the catalogue into `docs/` and testing both copies** — two files holding one truth, which
+is the duplication Principle III exists to prevent. **Moving the catalogue out of `specs/` into the
+site** — would break FR-084a: the contracts stay authoritative and the site presents them.
 
 ## R33: Building the distribution packages (FR-106, FR-109, FR-109a)
 
@@ -374,13 +371,13 @@ the code together (002's style-value catalogue), so this is an existing idiom ra
 one, and it costs no new dependency — `toml` is already in the tree.
 
 **The site's npm tree is the one thing this does not cover.** `cargo-deny` reads Cargo metadata,
-so nothing it does says anything about `docs/.fumadocs/pnpm-lock.yaml` (R31). Leaving it there would
+so nothing it does says anything about the site's `pnpm-lock.yaml` (R31). Leaving it there would
 make FR-093's advisory watch quietly partial, so the npm tree is watched by **Dependabot** with an
-`npm` ecosystem entry beside the `cargo` one, pointed at `/docs/.fumadocs`, in
-`.github/dependabot.yml`. The asymmetry is
-deliberate and worth stating: a Cargo advisory reaches a maintainer through a check, an npm
-advisory through a pull request. It is proportionate — nothing in `docs/.fumadocs/` ships to a user or
-runs on their machine; its blast radius is a documentation site built by CI.
+`npm` ecosystem entry beside the `cargo` one, both pointed at `/`, in `.github/dependabot.yml` —
+Dependabot's ecosystem is named `npm` and is the one that reads a `pnpm-lock.yaml`. The
+asymmetry is deliberate and worth stating: a Cargo advisory reaches a maintainer through a check,
+an npm advisory through a pull request. It is proportionate — nothing in the site's dependency tree
+ships to a user or runs on their machine; its blast radius is a documentation site built by CI.
 
 **Alternatives considered.** **`cargo-audit`** alone — advisories only, leaving FR-064 unanswered.
 **Dependabot** — raises pull requests but does not fail a check, so an advisory could sit
@@ -510,58 +507,73 @@ be stale within a month.
 **Decision.** A `docs` workflow builds the site on every push to the default branch and deploys it
 with GitHub Pages' own `actions/deploy-pages`. The pull-request build is a separate, gating `docs`
 job inside `ci.yml`, so that it reaches the `ci-required` verdict; `docs.yml` itself does not run
-on pull requests and never deploys from one. The site's front page states which release it documents and marks
-anything already on the default branch but not yet released. No versioned snapshots.
+on pull requests and never deploys from one. The site's front page states which release it
+documents and marks anything already on the default branch but not yet released. No versioned
+snapshots.
 
-**What "build" means under Fumadocs (R31).** `pnpm install --frozen-lockfile && pnpm build` in
-`docs/.fumadocs/`, producing a static export in `docs/.fumadocs/out/` which is what gets uploaded —
-there is no Node server in the deployment. Four settings make that export land correctly on Pages, and all four are project
-configuration rather than anything a page author sees:
+**What "build" means (R31).** `pnpm install --frozen-lockfile && pnpm build` at the repository
+root, producing static
+HTML in `site/`, which is what gets uploaded — there is no Node server in the deployment. What
+made this a section of its own under the previous framework was the four settings needed to land
+an export correctly on a Pages subpath; docmd needs none of them:
 
-- `output: 'export'` — already set by the `+static` template.
-- `basePath: '/hypr-swap'` and a matching `assetPrefix`, because the site is served from a
-  repository subpath rather than a domain root. Wrong here means a site that loads and is entirely
-  unstyled.
-- `images: { unoptimized: true }`, since the optimiser is a server route that an export cannot
-  carry.
-- A `.nojekyll` file in the uploaded artefact: Pages runs Jekyll by default and Jekyll skips
-  directories beginning with an underscore, which would drop `_next/` — the whole bundle.
+- **The base path takes care of itself.** Every generated URL is relative, so `site/` works served
+  from `/hypr-swap/` on Pages and from `/` on the dev server, unchanged. `url` in
+  `docmd.config.mjs` is stated for canonical links and the sitemap, not to make the site load.
+- **`.nojekyll` is written by the build.** Pages runs Jekyll by default and Jekyll skips
+  directories beginning with an underscore, which would drop the site's search index; docmd emits
+  the file without being asked.
+- **Search is part of the output**, not a service: the index is built at build time and queried in
+  the browser, as `site/_docmd-search/search-index.json`. Nothing is sent anywhere and no account
+  is needed, which keeps FR-071's privacy statement true of the site as well as of the program.
+  **Two of docmd's default plugins are turned off to keep that true**: `ai`, which puts a chat
+  client carrying a cloud-relay endpoint on every page, and `okf`, which writes a knowledge bundle
+  for AI agents beside the site. Neither is wanted here, and a site whose subject is a program that
+  makes no network access should not itself ship 99 KB of third-party client. With both off, the
+  shipped JavaScript contains no external fetch target at all — verified against the output.
 
-Search is part of the export rather than a service: the Orama index is built at build time and
-queried in the browser, and it appears in the artefact as `out/api/search` (~100 KB for a
-nine-page site, measured). Nothing is sent anywhere and no account is needed, which keeps FR-071's
-privacy statement true of the site as well as the program.
+The workflow still asserts what it uploads rather than trusting the build: one page from each of
+FR-077's two sections, the search index, and `.nojekyll`. It then runs `pnpm validate`, which
+walks every internal link in what was just built — a broken cross-reference is the defect a
+documentation site actually has, and it costs a second to catch.
 
-**Caching.** The `docs` jobs cache the **pnpm store** (`pnpm store path`) keyed on
-`docs/.fumadocs/pnpm-lock.yaml` — `pnpm/action-setup` followed by `actions/setup-node` with
-`cache: 'pnpm'` is the standard pairing. An uncached install of this dependency tree resolves 432
-packages and dominates the job; the built site is a few megabytes and the lockfile is 136 KB.
+**Caching.** `pnpm/action-setup` followed by `actions/setup-node` with `cache: pnpm`, which caches
+the pnpm store keyed on `pnpm-lock.yaml` — the standard pairing, and the order matters: setup-node
+asks the pnpm binary for the store path, so pnpm has to exist first. The tree is 60 packages, so
+the install is not the job's cost centre.
 
-**One pnpm-specific precondition, or every `docs` job fails.** pnpm 11 does not run dependency
-build scripts unless the project has approved them, and it treats an unapproved script as an
+**One pnpm-specific precondition, or every `docs` job fails.** pnpm 11 does not run a dependency's
+build script unless the project has approved it, and it treats an unapproved script as an
 **error**, not a warning:
 
 ```text
-[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: esbuild@0.28.2
+[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: @docmd/engine-rust@0.9.4, esbuild@0.28.2
 ```
 
-`esbuild` needs its `postinstall` to place its platform binary, so this stops the build outright —
-and it stops it identically in CI, where there is no one to run the interactive `pnpm
-approve-builds`. The approval is therefore committed, in `docs/.fumadocs/pnpm-workspace.yaml`:
+This stops the build outright, and it stops it identically in CI where there is no one to run the
+interactive `pnpm approve-builds`. The approvals are therefore committed, in `pnpm-workspace.yaml`,
+and both are decisions rather than boilerplate:
 
 ```yaml
 allowBuilds:
-  esbuild: true
+  esbuild: true            # its postinstall places the platform binary docmd loads config with
+  '@docmd/engine-rust': false
 ```
+
+`@docmd/engine-rust` is docmd's optional native accelerator, and it is **denied**: building it
+would put a Rust compile inside a job that installs Node and nothing else, to speed up a build that
+already takes under two seconds on the JavaScript engine. A denial silences the error as
+effectively as an approval, which is what makes an explicit `false` the right answer rather than an
+approval nobody wanted.
 
 Two details cost time if not written down: the file is `pnpm-workspace.yaml` even though this is a
 single package and not a workspace, and the key is `allowBuilds` — pnpm 11 renamed it from pnpm
 10's `onlyBuiltDependencies`, and it **no longer reads the `pnpm` field in `package.json` at all**,
-which is what most existing guidance still tells you to edit. Let `pnpm approve-builds --all`
-write the file rather than hand-writing it, then commit the result.
+which is what most existing guidance still tells you to edit. `pnpm install` writes the file as a
+template with each package listed and unanswered; fill in the answers rather than hand-writing it.
 
 **Rationale.** Building on pull requests is what stops the "the site is stale and nobody was told"
-edge case: a broken book fails the change that broke it, not the deployment afterwards. One
+edge case: a broken page fails the change that broke it, not the deployment afterwards. One
 version is the clarified requirement and it is also what keeps FR-083's drift check meaningful —
 the check can only compare documentation against the code sitting beside it.
 
@@ -572,10 +584,9 @@ harness's own nested instance so they show a controlled workspace set rather tha
 desktop, committed under `docs/assets/` and referenced from both the README and the site.
 
 The images live in `docs/assets/` beside the pages that use them, so a reader browsing the folder
-and the README both reach them by an ordinary relative path. Next.js only serves what is under its
-own `public/`, so the site's `prebuild` script copies `docs/assets/` to
-`docs/.fumadocs/public/assets/`, and that destination is gitignored — one authoritative copy of
-each image, in the directory the prose needs it in.
+and the README both reach them by an ordinary relative path. The site build copies the directory
+through to `site/assets/` and rewrites each reference to the page's own depth, so one committed
+copy of each image serves the folder, the README and the published site alike.
 
 **Rationale.** The one requirement in this feature that cannot be met with text. Capturing from
 the nested instance means the images can be regenerated deterministically when the appearance
@@ -584,40 +595,39 @@ changes, and it keeps the maintainer's real windows and window titles out of the
 ## R48: The documentation tree's shape (FR-076, FR-077, FR-084)
 
 **Decision.** `docs/` **is** the documentation — plain Markdown, organised for a person reading
-files, with the framework hidden beneath it in `docs/.fumadocs/`:
+files, and containing nothing else:
 
 ```text
 docs/
 ├── index.md            # front page
-├── meta.json           # section order
 ├── user/               # FR-077's first section
-│   ├── meta.json       # "User guide"
-│   └── binds.md  install.md  configuration.md  styling.md  icons.md  troubleshooting.md
+│   └── install.md  binds.md  configuration.md  styling.md  icons.md  troubleshooting.md
 ├── dev/                # FR-077's second section
-│   ├── meta.json       # "Developer guide"
 │   └── architecture.md  workflow.md  testing.md  verification.md  releasing.md
-├── assets/             # screenshots, referenced by the README too
-└── .fumadocs/          # the Next.js project: package.json, next.config.mjs, src/, lockfile
+└── assets/             # screenshots, referenced by the README too
 ```
 
-The Next project reads the tree above it — `defineDocs({ dir: '..' })` — rather than owning a
-`content/` directory of its own. `.fumadocs/` is skipped by the content glob because it is
-dot-prefixed, so the framework does not have to be excluded by hand.
+The generator reads that tree from the repository root — `src: 'docs'` in `docmd.config.mjs` — and
+owns no directory inside it. There is no framework to hide beneath the prose, because there is no
+framework directory: the whole of it is `docmd.config.mjs`, `package.json`, `pnpm-lock.yaml` and
+`pnpm-workspace.yaml` at the root, beside `Cargo.toml`, plus `scripts/docmd-include.mjs`.
 
 **Rationale.** The requirement is that the tree read as well in an editor as on the published site,
 and three properties deliver that, each verified by building them:
 
-- **Plain `.md`, not `.mdx`.** Every page is Markdown an IDE previews and a forge renders. Nothing
-  in this documentation needs JSX, and the one thing that would have forced MDX — the include — has
-  a Markdown directive form (R32).
+- **Plain `.md`.** Every page is Markdown an IDE previews and a forge renders. Nothing in this
+  documentation needs a component model, and the one thing that might have forced one — the
+  include — is a directive on its own line (R32).
 - **Relative links between files resolve both ways.** A page written `[binds](./user/binds.md)`
-  opens the neighbouring file in an editor, and Fumadocs rewrites it to `/docs/user/binds` in the
-  built site. Verified in the export: `./user/binds.md` → `/docs/user/binds`, `../index.md` →
-  `/docs`. This is the single property that makes "browse the folder" and "browse the site" the
-  same act, so links between pages MUST be written in the relative-file form.
-- **Directory names are the navigation.** `user/` and `dev/` are FR-077's two sections, and the
-  only non-Markdown files among the documents are two-line `meta.json` files giving each section
-  its title and page order.
+  opens the neighbouring file in an editor, and the build rewrites it to `../binds/` in the
+  published site. Verified in the output. This is the single property that makes "browse the
+  folder" and "browse the site" the same act, so links between pages MUST be written in the
+  relative-file form. Images behave the same way: `./assets/overlay-list.png` reaches the file
+  from the folder and is rewritten to the page's own depth in the site.
+- **Directory names are the sections.** `user/` and `dev/` are FR-077's two sections, and there
+  are **no non-Markdown files among the documents at all** — the section titles and page order are
+  the `navigation` list in `docmd.config.mjs`, which is one place rather than one per directory,
+  and which `scripts/checks.sh` checks reaches every page that exists.
 
 One page is pinned by the code: `user/binds.md` is `include_str!`d by `ui/shortcuts.rs`, which
 asserts it quotes every bind line the program generates (FR-022b). That is a deliberate exception
@@ -625,34 +635,18 @@ to the freedom the rest of the tree has — it is the one page whose *content* m
 binary, so it is the one page that cannot be renamed without a compile error saying so. The
 assertion covers the bind lines only; the prose around them is as free as any other page's.
 
-**Cost, and it is a real one: search needs an explicit index builder.** Fumadocs derives its search
-index from a `structuredData` export that only compiled MDX carries, so a tree of plain Markdown
-fails the static export with `Cannot find structured data from page, please define the page to
-index function`. The remedy is the one the error names — `createFromSource(source, { buildIndex })`
-in `docs/.fumadocs/src/app/api/search/route.ts`, building each record from the page's processed
-text with `structure()` from `fumadocs-core/mdx-plugins/remark-structure`:
-
-```ts
-async buildIndex(page) {
-  return {
-    id: page.url, url: page.url,
-    title: page.data.title, description: page.data.description,
-    structuredData: structure(await page.data.getText('processed')),
-  };
-}
-```
-
-Twelve lines, written once, and it indexes the *processed* text — so the contracts pulled in by
-`::include` become searchable on the site, which the default MDX path would also have done. This is
-the price of Markdown pages and it is worth paying for them.
+**Search costs nothing here**, which is worth recording because under the previous framework it
+was this decision's one real price: plain Markdown pages carried no structured data, so the index
+had to be built by hand. docmd takes plain Markdown as its input format, indexes it per section,
+and picks up the text that `::include[]` pulls in without being told to — verified by finding
+`gtk-icon-theme-name` and `grid_cell_width`, which appear only inside included contracts, in the
+built index.
 
 **Alternatives considered.** **A separate top-level `website/`** — the shape this plan carried
-until the documentation tree was made the root; it kept the framework further from the prose but
-split the documentation across two directories and left `docs/` a stub. **`docs/` as the Next
-project root directly**, with `package.json`, `next.config.mjs`, `tsconfig.json` and `src/` beside
-the prose — no hidden directory, but the first thing a reader opening `docs/` sees is
-configuration, which is the opposite of the requirement. **`.mdx` pages** — first-class components
-and search with no `buildIndex`, at the cost of files an IDE and a forge show as source rather than
-as documents. **A `content/` directory inside `.fumadocs/`** — the template's default, and the
-arrangement that buries the prose inside the framework.
-
+until the documentation tree was made the root; it split the documentation across two directories
+and left `docs/` a stub. **A framework directory beneath `docs/`** — necessary when the framework
+was an application with its own source tree, and pointless now that it is three files; hiding
+three files under a dot-directory would only make them harder to find. **A `meta.json` per
+section**, giving each its title and page order — the previous shape, and the only non-Markdown
+files that were ever in `docs/`; one navigation list in the configuration says the same thing in
+one place and can be checked against the tree.

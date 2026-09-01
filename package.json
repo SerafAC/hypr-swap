@@ -1,0 +1,23 @@
+{
+  "name": "hypr-swap-docs",
+  "private": true,
+  "description": "Build tooling for the hypr-swap documentation site. The program itself is the Rust crate in this repository; this manifest exists only so the site's generator is pinned and installable.",
+  "license": "MIT",
+  "packageManager": "pnpm@11.3.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=11"
+  },
+  "scripts": {
+    "dev": "docmd dev",
+    "build": "docmd build",
+    "validate": "docmd validate"
+  },
+  "devDependencies": {
+    "@docmd/core": "0.9.4"
+  },
+  "dependencies": {
+    "@docmd/plugin-git": "0.9.4",
+    "@docmd/plugin-openapi": "0.9.4"
+  }
+}

@@ -15,7 +15,7 @@ in one file (FR-091).
 | `clippy` | `cargo clippy --all-targets -- -D warnings` | the same | FR-086 |
 | `fmt` | `cargo fmt --check` | the same | FR-086 |
 | `msrv` | `cargo build` on the toolchain named by `rust-version` | `rustup run <version> cargo build` | FR-087 |
-| `docs` | `pnpm install --frozen-lockfile && pnpm build` in `docs/.fumadocs/` | the same | FR-076, FR-078 |
+| `docs` | `pnpm install --frozen-lockfile && pnpm build && pnpm validate` | the same | FR-076, FR-078 |
 | `checks` | `licence-files`, `docs-map`, `changelog` (see below) | `./scripts/checks.sh` | FR-062–FR-065, FR-074, FR-077–FR-084, FR-102a |
 | `licenses` | `cargo deny check licenses` | the same | FR-064 |
 | `e2e` | `cargo test --test 'e2e_*'` in the image | `docker run … ghcr.io/<owner>/hypr-swap-e2e` | FR-088 |

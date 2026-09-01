@@ -1,0 +1,86 @@
+# Publish the documentation site (FR-078, research.md R31).
+#
+# This workflow builds and deploys; it does not gate. The pull-request build is the `docs` job in
+# ci.yml, so a change that breaks the site fails the change that broke it rather than leaving this
+# deployment to discover it afterwards. That is why there is no `pull_request` trigger here.
+name: docs
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# GitHub Pages' own deployment needs these; nothing else in the workflow writes to the repository.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and never cancel one half-way — a cancelled deploy leaves the site in
+# whatever state it reached.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # pnpm before Node: `actions/setup-node`'s `cache: pnpm` needs the binary to exist so it can
+      # ask it for the store path (research.md R31a).
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # `--frozen-lockfile` fails on a lockfile that disagrees with package.json rather than
+      # quietly resolving around it, which is what a publish wants.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the site
+        run: pnpm build
+
+      # A failed build must be reported rather than leaving the published site silently stale
+      # (FR-078). The step above fails the workflow; this asserts the output is really there
+      # before anything is uploaded — one page from each of FR-077's two sections, the search
+      # index, and the `.nojekyll` without which Pages' Jekyll pass would drop the site's assets.
+      - name: Assert the site is complete
+        run: |
+          set -eu
+          for required in \
+            site/index.html \
+            site/user/binds/index.html \
+            site/dev/architecture/index.html \
+            site/_docmd-search/search-index.json \
+            site/.nojekyll
+          do
+            if [ ! -e "$required" ]; then
+              echo "::error::the site is missing $required — reproduce with: pnpm install --frozen-lockfile && pnpm build"
+              exit 1
+            fi
+          done
+          echo "site complete: $(du -sh site | cut -f1)"
+
+      # Every internal link and reference, checked against the pages that were just built. A
+      # broken cross-reference is the failure mode a documentation site has, and it costs a
+      # second to catch here.
+      - name: Check internal links
+        run: pnpm validate
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
