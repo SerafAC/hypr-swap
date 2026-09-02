@@ -103,6 +103,16 @@ start_parent_compositor() {
     [ -d /dev/dri ] || environment_failure \
         'no /dev/dri in this container: the DRM backend has no GPU to open (research.md R29 — automation must supply a virtual GPU)'
 
+    # What the backend has to work with, in the log before it is asked to work with it. A virtual
+    # GPU is display-only, so a `card*` with no `renderD*` is expected; if the compositor then
+    # fails on an allocator, this is the line that says why.
+    note "device nodes: $(ls /dev/dri 2>/dev/null | tr '\n' ' ')"
+
+    # There is no hardware renderer behind a virtual GPU, so mesa is told to stop looking for one
+    # rather than probing and falling back. Set only here: a contributor's own session has a real
+    # GPU and must keep using it.
+    export LIBGL_ALWAYS_SOFTWARE=1
+
     # Hyprland picks its own `wayland-N`; it reports which in its log, but waiting for the socket
     # to appear is both simpler and the thing that actually matters.
     local socket

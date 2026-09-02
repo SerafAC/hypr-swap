@@ -57,6 +57,27 @@ feature's largest technical unknown, so it was resolved by experiment rather tha
      runs a NixOS VM with `qemu.options = [ "-vga none -device virtio-gpu-pci" ]` from an
      `ubuntu-latest` runner — so it is known to work on GitHub's hosted runners.
 
+**What the spike then measured, on the runner itself (2026-09-02).** The first CI run of
+`e2e.yml` settled the first half of route 1 and left the second half open — **[verified]**:
+
+- **A hosted runner does not carry `vkms`**: `modprobe: FATAL: Module vkms not found in directory
+  /lib/modules/6.17.0-1022-azure`. The module is not absent from the kernel, only from the runner
+  image — it ships in `linux-modules-extra` for the running kernel, which is in the archive, so the
+  workflow installs it rather than assuming it.
+- **Neither `HYPRLAND_*` nor `AQ_*` has grown a headless escape hatch** since finding 1 was
+  measured. The image pulls Hyprland 0.56.2 and aquamarine 0.14.0, and the only backend knobs the
+  two binaries carry are `AQ_DRM_DEVICES`, `AQ_FORCE_LINEAR_BLIT`, `AQ_LIBINPUT_NO_PLUGINS`,
+  `AQ_MGPU_NO_EXPLICIT`, `AQ_NO_ATOMIC`, `AQ_NO_MODIFIERS` and `AQ_TRACE`. `CHeadlessBackend` is in
+  the library, but nothing selects it at start-up — it is what `hyprctl output create headless`
+  reaches, which is finding 1 restated with the symbol names. A DRM device is genuinely required.
+
+**What is still open**: whether the compositor starts on a `vkms` node once it loads. `vkms` is
+display-only and publishes a `card*` with no `renderD*` beside it, so the allocator failure of
+finding 1 may recur for the same reason in a different place. Both the workflow step and the
+image's entry point log `/dev/dri` before the compositor is asked to use it, so the next run either
+works or says precisely which of the two it was — and if it is the allocator, route 2 is the
+answer and the evidence for taking it is on the record.
+
 **Rationale.** The harness is the project's most valuable test asset and rewriting it would be a
 larger change than this whole feature. Every measurement above says the harness does not need to
 change at all: it needs a parent, and the difference between a developer's machine and a runner is

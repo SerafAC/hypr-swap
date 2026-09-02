@@ -24,19 +24,33 @@ jobs:
       - uses: actions/checkout@v5
 
       # `vkms` is R29's first route: a synthetic DRM device published by the runner's own kernel,
-      # the container running against it with its own seatd. Fewest moving parts. If a hosted
-      # runner turns out not to carry the module, R29's second route is a QEMU virtual machine with
-      # `virtio-gpu` — what upstream Hyprland's own CI uses — and the failure below says which
+      # the container running against it with its own seatd. Fewest moving parts.
+      #
+      # A hosted runner does not carry the module — measured 2026-09-02, `modprobe: FATAL: Module
+      # vkms not found in directory /lib/modules/6.17.0-1022-azure`. It ships in
+      # `linux-modules-extra` for the running kernel, which is in the archive, so the module is
+      # installed rather than assumed. If *that* fails, R29's second route is a QEMU virtual machine
+      # with `virtio-gpu` — what upstream Hyprland's own CI uses — and the failure below says which
       # happened, because it is an environment failure and not a test result.
       - name: Publish a virtual GPU
         id: gpu
         run: |
           set -eu
-          sudo modprobe vkms || {
-            echo "::error::the runner cannot load vkms, so there is no DRM device for the compositor to open — this is a broken environment, not a broken change (research.md R29 names the QEMU/virtio-gpu fallback)"
+          fail() {
+            echo "::error::$1 — the runner has no DRM device for the compositor to open. This is a broken environment, not a broken change (research.md R29 names the QEMU/virtio-gpu fallback)."
             exit 1
           }
-          ls -l /dev/dri
+          if ! sudo modprobe vkms 2>/dev/null; then
+            echo "vkms is not in this kernel's module directory; installing it for $(uname -r)"
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" \
+              || fail "linux-modules-extra-$(uname -r) is not installable"
+            sudo modprobe vkms || fail "vkms is installed but will not load"
+          fi
+          # What the DRM backend will actually find. vkms is a display-only driver, so a `card*`
+          # with no `renderD*` beside it is the expected shape and is recorded here: if the
+          # compositor then fails on an allocator, this line is the evidence for why.
+          ls -l /dev/dri || fail "vkms loaded but published no device node"
 
       # One image, built from the same Dockerfile a contributor builds, so an automation failure
       # reproduces locally (FR-089, SC-035). Built here rather than pulled so that a change to the

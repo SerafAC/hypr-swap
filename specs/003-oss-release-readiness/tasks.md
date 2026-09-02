@@ -289,13 +289,25 @@ exist on GitHub:
   minus `licenses`, which T081 adds along with the job — a `needs:` naming a job that does not
   exist makes the whole workflow unloadable, so the two land together.
 
-**The R29 spike is still open, and `e2e.yml` says where.** The automation route implemented is
-R29's first — `vkms` on the runner plus the container's own seatd — because it has the fewest
-moving parts. Nothing here can settle whether a hosted runner will load the module: this machine's
-kernel has no `vkms` to test against, and the answer is a property of GitHub's runners. The
-workflow's "Publish a virtual GPU" step therefore fails as an *environment* failure and names
-R29's second route (a QEMU virtual machine with `virtio-gpu`, what upstream Hyprland's own CI uses)
-as the fallback. The first real CI run settles it.
+**The R29 spike, half settled on the runner (2026-09-02).** The automation route implemented is
+R29's first — `vkms` plus the container's own seatd — because it has the fewest moving parts. The
+first CI run answered the question a checkout could not: a hosted runner has no `vkms` in
+`/lib/modules/6.17.0-1022-azure`. It is missing from the runner image rather than from the kernel,
+so the step now installs `linux-modules-extra-$(uname -r)` and loads it, and the measurement is on
+the record in R29.
+
+Re-checking finding 1 against the image's actual binaries at the same time: Hyprland 0.56.2 and
+aquamarine 0.14.0 carry no headless escape hatch — `AQ_DRM_DEVICES`, `AQ_FORCE_LINEAR_BLIT`,
+`AQ_LIBINPUT_NO_PLUGINS`, `AQ_MGPU_NO_EXPLICIT`, `AQ_NO_ATOMIC`, `AQ_NO_MODIFIERS`, `AQ_TRACE` and
+nothing else. `CHeadlessBackend` exists in the library but nothing selects it at start-up, so a DRM
+device is genuinely required and there is no cheaper way round.
+
+**What is still open** is whether the compositor starts on a `vkms` node once it loads: `vkms` is
+display-only and publishes a `card*` with no `renderD*`, which is the shape that produced finding
+1's allocator failure. The workflow step and the entry point both log `/dev/dri` before the
+compositor is asked to use it, so the next run either works or names which of the two it was. If it
+is the allocator, R29's second route — a QEMU virtual machine with `virtio-gpu`, what upstream
+Hyprland's own CI uses — is the answer, with the evidence for taking it already recorded.
 
 **Checkpoint**: A proposed change gets one pass/fail verdict with no maintainer action, and the E2E
 tier runs against a real compositor in automation.
