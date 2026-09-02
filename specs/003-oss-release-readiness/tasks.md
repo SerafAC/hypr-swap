@@ -440,9 +440,35 @@ component shipping inside it, names each licence, and finds the project's full l
 ### Tests for User Story 6
 
 - [ ] T083 [US6] Extend `scripts/checks.sh` with the `licence-files` check: `LICENSE` exists and names a holder and a year; `Cargo.toml`'s `license` agrees with it; `Cargo.toml` carries description, licence, repository, documentation and keywords; every path under `protocols/` and `assets/` is accounted for in `THIRD-PARTY.md`, so zero files are unattributed (FR-062, FR-063, FR-065, SC-041)
-- [ ] T084 [US6] Run `gitleaks detect --log-opts=--all` over the entire history for credentials, personal data and material the project has no right to publish, and record the outcome in `specs/003-oss-release-readiness/history-review.md` — **before** the repository is made public (FR-066a, [research.md](./research.md) R44)
+- [X] T084 [US6] Run `gitleaks detect --log-opts=--all` over the entire history for credentials, personal data and material the project has no right to publish, and record the outcome in `specs/003-oss-release-readiness/history-review.md` — **before** the repository is made public (FR-066a, [research.md](./research.md) R44)
 
 - [ ] T084a [US6] Make the repository public and turn on what only a public repository can do — GitHub Pages for T034's deployment and branch protection requiring `ci-required` (T042) — **only once** T084's review is recorded and clean (FR-066a, FR-078, FR-091)
+
+### Story 6 record so far (T084, and what T084a still needs)
+
+**T084 ran on 2026-09-02** against `master` at `aa3a81b`: `gitleaks` 8.30.1 over all 33 commits,
+**no leaks found**, plus the personal-data and third-party-material checks FR-066a also asks for.
+The outcome is [history-review.md](./history-review.md). It is clean on all three counts.
+
+**The ordering was wrong and is recorded rather than smoothed over.** T084a says the repository
+becomes public *only once* T084's review is recorded and clean. The repository was made public
+first, and T084 ran immediately afterwards. Nothing was exposed — the review is clean — but the
+sequence was not the one FR-066a asks for, and `history-review.md` says so at the top so that a
+future history rewrite does not repeat it.
+
+**T084a is partly done.** Public: yes. The two things only a public repository can do are not:
+
+| T084a item | State |
+|---|---|
+| Repository public | ✅ done 2026-09-02 |
+| GitHub Pages for T034's deployment | ❌ `has_pages: false`; the `docs` workflow failed on `Get Pages site failed … Not Found`. `docs.yml` now passes `enablement: true` to `actions/configure-pages`, which turns the site on using the `pages: write` the workflow already holds — so this should settle itself on the next run rather than needing a setting changed by hand |
+| Branch protection requiring `ci-required` | ❌ not set, and it should not be until `ci-required` is green — a required check that cannot pass blocks every merge (T050) |
+
+**One further publication item, outside T084a's wording but in FR-089's spirit**: the image
+`e2e-image.yml` publishes is a GHCR package, and a GHCR package is **private by default even on a
+public repository** — an anonymous pull of `ghcr.io/serafac/hypr-swap-e2e` is refused. Until its
+package visibility is set to public, a contributor cannot pull the image automation used and must
+build it, which is the half of SC-035 the publish step exists to remove.
 
 **Checkpoint**: Every file in the tree is attributable to an origin and a licence; the history has
 been reviewed, the review recorded, and only then is the repository public.

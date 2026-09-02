@@ -74,16 +74,25 @@ jobs:
           # unprivileged user the compositor runs as (research.md R30).
           docker run --rm --privileged --user root \
             -v "$PWD:/work" -w /work \
-            hypr-swap-e2e true || status=$?
+            hypr-swap-e2e true 2>&1 | tee session.log || status=${PIPESTATUS[0]}
+          if [ "$status" -eq 0 ]; then
+            echo "the parent session comes up"
+            exit 0
+          fi
+
+          # Why it did not come up, in an **annotation** rather than only in the log. A job log
+          # needs repository admin to read; annotations are public on a public repository, so this
+          # is the difference between a maintainer being able to diagnose a runner failure from a
+          # link and having to have push rights first. The lines worth keeping are the compositor's
+          # own errors and this script's own notes; `%0A` is how a multi-line annotation is written.
+          reason="$(grep -aE 'ERR|CRIT|ASSERTION|Couldn.t|e2e-env:|failed' session.log \
+                    | tail -n 40 | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}')"
           if [ "$status" -eq 78 ]; then
-            echo "::error::the E2E environment did not come up: no Wayland session could be started in the container. This is a broken runner, not a broken change."
-            exit 1
+            echo "::error::the E2E environment did not come up: no Wayland session could be started in the container. This is a broken runner, not a broken change.%0A%0A${reason}"
+          else
+            echo "::error::the E2E image failed to start (status $status) — this is a broken runner, not a broken change.%0A%0A${reason}"
           fi
-          if [ "$status" -ne 0 ]; then
-            echo "::error::the E2E image failed to start (status $status) — this is a broken runner, not a broken change"
-            exit 1
-          fi
-          echo "the parent session comes up"
+          exit 1
 
       - name: Run the E2E suite
         run: |
@@ -91,10 +100,18 @@ jobs:
           status=0
           docker run --rm --privileged --user root \
             -v "$PWD:/work" -w /work \
-            hypr-swap-e2e || status=$?
+            hypr-swap-e2e 2>&1 | tee suite.log || status=${PIPESTATUS[0]}
           if [ "$status" -eq 78 ]; then
-            echo "::error::the E2E environment failed after the probe passed — a broken runner, not a broken change"
+            reason="$(grep -aE 'ERR|CRIT|ASSERTION|e2e-env:' suite.log \
+                      | tail -n 40 | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}')"
+            echo "::error::the E2E environment failed after the probe passed — a broken runner, not a broken change.%0A%0A${reason}"
             exit 1
+          fi
+          if [ "$status" -ne 0 ]; then
+            # A real test failure: the failing test names, not the environment.
+            reason="$(grep -aE '^(test .*FAILED|failures:|---- )|^test result' suite.log \
+                      | tail -n 40 | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}')"
+            echo "::error::the E2E suite failed.%0A%0A${reason}"
           fi
           exit "$status"
 
