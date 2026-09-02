@@ -400,6 +400,28 @@ Arch's unrelated names `storage` and `lp`, which is exactly the point. The nodes
 deliberately not touched: under `--privileged` that is the host's own `/dev`, and a `chgrp` there
 would change permissions on the machine running the container.
 
+**The session comes up on the runner (2026-09-02).** With the group ids joined by number, the
+probe passed and the suite ran for 78 seconds against a compositor the container started for
+itself. R29's route 1 works as far as *having a session*: vkms loads, seatd serves it, the parent
+Hyprland starts, and the harness nests inside it. The environment question that opened this phase
+is answered.
+
+**What the suite then reported took two corrections to read.** cargo stops at the first failing
+test *target* and this tier has eleven, so the first report — three latency-budget failures —
+was one binary's worth and looked like a performance story. With `--no-fail-fast` the real shape
+appeared: most tests failing at `harness.rs:519`, which is `wait_until`'s timeout. The annotation
+filter then hid the *reason*, because a panic's message is on the line after `panicked at`; it now
+takes that line, dedupes it, and prints the per-target tallies beside it, because eighty tests
+failing the same way is one fact rather than eighty.
+
+**A guess of mine is the leading suspect, and it is removed.** `LIBGL_ALWAYS_SOFTWARE=1` was
+exported in `start_parent_compositor` on the reasoning that a virtual GPU has no hardware renderer
+to find. It was never measured. It is also inherited by the *nested* compositor the harness starts,
+and forcing software there breaks it outright: setting it on a machine that **does** have a GPU
+reproduces the CI symptom exactly — `timed out after 10s waiting until the nested compositor
+reports a monitor`. Every CI suite run so far carried it, so it confounded all of them. Removed;
+mesa picks its own driver for whichever node it is given, which is what it is for.
+
 **What is still open** is narrower: whether the GL context comes up on a `vkms` primary once the
 node can be opened. The allocator question is answered — GBM works here. If the renderer does not,
 R29's second route — a QEMU virtual machine with `virtio-gpu`, what upstream Hyprland's own CI uses

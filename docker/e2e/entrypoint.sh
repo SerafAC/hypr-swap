@@ -202,10 +202,12 @@ start_parent_compositor() {
     # fails on an allocator, this is the line that says why.
     note "device nodes: $(ls /dev/dri 2>/dev/null | tr '\n' ' ')"
 
-    # There is no hardware renderer behind a virtual GPU, so mesa is told to stop looking for one
-    # rather than probing and falling back. Set only here: a contributor's own session has a real
-    # GPU and must keep using it.
-    export LIBGL_ALWAYS_SOFTWARE=1
+    # `LIBGL_ALWAYS_SOFTWARE=1` used to be exported here, on the reasoning that a virtual GPU has
+    # no hardware renderer to find. It was a guess, it was never measured, and it is removed:
+    # exporting it here also hands it to the *nested* compositor the harness starts, and forcing
+    # software there breaks it outright — `timed out after 10s waiting until the nested compositor
+    # reports a monitor`, reproduced on a machine that does have a GPU [verified 2026-09-02]. Mesa
+    # picks its own driver for whichever node it is given, which is what it is for.
 
     note 'DRM devices:'
     local devices

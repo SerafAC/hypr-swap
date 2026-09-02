@@ -118,11 +118,15 @@ jobs:
           fi
           if [ "$status" -ne 0 ]; then
             # A real test failure: the failing test names, not the environment.
-            # The panic text as well as the test names: a failure's *reason* is in the
-            # `panicked at` line and whatever the test printed beside it, and a filter that keeps
-            # only the headers reports which tests failed without saying why.
-            reason="$(grep -aE '^(test .*FAILED|failures:|---- )|^test result|panicked at|assertion|SC-[0-9]|budget|left:|right:' suite.log \
-                      | tail -n 45 | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}')"
+            # A panic's *message* is on the line after `panicked at …`, so a line filter reports
+            # where each test died without saying what it was waiting for. Take the message lines
+            # with `-A1`, dedupe them — eighty tests failing the same way is one fact, not eighty
+            # — and put the per-target tallies beside them.
+            summary="$(grep -aE '^test result:' suite.log)"
+            causes="$(grep -a -A1 'panicked at' suite.log \
+                      | grep -avE '^--$|panicked at' | sort | uniq -c | sort -rn | head -n 12)"
+            reason="$(printf '%s\n\ndistinct failure causes:\n%s\n' "$summary" "$causes" \
+                      | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}')"
             echo "::error::the E2E suite failed.%0A%0A${reason}"
             exit "$status"
           fi
