@@ -582,8 +582,8 @@ future history rewrite does not repeat it.
 | T084a item | State |
 |---|---|
 | Repository public | ✅ done 2026-09-02 |
-| GitHub Pages for T034's deployment | ❌ `has_pages: false`; the `docs` workflow failed on `Get Pages site failed … Not Found`. `docs.yml` now passes `enablement: true` to `actions/configure-pages`, which turns the site on using the `pages: write` the workflow already holds — so this should settle itself on the next run rather than needing a setting changed by hand |
-| Branch protection requiring `ci-required` | ❌ not set, and it should not be until `ci-required` is green — a required check that cannot pass blocks every merge (T050) |
+| GitHub Pages for T034's deployment | ✅ done 2026-09-02, by hand. `enablement: true` was tried first and **cannot** do it — the workflow token is refused with `Create Pages site failed: Resource not accessible by integration` even holding `pages: write` — so it was reverted and the setting switched on directly. The site is live: `https://serafac.github.io/hypr-swap/` returns 200 for the front page and for pages in both of FR-077's sections, and `docs.yml`'s build and deploy jobs both pass |
+| Branch protection requiring `ci-required` | ❌ not set — **and now unblocked**: `ci-required` went green on `0caa2cb` with all seven gating jobs passing, so requiring it no longer blocks every merge. This is the last item of T050 and needs a repository setting rather than a commit |
 
 **One further publication item, outside T084a's wording but in FR-089's spirit**: the image
 `e2e-image.yml` publishes is a GHCR package, and a GHCR package is **private by default even on a
