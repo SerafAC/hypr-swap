@@ -1,8 +1,15 @@
 # The E2E tier in automation (FR-088).
 #
-# It keeps its own file because `ci.yml` calls it as the `e2e` job, and only a job `ci.yml` calls
-# can be a dependency of `ci-required`. A second required check would defeat FR-091's single
-# visible gate (contracts/ci.md).
+# **Informational, for now.** R29's route 1 gave this job a session — vkms loads, seatd serves a
+# seat, the parent compositor starts — but a parent on a synthetic KMS device has no render node,
+# so it cannot hand the *nested* compositor a dmabuf allocator and all 83 tests time out waiting
+# for a monitor. Route 2 (a QEMU virtual machine with `virtio-gpu`) is the answer and is not built.
+# Until it is, this does not gate: it is not in `ci-required`'s `needs:` and it runs as its own
+# workflow the way `advisories` does, because nothing that does not gate needs aggregating into
+# `ci.yml` (contracts/ci.md; the deviation is recorded against FR-088 in spec.md).
+#
+# `workflow_call` is kept so that route 2 restores the gating arrangement by adding one job back to
+# `ci.yml`, rather than by rebuilding this file.
 #
 # The harness is unchanged from what a developer runs: it nests a Hyprland inside whatever session
 # it is given. On a developer's machine that is their desktop; here it is one the container starts
@@ -11,10 +18,14 @@
 name: e2e
 
 on:
+  # Its own triggers, now that `ci.yml` does not call it: the tier still runs on every change and
+  # still reports, it simply does not gate.
+  pull_request:
+  push:
+    branches: [master]
   workflow_call:
-  # Runnable on its own as well as through `ci.yml`. This tier is the one whose failures are most
-  # often the environment rather than the change (research.md R29), and re-running it alone is a
-  # great deal faster than re-running the whole gate to reach it.
+  # This tier's failures are more often the environment than the change (research.md R29), and
+  # re-running it alone is far faster than re-running the whole gate to reach it.
   workflow_dispatch:
 
 permissions:

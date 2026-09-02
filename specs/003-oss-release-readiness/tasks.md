@@ -239,6 +239,7 @@ only the E2E tier catches — and confirm each is caught without human involveme
 - [X] T042 [US3] Add the aggregating `ci-required` job to `.github/workflows/ci.yml`, depending on exactly the gating jobs of [contracts/ci.md](./contracts/ci.md) — `build`, `unit`, `clippy`, `fmt`, `msrv`, `docs`, `checks`, `licenses` and `e2e` — and make it the single branch-protection requirement so a renamed or newly added job cannot silently start or stop gating. Any later task that adds a gating job (T044's `e2e`, T081's `licenses`) MUST add it to this `needs:` list in the same change: that list **is** the gating set FR-091 makes visible (FR-085, FR-091, SC-033, [research.md](./research.md) R39)
 - [X] T043 [US3] Give every job in `.github/workflows/ci.yml` a failure step printing the exact local command from [contracts/ci.md](./contracts/ci.md)'s "reproduce locally" column (FR-090)
 - [X] T044 [US3] Create `.github/workflows/e2e.yml` declared `on: workflow_call`, running `cargo test --test 'e2e_*'` in the T039 image against a compositor automation supplies — a virtual GPU and a seat, since a plain container cannot start Hyprland at all — and call it from `.github/workflows/ci.yml` as the `e2e` job named in T042's `needs:` list, because a job in a workflow `ci.yml` does not call cannot be a dependency of `ci-required` and a second required check would defeat FR-091's single visible gate (FR-088, FR-091, [research.md](./research.md) R29)
+- [ ] T044a [US3] **Build R29's route 2** — a QEMU virtual machine with `virtio-gpu`, KVM-accelerated, running the T039 image inside it — and restore `e2e` to a gating job: add it back to `.github/workflows/ci.yml` via the `workflow_call` trigger `e2e.yml` already carries, add `e2e` back to `ci-required`'s `needs:` list and to the gating table of [contracts/ci.md](./contracts/ci.md), and remove the recorded deviation at FR-088 in [spec.md](./spec.md) and the tier row in [plan.md](./plan.md). Route 1 is measured and dead: a parent on `vkms` has no render node and cannot hand the nested compositor a dmabuf allocator (FR-088, FR-091, [research.md](./research.md) R29)
 - [X] T045 [US3] Make the `e2e` job assert the parent session is up *before* invoking `cargo test`, so an environment failure — a broken runner — reports distinctly from a genuine test failure ([contracts/ci.md](./contracts/ci.md), spec edge case)
 - [X] T046 [P] [US3] Create `deny.toml` with the `[advisories]` section, and `.github/workflows/advisories.yml` running `cargo deny check advisories` as an **informational** job, so an advisory is surfaced without blocking every contributor on someone else's disclosure (FR-093, [research.md](./research.md) R38)
 
@@ -421,6 +422,24 @@ and forcing software there breaks it outright: setting it on a machine that **do
 reproduces the CI symptom exactly — `timed out after 10s waiting until the nested compositor
 reports a monitor`. Every CI suite run so far carried it, so it confounded all of them. Removed;
 mesa picks its own driver for whichever node it is given, which is what it is for.
+
+**Interim position, taken deliberately on 2026-09-02: `e2e` is informational.** Route 2 is a
+substantially larger piece of work than route 1, so rather than block the phase on it the tier now
+runs on every change and reports without gating. This is the alternative [plan.md](./plan.md)'s
+Complexity Tracking table explicitly **rejected**, so it is recorded rather than quietly adopted:
+
+| Where | What it now says |
+|---|---|
+| `ci.yml` | `e2e` removed from `ci-required`'s `needs:` and no longer called; a comment says why and when it returns |
+| `e2e.yml` | its own `pull_request`/`push` triggers, like `advisories`; keeps `workflow_call` so route 2 restores the old arrangement by adding one job back |
+| [contracts/ci.md](./contracts/ci.md) | `e2e` moved from the gating table to the informational one, with the measurement and the tier that covers it meanwhile |
+| [spec.md](./spec.md) | a deviation recorded at FR-088 — the requirement is unchanged and unwaived, it is currently **unmet** |
+| [plan.md](./plan.md) | FR-088's tier row becomes "developer machine, pending route 2"; the Complexity Tracking entry records that its rejected alternative is in force as an interim measure |
+| T044a | the work to undo all of the above, in one task |
+
+The point of the aggregate job survives this: the gating set is still one `needs:` list next to one
+table, and `e2e` leaving it was a visible change to both rather than a job quietly ceasing to
+matter — which is the whole of FR-091.
 
 **Route 1 is settled, and the answer is no.** With `LIBGL_ALWAYS_SOFTWARE` gone the confound is
 gone too, and the suite reports one cause for every failure:

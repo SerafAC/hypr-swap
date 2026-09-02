@@ -146,12 +146,11 @@ jobs:
         run: |
           echo "::error::a document check failed — reproduce locally with: ./scripts/checks.sh"
 
-  # The E2E tier keeps its own file so that `ci-required` can `needs:` it: a job in a workflow this
-  # one does not call cannot be a dependency, and a second required check would defeat FR-091's
-  # single visible gate (contracts/ci.md).
-  e2e:
-    name: e2e
-    uses: ./.github/workflows/e2e.yml
+  # The E2E tier is **not** here. It is informational for now and runs as its own workflow, the way
+  # `advisories` does — R29's route 1 is measurably unable to host a nested compositor and route 2
+  # is not built yet (contracts/ci.md, and the deviation recorded against FR-088 in spec.md). It
+  # was called from here only so that `ci-required` could `needs:` it; nothing that does not gate
+  # needs aggregating, and calling it from here would fail this workflow without gating anything.
 
   # ---------------------------------------------------------------------------------------------
   # The verdict (FR-085, FR-091, SC-033).
@@ -164,12 +163,16 @@ jobs:
   # `licenses` (`cargo deny check licenses`, FR-064) belongs in this list and is added by the task
   # that creates the job; a `needs:` naming a job that does not exist makes the whole workflow
   # unloadable, so the two land together.
+  #
+  # `e2e` is deliberately absent. It gated until route 1 was measured and found unable to host a
+  # nested compositor at all; it returns to this list in the same change that makes it pass, which
+  # is what keeps this list and the gating table of contracts/ci.md the same statement.
   # ---------------------------------------------------------------------------------------------
   ci-required:
     name: ci-required
     runs-on: ubuntu-latest
     if: always()
-    needs: [build, unit, clippy, fmt, msrv, docs, checks, e2e]
+    needs: [build, unit, clippy, fmt, msrv, docs, checks]
     steps:
       - name: Verdict
         env:

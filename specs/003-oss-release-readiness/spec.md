@@ -490,6 +490,18 @@ Numbering continues features 001 and 002 (FR-062 onward).
   building against it, so the declared minimum cannot silently drift.
 - **FR-088**: Automated checks MUST run the end-to-end suite against a compositor supplied by
   automation, so that overlay behaviour — not only pure logic — is verified before merge.
+  > **Recorded deviation, 2026-09-02 — not met in automation, and gating nothing until it is.**
+  > Both routes for supplying a compositor were measured ([research.md](./research.md) R29). The
+  > cheaper one gives automation a *session* but not a *GPU*: a parent compositor on `vkms` has no
+  > render node, so it cannot hand the nested compositor a dmabuf allocator, and all 83 tests time
+  > out waiting for a monitor. The suite is therefore **informational** in automation — it runs on
+  > every change and reports, but is not in `ci-required`'s gating set. The requirement is
+  > unchanged and unwaived; what changed is that it is currently unmet, which
+  > [contracts/ci.md](./contracts/ci.md) states in both its tables rather than leaving the gate to
+  > imply it. Until then the tier's verification is a contributor's own machine
+  > ([quickstart.md](./quickstart.md) scenario 5), and closing this needs route 2 — a QEMU virtual
+  > machine with `virtio-gpu`, which supplies a real render node.
+
 - **FR-089**: The container image that supplies that compositor MUST be defined in the repository
   and MUST be usable by a contributor locally, so that an end-to-end failure seen in automation can
   be reproduced without automation.

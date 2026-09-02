@@ -18,18 +18,20 @@ in one file (FR-091).
 | `docs` | `pnpm install --frozen-lockfile && pnpm build && pnpm validate` | the same | FR-076, FR-078 |
 | `checks` | `licence-files`, `docs-map`, `changelog` (see below) | `./scripts/checks.sh` | FR-062–FR-065, FR-074, FR-077–FR-084, FR-102a |
 | `licenses` | `cargo deny check licenses` | the same | FR-064 |
-| `e2e` | `cargo test --test 'e2e_*'` in the image | `docker run … ghcr.io/<owner>/hypr-swap-e2e` | FR-088 |
 
 Every job's failure step prints the command in its "reproduce locally" column, so a contributor is
 never left to guess what to run (FR-090).
 
-**How `e2e` is aggregated.** The E2E tier keeps its own file, `.github/workflows/e2e.yml`, declared
-`on: workflow_call`; `ci.yml` invokes it as the `e2e` job (`uses: ./.github/workflows/e2e.yml`) so
-that `ci-required` can `needs:` it. A job in a workflow `ci.yml` does not call cannot be a
-dependency of `ci-required`, and making the tier a second required check would defeat the single
-visible gate FR-091 asks for. The same rule binds every gating job: the `needs:` list of
-`ci-required` and the table above are the gating set, and a job added to one is added to the other
-in the same change.
+**The `needs:` list of `ci-required` and the table above are the same statement.** A job added to
+one is added to the other in the same change; that is what makes the gating set visible in one file
+rather than spread across job names (FR-091).
+
+**Where `e2e` went.** It was in this table, aggregated into `ci.yml` via `uses:` so that
+`ci-required` could `needs:` it. It is now **informational** and has its own workflow, because
+route 1 of [research.md](../research.md) R29 cannot host a nested compositor and route 2 is not
+built — see the informational table below and the deviation recorded against FR-088 in
+[spec.md](../spec.md). `e2e.yml` keeps its `workflow_call` trigger, so route 2 restores the gating
+arrangement by adding one job back to `ci.yml` and one name back to both lists above.
 
 **Where the site is built.** The `docs` job above is the pull-request build, and it is what gates.
 `docs.yml` builds and deploys only on pushes to the default branch (FR-078, [research.md](../research.md)
@@ -41,6 +43,7 @@ that broke it.
 | Job | Why it does not gate |
 |---|---|
 | `advisories` (`cargo deny check advisories`) | An advisory is news about the world, not a defect in the change under review; blocking every contributor on someone else's disclosure is how a project learns to ignore red. Acceptances are recorded and time-bounded — see below. |
+| `e2e` (`cargo test --no-fail-fast --test 'e2e_*'` in the image) | **Temporary, and a recorded deviation from FR-088 rather than a design position.** Automation can supply the tier a *session* but not a *GPU*: a parent compositor on `vkms` has no render node, so it cannot hand the nested compositor a dmabuf allocator, and all 83 tests time out waiting for a monitor ([research.md](../research.md) R29, measured). Until route 2 — a QEMU virtual machine with `virtio-gpu` — is built, the tier gates nothing in automation and its gating tier is a contributor's own machine, run with the command in [quickstart.md](../quickstart.md) scenario 5. It still runs on every change and still reports. |
 
 The **expiry of an acceptance is gating**, in `unit`: `deny.toml`'s `ignore` entries must carry a
 `reason` beginning `until YYYY-MM-DD:`, and a unit test fails once that date has passed or if the
