@@ -1,0 +1,37 @@
+# The Rust setup every cargo job in ci.yml shares: the system libraries the program links against,
+# a toolchain, and a cache. One place, so a job cannot quietly build against a different
+# environment from its neighbours (Principle III).
+name: Rust build environment
+description: System libraries, a toolchain and a build cache for a cargo job.
+
+inputs:
+  toolchain:
+    description: The toolchain to install. Defaults to stable; the msrv job passes rust-version.
+    required: false
+    default: stable
+  components:
+    description: Extra rustup components, comma-separated (for example clippy).
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # The same set DEVELOPMENT.md tells a contributor on Debian to install, so the two cannot
+    # disagree about what the program needs to build.
+    - name: Install the system libraries
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --no-install-recommends -y \
+          build-essential pkg-config libcairo2-dev libpango1.0-dev libxkbcommon-dev
+
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        # One cache per toolchain: the msrv job's artefacts are not the stable job's.
+        key: ${{ inputs.toolchain }}

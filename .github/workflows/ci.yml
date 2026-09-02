@@ -1,0 +1,185 @@
+# Every proposed change and every push to the default branch, verified with no maintainer action
+# (FR-085). The gating set is [contracts/ci.md]; the verdict is the `ci-required` job at the foot
+# of this file, and it is the only check branch protection requires (FR-091).
+#
+# [contracts/ci.md]: ../../specs/003-oss-release-readiness/contracts/ci.md
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+# A second push to the same branch supersedes the first; the default branch is never cancelled,
+# because its result is what a release is later gated on.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/rust
+      - run: cargo build --release
+      - name: How to reproduce this
+        if: failure()
+        run: |
+          echo "::error::the release build failed — reproduce locally with: cargo build --release"
+
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/rust
+      - run: cargo test --lib
+      - name: How to reproduce this
+        if: failure()
+        run: |
+          echo "::error::a unit test failed — reproduce locally with: cargo test --lib"
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/rust
+        with:
+          components: clippy
+      - run: cargo clippy --all-targets -- -D warnings
+      - name: How to reproduce this
+        if: failure()
+        run: |
+          echo "::error::clippy found a warning — reproduce locally with: cargo clippy --all-targets -- -D warnings"
+
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # No system libraries: rustfmt reads source and never builds it.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+      - name: How to reproduce this
+        if: failure()
+        run: |
+          echo "::error::the tree is not formatted — reproduce locally with: cargo fmt --check (and fix with: cargo fmt)"
+
+  # The declared minimum, read out of Cargo.toml rather than repeated here, so `rust-version`
+  # cannot drift away from what is actually verified (FR-087, research.md R39).
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        run: |
+          set -eu
+          version="$(sed -n 's/^rust-version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml)"
+          if [ -z "$version" ]; then
+            echo "::error::Cargo.toml declares no rust-version, so there is no minimum to verify (FR-087)"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "the declared minimum is $version"
+      - uses: ./.github/actions/rust
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - run: cargo build
+      - name: How to reproduce this
+        if: failure()
+        run: |
+          version="${{ steps.msrv.outputs.version }}"
+          echo "::error::the build fails on the declared minimum toolchain — reproduce locally with: rustup run ${version:-<rust-version>} cargo build"
+
+  # The pull-request build of the documentation site. `docs.yml` builds and deploys only on pushes
+  # to the default branch, so the two never race and a broken book fails the change that broke it
+  # (FR-076, FR-078, research.md R46).
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # pnpm before Node: `setup-node`'s `cache: pnpm` needs the binary to exist so it can ask it
+      # for the store path (research.md R31a).
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm validate
+      - name: How to reproduce this
+        if: failure()
+        run: |
+          echo "::error::the documentation site does not build — reproduce locally with: pnpm install --frozen-lockfile && pnpm build && pnpm validate"
+
+  # The document checks: licence-files, docs-map, changelog. Their subject is files rather than
+  # values, which is why they are shell (contracts/ci.md).
+  checks:
+    name: checks
+    runs-on: ubuntu-latest
+    steps:
+      # The `changelog` check compares against the merge base, so it needs more than one commit.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - run: ./scripts/checks.sh
+      - name: How to reproduce this
+        if: failure()
+        run: |
+          echo "::error::a document check failed — reproduce locally with: ./scripts/checks.sh"
+
+  # The E2E tier keeps its own file so that `ci-required` can `needs:` it: a job in a workflow this
+  # one does not call cannot be a dependency, and a second required check would defeat FR-091's
+  # single visible gate (contracts/ci.md).
+  e2e:
+    name: e2e
+    uses: ./.github/workflows/e2e.yml
+
+  # ---------------------------------------------------------------------------------------------
+  # The verdict (FR-085, FR-091, SC-033).
+  #
+  # This job's `needs:` list **is** the gating set. Branch protection requires this job and nothing
+  # else, so a job that is renamed, added or removed cannot silently start or stop gating — the
+  # change is visible here, in one file. Any task that adds a gating job adds it to this list in
+  # the same change.
+  #
+  # `licenses` (`cargo deny check licenses`, FR-064) belongs in this list and is added by the task
+  # that creates the job; a `needs:` naming a job that does not exist makes the whole workflow
+  # unloadable, so the two land together.
+  # ---------------------------------------------------------------------------------------------
+  ci-required:
+    name: ci-required
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [build, unit, clippy, fmt, msrv, docs, checks, e2e]
+    steps:
+      - name: Verdict
+        env:
+          # `needs` carries every dependency's conclusion. Passed through the environment rather
+          # than interpolated into the script, so a job name can never be read as shell.
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' | sort
+          # Anything that is not `success` fails the gate, a skipped or cancelled job included: a
+          # gate that passes because a check did not run is not a gate.
+          if ! echo "$RESULTS" | jq -e 'to_entries | all(.value.result == "success")' > /dev/null; then
+            echo "::error::one or more gating checks did not succeed — see the jobs above; each names the command that reproduces it locally"
+            exit 1
+          fi
+          echo "every gating check succeeded"

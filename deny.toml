@@ -1,0 +1,34 @@
+# cargo-deny: the advisory watch (FR-093) and the dependency-licence position (FR-064), from one
+# file (research.md R38).
+#
+#     cargo deny check advisories
+#
+# The advisory check is **informational** in automation: an advisory is news about the world, not a
+# defect in the change under review, and blocking every contributor on someone else's disclosure is
+# how a project learns to ignore red (contracts/ci.md).
+#
+# What *is* gating is the expiry of an acceptance. cargo-deny has no built-in expiry, so the time
+# bound lives in the `reason` string it does support, and a unit test in `src/lib.rs` fails once
+# the date has passed or the form is wrong. An advisory can be accepted deliberately; it cannot be
+# forgotten.
+#
+# The site's npm tree is not covered here — cargo-deny reads Cargo metadata only. It is watched by
+# Dependabot's `npm` ecosystem entry instead; the asymmetry is deliberate and stated in R38.
+
+[advisories]
+# Every advisory is a finding. Nothing is filtered by kind, so an unmaintained crate or a yanked
+# version is surfaced by the same run that surfaces a vulnerability.
+version = 2
+
+# Accepted advisories, each one bounded in time.
+#
+# An entry's `reason` MUST begin `until YYYY-MM-DD:` followed by why it is accepted — the date
+# being when the acceptance stops being true, not when anyone promises to look. The unit test
+# `advisory_acceptances_are_bounded_and_current` in `src/lib.rs` fails the `unit` job on any other
+# form, and on any date that has passed.
+#
+# Example of the required shape:
+#
+#     { id = "RUSTSEC-0000-0000", reason = "until 2026-12-31: no fixed release exists upstream; the
+#       affected path is not reachable from this program." }
+ignore = []

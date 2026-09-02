@@ -1,0 +1,37 @@
+# The advisory watch (FR-093, research.md R38).
+#
+# **Informational, deliberately.** An advisory is news about the world rather than a defect in the
+# change under review; a gate that goes red because someone else disclosed something teaches
+# everyone to ignore red. It is not in `ci-required`'s `needs:` list and it is not a branch
+# protection requirement — see contracts/ci.md's informational table.
+#
+# What gates is the *expiry* of an acceptance, and that lives in the `unit` job: `deny.toml`'s
+# `ignore` entries carry `reason = "until YYYY-MM-DD: …"`, and a unit test fails once the date has
+# passed. An advisory can be accepted; it cannot be forgotten.
+name: advisories
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  # The point of a watch is that it notices something that changed while nobody pushed.
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  advisories:
+    name: advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
+      - name: How to reproduce this
+        if: failure()
+        run: |
+          echo "::error::an advisory was reported — reproduce locally with: cargo deny check advisories. This job does not gate; fix it, or accept it with an ignore entry in deny.toml whose reason begins 'until YYYY-MM-DD:' (deny.toml explains the form, and the unit job enforces it)."

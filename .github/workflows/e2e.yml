@@ -1,0 +1,86 @@
+# The E2E tier in automation (FR-088).
+#
+# It keeps its own file because `ci.yml` calls it as the `e2e` job, and only a job `ci.yml` calls
+# can be a dependency of `ci-required`. A second required check would defeat FR-091's single
+# visible gate (contracts/ci.md).
+#
+# The harness is unchanged from what a developer runs: it nests a Hyprland inside whatever session
+# it is given. On a developer's machine that is their desktop; here it is one the container starts
+# for itself, which needs a virtual GPU and a seat — a plain container cannot start Hyprland at
+# all, measured in research.md R29.
+name: e2e
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # `vkms` is R29's first route: a synthetic DRM device published by the runner's own kernel,
+      # the container running against it with its own seatd. Fewest moving parts. If a hosted
+      # runner turns out not to carry the module, R29's second route is a QEMU virtual machine with
+      # `virtio-gpu` — what upstream Hyprland's own CI uses — and the failure below says which
+      # happened, because it is an environment failure and not a test result.
+      - name: Publish a virtual GPU
+        id: gpu
+        run: |
+          set -eu
+          sudo modprobe vkms || {
+            echo "::error::the runner cannot load vkms, so there is no DRM device for the compositor to open — this is a broken environment, not a broken change (research.md R29 names the QEMU/virtio-gpu fallback)"
+            exit 1
+          }
+          ls -l /dev/dri
+
+      # One image, built from the same Dockerfile a contributor builds, so an automation failure
+      # reproduces locally (FR-089, SC-035). Built here rather than pulled so that a change to the
+      # Dockerfile is verified by the change that makes it.
+      - name: Build the E2E image
+        run: docker build -t hypr-swap-e2e docker/e2e
+
+      # T045 / contracts/ci.md: the parent session is asserted **before** the suite runs. The image
+      # resolves a session and then executes whatever it is given, so `true` is exactly the probe —
+      # same code path, no test. Status 78 is the entry point's environment failure.
+      - name: Assert the parent session is up
+        run: |
+          set -eu
+          status=0
+          # `--privileged` because seatd must open the DRM device as a session leader, and
+          # `--user root` because seatd must start before the entry point drops to the
+          # unprivileged user the compositor runs as (research.md R30).
+          docker run --rm --privileged --user root \
+            -v "$PWD:/work" -w /work \
+            hypr-swap-e2e true || status=$?
+          if [ "$status" -eq 78 ]; then
+            echo "::error::the E2E environment did not come up: no Wayland session could be started in the container. This is a broken runner, not a broken change."
+            exit 1
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "::error::the E2E image failed to start (status $status) — this is a broken runner, not a broken change"
+            exit 1
+          fi
+          echo "the parent session comes up"
+
+      - name: Run the E2E suite
+        run: |
+          set -eu
+          status=0
+          docker run --rm --privileged --user root \
+            -v "$PWD:/work" -w /work \
+            hypr-swap-e2e || status=$?
+          if [ "$status" -eq 78 ]; then
+            echo "::error::the E2E environment failed after the probe passed — a broken runner, not a broken change"
+            exit 1
+          fi
+          exit "$status"
+
+      - name: How to reproduce this
+        if: failure()
+        run: |
+          echo "::error::reproduce locally against your own Wayland session with: docker build -t hypr-swap-e2e docker/e2e && docker run --rm --device /dev/dri/renderD128 -e WAYLAND_DISPLAY=\"\$WAYLAND_DISPLAY\" -v \"\$XDG_RUNTIME_DIR:/run/host\" -e XDG_RUNTIME_DIR=/run/host -v \"\$PWD:/work\" -w /work hypr-swap-e2e"

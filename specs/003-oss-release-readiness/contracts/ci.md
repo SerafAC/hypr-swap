@@ -85,6 +85,11 @@ It needs a Wayland session, and gets one of two ways ([research.md](../research.
 Either way the harness is unchanged: it nests inside whichever session it is given, exactly as it
 does on a developer's machine.
 
+**Where the image is published.** `e2e-image.yml` pushes the default branch's image to
+`ghcr.io/<owner>/hypr-swap-e2e`, tagged `latest` and by commit, so a contributor can pull the image
+rather than build it and a bug report can quote its digest. The `e2e` job *builds* from the
+Dockerfile rather than pulling, so a change to the image is verified by the change that makes it.
+
 **When the environment itself fails** — the image cannot start a compositor, rather than a test
 failing — the job reports that distinctly, by asserting the parent session is up before invoking
 `cargo test`. An environment failure is a broken runner, not a broken change, and the message says

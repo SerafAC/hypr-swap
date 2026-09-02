@@ -1,0 +1,50 @@
+# Publish the E2E environment image (FR-089).
+#
+# Automation and a contributor must run the *same* image, or an automation failure does not
+# reproduce (SC-035). `e2e.yml` builds the image from this Dockerfile on every change, which is
+# what verifies it; this workflow publishes the default branch's image so a contributor can pull
+# it instead of building it, and so its digest is quotable in a bug report.
+name: e2e-image
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - docker/e2e/**
+      - .github/workflows/e2e-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Lowercased, because a registry reference must be and a GitHub owner need not be.
+      - name: Name the image
+        id: name
+        run: echo "image=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')-e2e" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: docker/e2e
+          push: true
+          tags: |
+            ${{ steps.name.outputs.image }}:latest
+            ${{ steps.name.outputs.image }}:${{ github.sha }}
+
+      - name: How to reproduce this
+        if: failure()
+        run: |
+          echo "::error::the E2E image failed to build or publish — reproduce the build locally with: docker build -t hypr-swap-e2e docker/e2e"

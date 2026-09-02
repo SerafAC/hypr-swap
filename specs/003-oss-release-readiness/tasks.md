@@ -233,21 +233,69 @@ only the E2E tier catches — and confirm each is caught without human involveme
 
 ### Implementation for User Story 3
 
-- [ ] T039 [US3] Write `docker/e2e/Dockerfile`: an `archlinux:latest` base pinned by digest, carrying `hyprland`, `foot`, `seatd`, `mesa`, the cairo/pango development libraries and a `rustup` toolchain matching `rust-version`; create and drop to an unprivileged user because Hyprland refuses to run as root; run `setcap -r` on `Hyprland` and `sway` because file capabilities fail under Docker's default bounding set; entry point `cargo test --test 'e2e_*'` against the repository mounted at `/work` (FR-089, [research.md](./research.md) R29, R30)
-- [ ] T040 [US3] Publish the image to `ghcr.io` from a workflow so automation and a contributor use the identical image (FR-089)
-- [ ] T041 [US3] Create `.github/workflows/ci.yml` with one job per gating check — `build` (`cargo build --release`), `unit` (`cargo test --lib`), `clippy` (`cargo clippy --all-targets -- -D warnings`), `fmt` (`cargo fmt --check`), `msrv` (a build on the toolchain named by `Cargo.toml`'s `rust-version`), `docs` (`pnpm install --frozen-lockfile && pnpm build && pnpm validate`, on the same `pnpm/action-setup` + `setup-node` pair as T034; the pull-request build of the site that T034's deploy workflow deliberately leaves to it) and `checks` (`./scripts/checks.sh`) — triggered on every pull request and every push to the default branch (FR-085, FR-086, FR-087)
-- [ ] T042 [US3] Add the aggregating `ci-required` job to `.github/workflows/ci.yml`, depending on exactly the gating jobs of [contracts/ci.md](./contracts/ci.md) — `build`, `unit`, `clippy`, `fmt`, `msrv`, `docs`, `checks`, `licenses` and `e2e` — and make it the single branch-protection requirement so a renamed or newly added job cannot silently start or stop gating. Any later task that adds a gating job (T044's `e2e`, T081's `licenses`) MUST add it to this `needs:` list in the same change: that list **is** the gating set FR-091 makes visible (FR-085, FR-091, SC-033, [research.md](./research.md) R39)
-- [ ] T043 [US3] Give every job in `.github/workflows/ci.yml` a failure step printing the exact local command from [contracts/ci.md](./contracts/ci.md)'s "reproduce locally" column (FR-090)
-- [ ] T044 [US3] Create `.github/workflows/e2e.yml` declared `on: workflow_call`, running `cargo test --test 'e2e_*'` in the T039 image against a compositor automation supplies — a virtual GPU and a seat, since a plain container cannot start Hyprland at all — and call it from `.github/workflows/ci.yml` as the `e2e` job named in T042's `needs:` list, because a job in a workflow `ci.yml` does not call cannot be a dependency of `ci-required` and a second required check would defeat FR-091's single visible gate (FR-088, FR-091, [research.md](./research.md) R29)
-- [ ] T045 [US3] Make the `e2e` job assert the parent session is up *before* invoking `cargo test`, so an environment failure — a broken runner — reports distinctly from a genuine test failure ([contracts/ci.md](./contracts/ci.md), spec edge case)
-- [ ] T046 [P] [US3] Create `deny.toml` with the `[advisories]` section, and `.github/workflows/advisories.yml` running `cargo deny check advisories` as an **informational** job, so an advisory is surfaced without blocking every contributor on someone else's disclosure (FR-093, [research.md](./research.md) R38)
+- [X] T039 [US3] Write `docker/e2e/Dockerfile`: an `archlinux:latest` base pinned by digest, carrying `hyprland`, `foot`, `seatd`, `mesa`, the cairo/pango development libraries and a `rustup` toolchain matching `rust-version`; create and drop to an unprivileged user because Hyprland refuses to run as root; run `setcap -r` on `Hyprland` and `sway` because file capabilities fail under Docker's default bounding set; entry point `cargo test --test 'e2e_*'` against the repository mounted at `/work` (FR-089, [research.md](./research.md) R29, R30)
+- [X] T040 [US3] Publish the image to `ghcr.io` from a workflow so automation and a contributor use the identical image (FR-089)
+- [X] T041 [US3] Create `.github/workflows/ci.yml` with one job per gating check — `build` (`cargo build --release`), `unit` (`cargo test --lib`), `clippy` (`cargo clippy --all-targets -- -D warnings`), `fmt` (`cargo fmt --check`), `msrv` (a build on the toolchain named by `Cargo.toml`'s `rust-version`), `docs` (`pnpm install --frozen-lockfile && pnpm build && pnpm validate`, on the same `pnpm/action-setup` + `setup-node` pair as T034; the pull-request build of the site that T034's deploy workflow deliberately leaves to it) and `checks` (`./scripts/checks.sh`) — triggered on every pull request and every push to the default branch (FR-085, FR-086, FR-087)
+- [X] T042 [US3] Add the aggregating `ci-required` job to `.github/workflows/ci.yml`, depending on exactly the gating jobs of [contracts/ci.md](./contracts/ci.md) — `build`, `unit`, `clippy`, `fmt`, `msrv`, `docs`, `checks`, `licenses` and `e2e` — and make it the single branch-protection requirement so a renamed or newly added job cannot silently start or stop gating. Any later task that adds a gating job (T044's `e2e`, T081's `licenses`) MUST add it to this `needs:` list in the same change: that list **is** the gating set FR-091 makes visible (FR-085, FR-091, SC-033, [research.md](./research.md) R39)
+- [X] T043 [US3] Give every job in `.github/workflows/ci.yml` a failure step printing the exact local command from [contracts/ci.md](./contracts/ci.md)'s "reproduce locally" column (FR-090)
+- [X] T044 [US3] Create `.github/workflows/e2e.yml` declared `on: workflow_call`, running `cargo test --test 'e2e_*'` in the T039 image against a compositor automation supplies — a virtual GPU and a seat, since a plain container cannot start Hyprland at all — and call it from `.github/workflows/ci.yml` as the `e2e` job named in T042's `needs:` list, because a job in a workflow `ci.yml` does not call cannot be a dependency of `ci-required` and a second required check would defeat FR-091's single visible gate (FR-088, FR-091, [research.md](./research.md) R29)
+- [X] T045 [US3] Make the `e2e` job assert the parent session is up *before* invoking `cargo test`, so an environment failure — a broken runner — reports distinctly from a genuine test failure ([contracts/ci.md](./contracts/ci.md), spec edge case)
+- [X] T046 [P] [US3] Create `deny.toml` with the `[advisories]` section, and `.github/workflows/advisories.yml` running `cargo deny check advisories` as an **informational** job, so an advisory is surfaced without blocking every contributor on someone else's disclosure (FR-093, [research.md](./research.md) R38)
 
 ### Tests for User Story 3
 
-- [ ] T047 [US3] Add a unit test parsing `deny.toml` that fails when an `ignore` entry's `reason` does not begin `until YYYY-MM-DD:` or when that date has passed — the gating half of FR-093's bounded acceptance, in `cargo test --lib` where a contributor sees it ([research.md](./research.md) R38)
+- [X] T047 [US3] Add a unit test parsing `deny.toml` that fails when an `ignore` entry's `reason` does not begin `until YYYY-MM-DD:` or when that date has passed — the gating half of FR-093's bounded acceptance, in `cargo test --lib` where a contributor sees it ([research.md](./research.md) R38)
 - [ ] T048 [US3] Run [quickstart.md](./quickstart.md) scenario 6: open five deliberately broken changes, one of each gated kind, and confirm each fails in its own job naming its own reproducing command, arriving within 30 minutes of submission (SC-034, SC-033, FR-090)
-- [ ] T049 [US3] Run [quickstart.md](./quickstart.md) scenario 5: reproduce an E2E failure locally in the published image against your own Wayland session (FR-089, SC-035)
+- [X] T049 [US3] Run [quickstart.md](./quickstart.md) scenario 5: reproduce an E2E failure locally in the published image against your own Wayland session (FR-089, SC-035)
 - [ ] T050 [US3] Walk the inspection item for FR-091 — branch protection requires `ci-required` and nothing else — and confirm [contracts/ci.md](./contracts/ci.md) lists both the gating and the informational set
+
+### Story 3 record (T039, T049, and what T048/T050 still need)
+
+**The image (T039), verified on 2026-09-01.** `docker build -t hypr-swap-e2e docker/e2e` on the
+digest-pinned `archlinux:latest`, then quickstart scenario 5's exact `docker run` against this
+machine's own Hyprland session: **86 passed, 0 failed, 2 ignored**, across all eleven `e2e_*`
+binaries, harness untouched. Four things were learned building it, and each is a line in the
+Dockerfile rather than a note here:
+
+- Arch's `rustup` package installs no `rustup-init` and creates no `CARGO_HOME`; the toolchain is
+  installed with `rustup toolchain install` and `/opt/cargo` is made by hand.
+- `RUSTUP_HOME` is left root-owned and world-readable while `CARGO_HOME` is owned by the
+  unprivileged user, because the crate registry is fetched at run time — the build context is
+  `docker/e2e`, so there is no `Cargo.lock` to pre-fetch from, which is what keeps the published
+  image from rebuilding on every source change.
+- `CARGO_TARGET_DIR` points inside the container. Writing into the mounted checkout's `target/`
+  would leave the host's next `cargo build` rebuilding everything anyway — the toolchains differ.
+- `git config --system --add safe.directory '*'`, or git refuses to read a checkout it does not own
+  and `build.rs` silently reports the package version with no source suffix (FR-104).
+
+The `setcap -r` line found nothing to remove on this Arch build; it is kept because R30 measured
+the opposite on another, and removing a capability that is not there costs nothing.
+
+**How the entry point resolves a session.** One script, `docker/e2e/entrypoint.sh`, for both of
+R29's routes: a session handed in is used as-is, and otherwise the container starts seatd and a
+parent Hyprland for itself. It ends in `exec "$@"`, so `docker run … <image> true` is a pure "did
+the environment come up" probe on the same code path the suite uses — which is exactly what T045's
+assertion runs, with no second implementation to drift. Status **78** means the environment failed;
+`e2e.yml` turns that into a message saying so rather than a test verdict.
+
+**T048 and T050 are not done, and cannot be done from a checkout.** Both need the workflows to
+exist on GitHub:
+
+- **T048** (five deliberately broken changes, one per gated kind) needs five pull requests against
+  a repository whose Actions have run at least once.
+- **T050** (branch protection requires `ci-required` and nothing else) is a repository setting.
+  The half of it that lives in the tree is done: [contracts/ci.md](./contracts/ci.md) lists the
+  gating set and the informational set, and `ci-required`'s `needs:` list matches the gating table
+  minus `licenses`, which T081 adds along with the job — a `needs:` naming a job that does not
+  exist makes the whole workflow unloadable, so the two land together.
+
+**The R29 spike is still open, and `e2e.yml` says where.** The automation route implemented is
+R29's first — `vkms` on the runner plus the container's own seatd — because it has the fewest
+moving parts. Nothing here can settle whether a hosted runner will load the module: this machine's
+kernel has no `vkms` to test against, and the answer is a property of GitHub's runners. The
+workflow's "Publish a virtual GPU" step therefore fails as an *environment* failure and names
+R29's second route (a QEMU virtual machine with `virtio-gpu`, what upstream Hyprland's own CI uses)
+as the fallback. The first real CI run settles it.
 
 **Checkpoint**: A proposed change gets one pass/fail verdict with no maintainer action, and the E2E
 tier runs against a real compositor in automation.

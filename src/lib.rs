@@ -131,6 +131,168 @@ mod tests {
         assert_eq!(compose_version("1.0.0", Some("")), "1.0.0");
     }
 
+    // ---------------------------------------------------------------------------------------
+    // The gating half of FR-093's bounded acceptance (research.md R38).
+    //
+    // cargo-deny has no built-in expiry for an accepted advisory, so the time bound lives in the
+    // `reason` string it does support and is enforced here — in `cargo test --lib`, where a
+    // contributor meets it. `advisories` itself does not gate; this does. The rule and the date
+    // arithmetic are pure functions so that the walk over `deny.toml` is the only part that
+    // touches a file.
+    // ---------------------------------------------------------------------------------------
+
+    /// A calendar date, compared as a tuple so that ordering is lexicographic and correct.
+    type Date = (i64, i64, i64);
+
+    /// The expiry an acceptance's `reason` declares: it must begin `until YYYY-MM-DD:`, and what
+    /// follows the colon is the human explanation, which this does not judge.
+    ///
+    /// The error is the message the failing test prints, so it is written for whoever has to fix
+    /// `deny.toml` rather than for whoever wrote this.
+    fn acceptance_expiry(reason: &str) -> Result<Date, String> {
+        let Some(rest) = reason.strip_prefix("until ") else {
+            return Err(format!("reason does not begin `until `: {reason:?}"));
+        };
+        let Some((date, _why)) = rest.split_once(':') else {
+            return Err(format!("reason has no `:` after the date: {reason:?}"));
+        };
+        let parts: Vec<&str> = date.split('-').collect();
+        let [year, month, day] = parts.as_slice() else {
+            return Err(format!("`{date}` is not YYYY-MM-DD"));
+        };
+        if (year.len(), month.len(), day.len()) != (4, 2, 2) {
+            return Err(format!("`{date}` is not YYYY-MM-DD"));
+        }
+        let number = |field: &str| {
+            field
+                .parse::<i64>()
+                .map_err(|_| format!("`{date}` is not YYYY-MM-DD"))
+        };
+        let (year, month, day) = (number(year)?, number(month)?, number(day)?);
+        if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+            return Err(format!("`{date}` is not a real date"));
+        }
+        Ok((year, month, day))
+    }
+
+    /// The civil date for a count of days since 1970-01-01 (Howard Hinnant's `civil_from_days`).
+    ///
+    /// Here rather than from a dependency because the whole need is "what is today", and a date
+    /// library for one comparison would not survive the constitution's Complexity Tracking table.
+    fn civil_from_days(days: i64) -> Date {
+        let shifted = days + 719_468;
+        let era = if shifted >= 0 {
+            shifted
+        } else {
+            shifted - 146_096
+        } / 146_097;
+        let day_of_era = shifted - era * 146_097;
+        let year_of_era =
+            (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+        let year = year_of_era + era * 400;
+        let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+        let shifted_month = (5 * day_of_year + 2) / 153;
+        let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+        let month = if shifted_month < 10 {
+            shifted_month + 3
+        } else {
+            shifted_month - 9
+        };
+        (year + i64::from(month <= 2), month, day)
+    }
+
+    /// Today, in UTC. The one impure input, and the reason this is a test rather than a `const`.
+    fn today() -> Date {
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("the clock is after 1970")
+            .as_secs();
+        civil_from_days(i64::try_from(seconds / 86_400).expect("a plausible clock"))
+    }
+
+    #[test]
+    fn the_expiry_form_is_exactly_what_deny_toml_documents() {
+        assert_eq!(
+            acceptance_expiry("until 2026-12-31: no fixed release exists upstream"),
+            Ok((2026, 12, 31)),
+        );
+        // Everything else is a malformed acceptance, and each is a way someone would get it wrong.
+        for wrong in [
+            "no fixed release exists upstream",
+            "until 2026-12-31 no fixed release exists upstream",
+            "until 26-12-31: short year",
+            "until 2026-1-1: unpadded",
+            "until 2026/12/31: wrong separator",
+            "until 2026-13-01: no such month",
+            "until never: not a date",
+            "Until 2026-12-31: wrong case",
+        ] {
+            assert!(
+                acceptance_expiry(wrong).is_err(),
+                "{wrong:?} should not be an acceptable reason",
+            );
+        }
+    }
+
+    #[test]
+    fn the_calendar_arithmetic_is_right() {
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_days(19_723), (2024, 1, 1));
+        // A leap day, and the day after it, so an off-by-one in February is caught.
+        assert_eq!(civil_from_days(19_782), (2024, 2, 29));
+        assert_eq!(civil_from_days(19_783), (2024, 3, 1));
+        assert!(today() >= (2026, 1, 1), "today is {:?}", today());
+    }
+
+    #[test]
+    fn advisory_acceptances_are_bounded_and_current() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("deny.toml");
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        let document: toml::Table = source
+            .parse()
+            .unwrap_or_else(|error| panic!("parse {}: {error}", path.display()));
+
+        let ignored = document
+            .get("advisories")
+            .and_then(|advisories| advisories.get("ignore"))
+            .and_then(toml::Value::as_array)
+            .unwrap_or_else(|| panic!("deny.toml has no [advisories] ignore list"));
+
+        let today = today();
+        for entry in ignored {
+            // A bare string is cargo-deny's other accepted form, and it carries no reason at all,
+            // so it cannot be bounded — which is the whole point (research.md R38).
+            let table = entry.as_table().unwrap_or_else(|| {
+                panic!(
+                    "deny.toml: {entry} is a bare advisory id. Write it as \
+                     {{ id = \"…\", reason = \"until YYYY-MM-DD: …\" }} so the acceptance expires."
+                )
+            });
+            let id = table
+                .get("id")
+                .and_then(toml::Value::as_str)
+                .unwrap_or("<no id>");
+            let reason = table
+                .get("reason")
+                .and_then(toml::Value::as_str)
+                .unwrap_or_else(|| panic!("deny.toml: the acceptance of {id} carries no reason"));
+
+            let expiry = acceptance_expiry(reason).unwrap_or_else(|complaint| {
+                panic!(
+                    "deny.toml: the acceptance of {id} is not bounded — {complaint}. \
+                     It must read `until YYYY-MM-DD: <why>` (FR-093)."
+                )
+            });
+            assert!(
+                expiry >= today,
+                "deny.toml: the acceptance of {id} expired on {expiry:?} and today is {today:?}. \
+                 Fix the advisory, or re-accept it with a new date and a reason that is still true \
+                 (FR-093).",
+            );
+        }
+    }
+
     #[test]
     fn the_supported_range_renders_as_the_documents_state_it() {
         // The form the README, the site's requirements page and the FR-118 diagnostic all carry.
