@@ -121,11 +121,35 @@ plane format against vkms's twenty-two. The driver is now read from `device/ueve
 path as the fallback the faux bus needs, and `AQ_DRM_DEVICES` lists vkms first with the others
 behind it rather than hidden.
 
-**What is still open** is narrower than it was: whether Hyprland's GL context comes up on a
-`vkms` primary once the node can be opened at all. The allocator question finding 1 raised is
-answered — GBM works here — so the remaining risk is the renderer, not the buffer. If it does not
-come up, route 2 is the answer: a QEMU `virtio-gpu` is a PCI device with a real render node, which
-removes both of this run's failure modes rather than working around them.
+**Route 1 is settled, and the answer is no (2026-09-02)** — **[verified]**.
+
+Everything below the compositor works. `vkms` loads once `linux-modules-extra` is installed, seatd
+serves a seat, the DRM nodes open once the user joins their *numeric* group ids, and the parent
+Hyprland starts and publishes a session: `docker run … <image> true` passes. The suite then runs.
+And every single test fails the same way:
+
+```
+distinct failure causes:
+     83 timed out after 10s waiting until the nested compositor reports a monitor
+```
+
+83 of 83. Not a budget, not a flake, not a race — one cause. **This is finding 1's second half,
+reproduced with Hyprland as the parent instead of sway.** The harness nests a compositor as an
+ordinary Wayland client, that client's backend needs a dmabuf allocator from its parent, and a
+parent running on `vkms` has no render node to allocate from. The parent can exist; it cannot hand
+a nested compositor a buffer. `LIBGL_ALWAYS_SOFTWARE=1` was tried and is worse — it breaks the
+nested compositor even on a machine that *has* a GPU, so software rendering is not a way round
+this either.
+
+The chain is therefore complete and consistent with what R29 measured before any of it was built:
+a nested compositor needs a real GPU somewhere underneath, and no synthetic KMS device supplies
+one.
+
+**Route 2 is the answer**, for exactly the reason it was written down as the fallback: a QEMU
+`virtio-gpu` is a PCI device with a **render node**, so the parent gets a real GBM/EGL renderer and
+can offer `linux-dmabuf` to its clients — which is the one thing the nested compositor needs and
+the one thing `vkms` cannot give it. It is also what upstream Hyprland's own CI does, from an
+`ubuntu-latest` runner, which is the same evidence that put it in this decision to begin with.
 
 **Rationale.** The harness is the project's most valuable test asset and rewriting it would be a
 larger change than this whole feature. Every measurement above says the harness does not need to

@@ -422,8 +422,31 @@ reproduces the CI symptom exactly — `timed out after 10s waiting until the nes
 reports a monitor`. Every CI suite run so far carried it, so it confounded all of them. Removed;
 mesa picks its own driver for whichever node it is given, which is what it is for.
 
-**What is still open** is narrower: whether the GL context comes up on a `vkms` primary once the
-node can be opened. The allocator question is answered — GBM works here. If the renderer does not,
+**Route 1 is settled, and the answer is no.** With `LIBGL_ALWAYS_SOFTWARE` gone the confound is
+gone too, and the suite reports one cause for every failure:
+
+```
+distinct failure causes:
+     83 timed out after 10s waiting until the nested compositor reports a monitor
+```
+
+83 of 83 — not a budget, not a flake, one cause. It is R29 finding 1's second half reproduced with
+Hyprland as the parent rather than sway: the harness nests a compositor as an ordinary Wayland
+client, that client's backend needs a dmabuf allocator from its parent, and a parent on `vkms` has
+no render node to allocate from. Everything underneath works — the module loads, seatd serves a
+seat, the nodes open, the parent publishes a session — but a parent that cannot hand out a buffer
+is not a session the harness can nest in.
+
+**Route 2 is now the indicated path** and R29 records why: a QEMU `virtio-gpu` is a PCI device with
+a real render node, so the parent gets a GBM/EGL renderer and can offer `linux-dmabuf` — the one
+thing the nested compositor needs and the one thing a synthetic KMS device cannot give it. It is a
+substantially larger piece of work than route 1, so it is a decision to take deliberately rather
+than to drift into: T044 stays open until it is taken.
+
+**What route 1 leaves behind is not wasted.** The image, the entry point's two paths, the seat, the
+group-id handling, the annotation diagnostics and the test-count guard are all independent of how
+the GPU arrives, and route 2 reuses every one of them — it changes where the container runs, not
+what it does. The allocator question is answered — GBM works here. If the renderer does not,
 R29's second route — a QEMU virtual machine with `virtio-gpu`, what upstream Hyprland's own CI uses
 — is the answer, and it removes both of this run's failure modes rather than working around them:
 a PCI device with a real render node.
