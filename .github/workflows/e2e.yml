@@ -90,7 +90,10 @@ jobs:
           # is the difference between a maintainer being able to diagnose a runner failure from a
           # link and having to have push rights first. The lines worth keeping are the compositor's
           # own errors and this script's own notes; `%0A` is how a multi-line annotation is written.
-          reason="$(grep -aE 'ERR|CRIT|ASSERTION|Couldn.t|e2e-env:|failed' session.log \
+          # The render-node lines are kept as well as the errors: they are what distinguishes a
+          # node that could not be opened from one libdrm could not describe, and the run that
+          # dropped them could not tell the two apart.
+          reason="$(grep -aE 'ERR|CRIT|ASSERTION|Couldn.t|e2e-env:|failed|render node|openRenderNode|RENDERNODEFD|DRMFD' session.log \
                     | tail -n 40 | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}')"
           if [ "$status" -eq 78 ]; then
             echo "::error::the E2E environment did not come up: no Wayland session could be started in the container. This is a broken runner, not a broken change.%0A%0A${reason}"

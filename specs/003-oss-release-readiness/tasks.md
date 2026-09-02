@@ -357,6 +357,26 @@ runs nothing exits zero too — the job now counts what actually ran and fails b
 tests against the tier's eighty-six. That is the same rule `ci-required` already applies to a
 skipped job, applied one level down.
 
+**The faux bus names nothing (2026-09-02).** With the gate honest again, the annotation carried
+the reason out without needing repository admin — and it showed the vkms detection *still* missing:
+
+```
+/dev/dri/card0 -> faux_driver
+/dev/dri/card1 -> hyperv_drm
+no vkms node found; letting the DRM backend scan for itself
+```
+
+`device/uevent` on the faux bus answers `faux_driver` for **every** device on it. The previous fix
+only fell through to the sysfs path when the uevent answer was *empty*, so a placeholder counted as
+an answer. Empty and `faux_driver` are now treated as the same thing, and all three shapes — faux,
+VMBus, PCI — are checked against real paths rather than assumed.
+
+So vkms has still never actually been primary. What the runs so far do establish is that
+`hyperv_drm` cannot be: `drmGetDevice` fails on it (it is a VMBus device, not PCI), which is why
+`CDRMRenderer` finds no matching device, `eglDeviceFromDRMFD` fails, and `openRenderNode` ends in
+`Couldn't open a gbm fd`. Whether that was a permissions problem is now answered — it was not, and
+the `video`/`render` groups added earlier were a fix for a different, real gap rather than for this.
+
 **What is still open** is narrower: whether the GL context comes up on a `vkms` primary once the
 node can be opened. The allocator question is answered — GBM works here. If the renderer does not,
 R29's second route — a QEMU virtual machine with `virtio-gpu`, what upstream Hyprland's own CI uses

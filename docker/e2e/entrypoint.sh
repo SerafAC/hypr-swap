@@ -128,11 +128,16 @@ dump_compositor_logs() {
 # nothing — which is why the first attempt at this reported "no vkms node found" on a runner that
 # had one [verified, CI 2026-09-02]. The sysfs path names the driver in that case.
 drm_driver() {
-    local card="$1" driver
+    local card="$1" driver path
     driver="$(sed -n 's/^DRIVER=//p' "/sys/class/drm/$card/device/uevent" 2>/dev/null)"
-    if [ -z "$driver" ]; then
-        case "$(readlink -f "/sys/class/drm/$card" 2>/dev/null)" in
-            */faux/*) driver="$(readlink -f "/sys/class/drm/$card" | sed -n 's|.*/faux/\([^/]*\)/.*|\1|p')" ;;
+    # The faux bus answers `faux_driver` for **every** device on it, which names nothing — the
+    # first attempt at this treated that as an answer and so still missed vkms [verified, CI
+    # 2026-09-02]. An empty answer and that placeholder are the same thing: ask the path instead,
+    # which carries the real name (`/sys/devices/faux/vkms/drm/card0`).
+    if [ -z "$driver" ] || [ "$driver" = faux_driver ]; then
+        path="$(readlink -f "/sys/class/drm/$card" 2>/dev/null)"
+        case "$path" in
+            */faux/*) driver="$(printf '%s' "$path" | sed -n 's|.*/faux/\([^/]*\)/.*|\1|p')" ;;
         esac
     fi
     printf '%s' "${driver:-unknown}"
