@@ -70,13 +70,13 @@ jobs:
       - name: Check internal links
         run: pnpm validate
 
-      # `enablement` turns the Pages site on if it is not already, rather than failing with
-      # `Get Pages site failed … Not Found` — which is what the first run against the public
-      # repository did [verified, CI 2026-09-02]. The workflow already holds `pages: write`, so
-      # this needs no setting changed by hand.
+      # Pages must be switched on by hand, once: Settings -> Pages -> Build and deployment ->
+      # Source: GitHub Actions. `enablement: true` was tried and cannot do it — the workflow token
+      # is refused with `Create Pages site failed: Resource not accessible by integration`, even
+      # holding `pages: write` [verified, CI 2026-09-02]. Until it is on, this step fails with
+      # `Get Pages site failed … Not Found`, which is the correct thing to do: the site is not
+      # published and the workflow should say so rather than pass.
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

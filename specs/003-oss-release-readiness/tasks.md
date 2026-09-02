@@ -343,6 +343,20 @@ twenty-two. The driver is now read from `device/uevent` with the sysfs path as t
 bus needs, verified against both shapes, and `AQ_DRM_DEVICES` lists vkms first with the others
 behind it rather than hidden.
 
+**A green run that proved nothing (2026-09-02), and the guard added because of it.** `ci` went
+green on `fe17a178` with `e2e` passing — and it was wrong. `docker run … | tee session.log` makes
+the pipeline return **tee's** status, so the `|| status=$?` beside it never fired and both docker
+steps passed whatever the container did. The step durations gave it away: "Run the E2E suite" took
+**two seconds**, against roughly four minutes for the real tier. The pipe was introduced by the
+commit that added annotations, so the DRM-group fix before it has still never been exercised in
+automation.
+
+Both steps now redirect to a file and `cat` it afterwards rather than piping, so the container's
+status is the step's status. And because a zero status is not evidence on its own — a suite that
+runs nothing exits zero too — the job now counts what actually ran and fails below fifty passing
+tests against the tier's eighty-six. That is the same rule `ci-required` already applies to a
+skipped job, applied one level down.
+
 **What is still open** is narrower: whether the GL context comes up on a `vkms` primary once the
 node can be opened. The allocator question is answered — GBM works here. If the renderer does not,
 R29's second route — a QEMU virtual machine with `virtio-gpu`, what upstream Hyprland's own CI uses

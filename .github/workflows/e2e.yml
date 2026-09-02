@@ -72,9 +72,14 @@ jobs:
           # `--privileged` because seatd must open the DRM device as a session leader, and
           # `--user root` because seatd must start before the entry point drops to the
           # unprivileged user the compositor runs as (research.md R30).
+          # Redirected to a file and echoed afterwards, never piped: `docker run … | tee` makes
+          # the pipeline return *tee's* status, so a `|| status=$?` on it never fires and the step
+          # passes whatever the container did. That is not a hypothetical — it turned this job
+          # green for one commit while the suite ran for two seconds [CI 2026-09-02].
           docker run --rm --privileged --user root \
             -v "$PWD:/work" -w /work \
-            hypr-swap-e2e true 2>&1 | tee session.log || status=${PIPESTATUS[0]}
+            hypr-swap-e2e true > session.log 2>&1 || status=$?
+          cat session.log
           if [ "$status" -eq 0 ]; then
             echo "the parent session comes up"
             exit 0
@@ -100,7 +105,8 @@ jobs:
           status=0
           docker run --rm --privileged --user root \
             -v "$PWD:/work" -w /work \
-            hypr-swap-e2e 2>&1 | tee suite.log || status=${PIPESTATUS[0]}
+            hypr-swap-e2e > suite.log 2>&1 || status=$?
+          cat suite.log
           if [ "$status" -eq 78 ]; then
             reason="$(grep -aE 'ERR|CRIT|ASSERTION|e2e-env:' suite.log \
                       | tail -n 40 | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}')"
@@ -112,8 +118,19 @@ jobs:
             reason="$(grep -aE '^(test .*FAILED|failures:|---- )|^test result' suite.log \
                       | tail -n 40 | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}')"
             echo "::error::the E2E suite failed.%0A%0A${reason}"
+            exit "$status"
           fi
-          exit "$status"
+
+          # A zero status is not evidence on its own: a suite that ran nothing exits zero too, and
+          # that is precisely how a masked failure got past this job once. Count what actually ran
+          # — a gate that passes because a check did not run is not a gate (the same rule
+          # `ci-required` applies to a skipped job).
+          passed="$(awk '/^test result: ok\./ {total += $4} END {print total + 0}' suite.log)"
+          echo "the suite reported $passed passing tests"
+          if [ "$passed" -lt 50 ]; then
+            echo "::error::the E2E suite exited 0 having reported only $passed passing tests; the tier runs 86. The suite did not run, so this job proved nothing.%0A%0A$(tail -n 20 suite.log | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          fi
 
       - name: How to reproduce this
         if: failure()
