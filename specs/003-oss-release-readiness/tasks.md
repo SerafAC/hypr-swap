@@ -377,6 +377,29 @@ So vkms has still never actually been primary. What the runs so far do establish
 `Couldn't open a gbm fd`. Whether that was a permissions problem is now answered — it was not, and
 the `video`/`render` groups added earlier were a fix for a different, real gap rather than for this.
 
+**vkms became primary, and the `open()` still failed — a numeric group-id mismatch
+(2026-09-02).** With the detection fixed, `AQ_DRM_DEVICES` put vkms first and the compositor got
+all the way to:
+
+```
+DRM dev /dev/dri/card0 has no render node, falling back to primary
+openRenderNode got drm device /dev/dri/card0
+ERR: openRenderNode failed to open drm device /dev/dri/card0
+```
+
+`renderName` resolved, so this is the `open(2)` being refused rather than libdrm failing to
+describe the device — the render-node lines kept in the previous commit are what make the two
+distinguishable. The `video`/`render` groups added earlier could never have fixed it: device nodes
+come from the **host's** devtmpfs and carry the host's numeric group ids, and those numbers mean
+nothing in the image's `/etc/group`. A runner's `video` is 44 and Arch's is 983; on the development
+machine the host's is 985 against the image's 983, measured directly.
+
+The entry point now joins whatever group *actually* owns each node, by number, creating one when
+the image has no name for it. Verified locally: the user comes out holding gids 985 and 989 — under
+Arch's unrelated names `storage` and `lp`, which is exactly the point. The nodes themselves are
+deliberately not touched: under `--privileged` that is the host's own `/dev`, and a `chgrp` there
+would change permissions on the machine running the container.
+
 **What is still open** is narrower: whether the GL context comes up on a `vkms` primary once the
 node can be opened. The allocator question is answered — GBM works here. If the renderer does not,
 R29's second route — a QEMU virtual machine with `virtio-gpu`, what upstream Hyprland's own CI uses

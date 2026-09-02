@@ -68,6 +68,28 @@ start_seat_and_drop() {
     done
     chgrp seat /run/seatd.sock && chmod 0660 /run/seatd.sock
 
+    # Let the unprivileged user open the DRM nodes.
+    #
+    # The nodes come from the host's devtmpfs, so they carry the **host's** numeric group ids, and
+    # those numbers mean nothing in this image's /etc/group: a runner's `video` is 44, Arch's is
+    # 983. Putting the user in the image's `video` therefore did nothing, which is why the
+    # compositor still failed its `open()` on the card node after that was added [verified, CI
+    # 2026-09-02]. Join whatever group *actually* owns each node instead, by number.
+    #
+    # The nodes themselves are deliberately not touched: under `--privileged` this is the host's
+    # own /dev, and a `chgrp` here would change permissions on the machine running the container.
+    local node gid
+    for node in /dev/dri/*; do
+        [ -c "$node" ] || continue
+        gid="$(stat -c %g "$node")"
+        getent group "$gid" > /dev/null || groupadd --gid "$gid" "hostdrm$gid"
+        usermod --append --groups "$gid" "$UNPRIVILEGED_USER"
+    done
+    # `$NF` for the name, not `$9`: a character device's listing carries an extra column for the
+    # major and minor numbers, so a fixed index lands on the timestamp.
+    note "device nodes: $(ls -ln /dev/dri 2>/dev/null | awk 'NR>1 {printf "%s(gid %s,%s) ", $NF, $4, $1}')"
+    note "$UNPRIVILEGED_USER is $(id "$UNPRIVILEGED_USER")"
+
     # A runtime directory of the shape every Wayland client expects, if the caller supplied none.
     if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
         export XDG_RUNTIME_DIR="/run/user/$uid"
