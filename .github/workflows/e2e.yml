@@ -12,6 +12,10 @@ name: e2e
 
 on:
   workflow_call:
+  # Runnable on its own as well as through `ci.yml`. This tier is the one whose failures are most
+  # often the environment rather than the change (research.md R29), and re-running it alone is a
+  # great deal faster than re-running the whole gate to reach it.
+  workflow_dispatch:
 
 permissions:
   contents: read

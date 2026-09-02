@@ -9,6 +9,9 @@ on:
   pull_request:
   push:
     branches: [master]
+  # Re-runnable by hand, so a red result caused by the environment rather than by the change can be
+  # retried without an empty commit to provoke it.
+  workflow_dispatch:
 
 permissions:
   contents: read
