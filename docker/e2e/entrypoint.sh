@@ -76,9 +76,19 @@ start_seat_and_drop() {
     chown "$UNPRIVILEGED_USER:$UNPRIVILEGED_USER" "$XDG_RUNTIME_DIR"
     chmod 0700 "$XDG_RUNTIME_DIR"
 
+    # `setpriv` changes the credentials and nothing else, so `HOME` would still be root's — which
+    # is how the compositor came to report `failed to mkdir() crash report directory: Permission
+    # denied` [verified, CI 2026-09-02]. Every path derived from `HOME` is wrong until it is set:
+    # the crash report, `XDG_CACHE_HOME`, and the config directory the harness overrides per test.
+    local home
+    home="$(getent passwd "$UNPRIVILEGED_USER" | cut -d: -f6)"
+    [ -n "$home" ] || environment_failure "$UNPRIVILEGED_USER has no home directory"
+
     # `--init-groups` so the `seat` group membership is actually carried across.
     exec setpriv --reuid="$UNPRIVILEGED_USER" --regid="$UNPRIVILEGED_USER" --init-groups \
-        env XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" "$0" "$@"
+        env XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
+            HOME="$home" USER="$UNPRIVILEGED_USER" LOGNAME="$UNPRIVILEGED_USER" \
+            "$0" "$@"
 }
 
 # --------------------------------------------------------------------------------------------
@@ -94,6 +104,40 @@ session_is_up() {
         /*) [ -S "$display" ] ;;
         *) [ -S "${XDG_RUNTIME_DIR:-}/$display" ] ;;
     esac
+}
+
+# Everything the compositor wrote, wherever it wrote it. Hyprland turns its own stdout logging off
+# a few lines in and continues into `$XDG_RUNTIME_DIR/hypr/<signature>/hyprland.log`, so the
+# interesting half of a failure is in a file rather than on the pipe — which is how the first CI
+# run reported a crash with no reason attached.
+dump_compositor_logs() {
+    note '--- the parent compositor: stdout ---'
+    cat "${XDG_RUNTIME_DIR}/parent-hyprland.log" >&2 2>/dev/null
+    local logfile
+    for logfile in "${XDG_RUNTIME_DIR}"/hypr/*/hyprland.log; do
+        [ -f "$logfile" ] || continue
+        note "--- the parent compositor: $logfile ---"
+        cat "$logfile" >&2
+    done
+}
+
+# Which `card*` node to hand the DRM backend, when there is a choice.
+#
+# A runner has more than one: an Azure image already carries a Hyper-V framebuffer (pci 1414:0006)
+# and `vkms` arrives beside it. Left to scan, aquamarine may pick the framebuffer, which cannot
+# allocate. Naming the vkms node removes the guess; with no vkms node this prints nothing and the
+# backend scans as before.
+vkms_device() {
+    local node driver
+    for node in /dev/dri/card*; do
+        [ -e "$node" ] || continue
+        driver="$(readlink -f "/sys/class/drm/$(basename "$node")/device/driver" 2>/dev/null)"
+        if [ "$(basename "${driver:-none}")" = vkms ]; then
+            printf '%s' "$node"
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Start a parent Hyprland on the DRM backend and wait for it to publish a socket.
@@ -113,6 +157,14 @@ start_parent_compositor() {
     # GPU and must keep using it.
     export LIBGL_ALWAYS_SOFTWARE=1
 
+    local device
+    if device="$(vkms_device)"; then
+        export AQ_DRM_DEVICES="$device"
+        note "pointing the DRM backend at $device (vkms)"
+    else
+        note 'no vkms node found; letting the DRM backend scan for itself'
+    fi
+
     # Hyprland picks its own `wayland-N`; it reports which in its log, but waiting for the socket
     # to appear is both simpler and the thing that actually matters.
     local socket
@@ -122,8 +174,7 @@ start_parent_compositor() {
     local waited=0
     while [ "$waited" -lt "$SESSION_TIMEOUT" ]; do
         if ! kill -0 "$compositor" 2>/dev/null; then
-            note '--- the parent compositor exited; its log follows ---'
-            cat "${XDG_RUNTIME_DIR}/parent-hyprland.log" >&2
+            dump_compositor_logs
             environment_failure 'the parent compositor exited before it published a session'
         fi
         socket="$(ls "$XDG_RUNTIME_DIR" 2>/dev/null | grep '^wayland-[0-9]*$' | head -n1)"
@@ -136,8 +187,7 @@ start_parent_compositor() {
         waited=$((waited + 1))
     done
 
-    note '--- the parent compositor never published a socket; its log follows ---'
-    cat "${XDG_RUNTIME_DIR}/parent-hyprland.log" >&2
+    dump_compositor_logs
     environment_failure "no Wayland socket appeared within ${SESSION_TIMEOUT}s"
 }
 

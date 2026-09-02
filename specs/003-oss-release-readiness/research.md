@@ -71,12 +71,30 @@ feature's largest technical unknown, so it was resolved by experiment rather tha
   the library, but nothing selects it at start-up — it is what `hyprctl output create headless`
   reaches, which is finding 1 restated with the symbol names. A DRM device is genuinely required.
 
-**What is still open**: whether the compositor starts on a `vkms` node once it loads. `vkms` is
-display-only and publishes a `card*` with no `renderD*` beside it, so the allocator failure of
-finding 1 may recur for the same reason in a different place. Both the workflow step and the
-image's entry point log `/dev/dri` before the compositor is asked to use it, so the next run either
-works or says precisely which of the two it was — and if it is the allocator, route 2 is the
-answer and the evidence for taking it is on the record.
+**The run after that (2026-09-02), with the module installed** — **[verified]**:
+
+- **`vkms` loads, and it is not alone.** The container saw `card0 card1`: an Azure image already
+  carries a Hyper-V framebuffer (`pci id 1414:0006, driver (null)`, repeated across every fd the
+  loader probed) and `vkms` arrives beside it. Neither publishes a `renderD*`. Left to scan,
+  aquamarine has a framebuffer to pick that cannot allocate, so the entry point now resolves the
+  vkms node through `/sys/class/drm/*/device/driver` and names it in `AQ_DRM_DEVICES`.
+- **`seatd` is not the problem.** `Created VT-bound seat seat0`, the compositor connected
+  (`Added client 1 to seat0`, `Opened client 1 on seat0`) and then disconnected on its own death.
+  Route 1's seat half works.
+- **The compositor crashed with its reason in a file.** Hyprland disables stdout logging a few
+  lines into start-up and continues into `$XDG_RUNTIME_DIR/hypr/<signature>/hyprland.log`, so the
+  captured output ended at `failed to mkdir() crash report directory / Permission denied` with no
+  cause attached. Two fixes, both of them defects rather than discoveries: the parent's config now
+  sets `debug:enable_stdout_logs`, and the entry point dumps the log file as well as the pipe.
+- **`HOME` survived the privilege drop as root's.** `setpriv` changes credentials and nothing else,
+  and the crash-report `mkdir` was the symptom. Every path derived from `HOME` was wrong; it is now
+  read from `getent passwd` and passed across with `USER` and `LOGNAME`.
+
+**What is still open** is unchanged in shape and better instrumented: whether the compositor starts
+on a `vkms` node at all. `vkms` is display-only, so finding 1's allocator failure may recur for the
+same reason in a different place — but the crash above is not yet evidence either way, because the
+run that produced it could not say why it died. The next run either works or names the cause; if
+that cause is the allocator, route 2 is the answer and the evidence for taking it is on the record.
 
 **Rationale.** The harness is the project's most valuable test asset and rewriting it would be a
 larger change than this whole feature. Every measurement above says the harness does not need to

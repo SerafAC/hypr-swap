@@ -302,12 +302,30 @@ aquamarine 0.14.0 carry no headless escape hatch — `AQ_DRM_DEVICES`, `AQ_FORCE
 nothing else. `CHeadlessBackend` exists in the library but nothing selects it at start-up, so a DRM
 device is genuinely required and there is no cheaper way round.
 
-**What is still open** is whether the compositor starts on a `vkms` node once it loads: `vkms` is
-display-only and publishes a `card*` with no `renderD*`, which is the shape that produced finding
-1's allocator failure. The workflow step and the entry point both log `/dev/dri` before the
-compositor is asked to use it, so the next run either works or names which of the two it was. If it
-is the allocator, R29's second route — a QEMU virtual machine with `virtio-gpu`, what upstream
-Hyprland's own CI uses — is the answer, with the evidence for taking it already recorded.
+**The run after that** got the module loaded and found two more things, both of them defects in
+this feature's own code rather than discoveries about the runner:
+
+- **`HOME` did not survive the privilege drop.** `setpriv` changes credentials and nothing else, so
+  the compositor ran as `hypr` with root's `HOME` and reported `failed to mkdir() crash report
+  directory: Permission denied`. It is now read from `getent passwd` and carried across with `USER`
+  and `LOGNAME`.
+- **The compositor's reason for dying was in a file nobody read.** Hyprland disables stdout logging
+  a few lines into start-up and continues into `$XDG_RUNTIME_DIR/hypr/<signature>/hyprland.log`, so
+  a start-up crash arrived with no cause attached. `parent.conf` now sets `debug:enable_stdout_logs`
+  and the entry point dumps the log file as well as the pipe.
+
+It also found that a runner has **two** card nodes — an Azure image carries a Hyper-V framebuffer
+(`pci 1414:0006`) and `vkms` arrives beside it, neither with a `renderD*`. Left to scan, aquamarine
+has a framebuffer to pick that cannot allocate, so the entry point resolves the vkms node through
+`/sys/class/drm/*/device/driver` and names it in `AQ_DRM_DEVICES`. `seatd` is not implicated at any
+point: the seat is created, the compositor opens it, and the disconnect is its own death.
+
+**What is still open** is whether the compositor starts on a `vkms` node at all. `vkms` is
+display-only, which is the shape that produced finding 1's allocator failure, so it may recur one
+layer further in — but the crash above is not yet evidence either way, because the run that
+produced it could not say why it died. If the cause does turn out to be the allocator, R29's second
+route — a QEMU virtual machine with `virtio-gpu`, what upstream Hyprland's own CI uses — is the
+answer, with the evidence for taking it already recorded.
 
 **Checkpoint**: A proposed change gets one pass/fail verdict with no maintainer action, and the E2E
 tier runs against a real compositor in automation.
