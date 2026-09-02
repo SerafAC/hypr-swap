@@ -121,23 +121,46 @@ dump_compositor_logs() {
     done
 }
 
-# Which `card*` node to hand the DRM backend, when there is a choice.
+# The kernel driver behind a `card*` node.
 #
-# A runner has more than one: an Azure image already carries a Hyper-V framebuffer (pci 1414:0006)
-# and `vkms` arrives beside it. Left to scan, aquamarine may pick the framebuffer, which cannot
-# allocate. Naming the vkms node removes the guess; with no vkms node this prints nothing and the
-# backend scans as before.
-vkms_device() {
-    local node driver
+# Two ways, because one is not enough: `device/uevent` carries `DRIVER=` for an ordinary bus, but
+# `vkms` registers on the **faux** bus (`/sys/devices/faux/vkms/drm/card0`) where that lookup finds
+# nothing — which is why the first attempt at this reported "no vkms node found" on a runner that
+# had one [verified, CI 2026-09-02]. The sysfs path names the driver in that case.
+drm_driver() {
+    local card="$1" driver
+    driver="$(sed -n 's/^DRIVER=//p' "/sys/class/drm/$card/device/uevent" 2>/dev/null)"
+    if [ -z "$driver" ]; then
+        case "$(readlink -f "/sys/class/drm/$card" 2>/dev/null)" in
+            */faux/*) driver="$(readlink -f "/sys/class/drm/$card" | sed -n 's|.*/faux/\([^/]*\)/.*|\1|p')" ;;
+        esac
+    fi
+    printf '%s' "${driver:-unknown}"
+}
+
+# The order to hand the DRM backend, when there is more than one device.
+#
+# A runner has two: an Azure image already carries a Hyper-V framebuffer and `vkms` arrives beside
+# it. Left to scan, aquamarine makes the framebuffer primary — and `hyperv_drm` has no render node
+# and one plane format, so Hyprland's `openRenderNode` falls back to the primary node and the
+# renderer never comes up. vkms is the purpose-built virtual KMS device and reports 22 plane
+# formats, so it goes first; the others stay in the list behind it rather than being hidden, so
+# nothing that works today stops working.
+drm_devices() {
+    local node card driver first="" rest=""
     for node in /dev/dri/card*; do
         [ -e "$node" ] || continue
-        driver="$(readlink -f "/sys/class/drm/$(basename "$node")/device/driver" 2>/dev/null)"
-        if [ "$(basename "${driver:-none}")" = vkms ]; then
-            printf '%s' "$node"
-            return 0
+        card="$(basename "$node")"
+        driver="$(drm_driver "$card")"
+        note "  $node -> $driver"
+        if [ "$driver" = vkms ] && [ -z "$first" ]; then
+            first="$node"
+        else
+            rest="${rest:+$rest:}$node"
         fi
     done
-    return 1
+    [ -n "$first" ] || return 1
+    printf '%s' "${first}${rest:+:$rest}"
 }
 
 # Start a parent Hyprland on the DRM backend and wait for it to publish a socket.
@@ -157,10 +180,11 @@ start_parent_compositor() {
     # GPU and must keep using it.
     export LIBGL_ALWAYS_SOFTWARE=1
 
-    local device
-    if device="$(vkms_device)"; then
-        export AQ_DRM_DEVICES="$device"
-        note "pointing the DRM backend at $device (vkms)"
+    note 'DRM devices:'
+    local devices
+    if devices="$(drm_devices)"; then
+        export AQ_DRM_DEVICES="$devices"
+        note "ordering the DRM backend as $devices (vkms first)"
     else
         note 'no vkms node found; letting the DRM backend scan for itself'
     fi

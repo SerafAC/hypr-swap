@@ -320,12 +320,34 @@ has a framebuffer to pick that cannot allocate, so the entry point resolves the 
 `/sys/class/drm/*/device/driver` and names it in `AQ_DRM_DEVICES`. `seatd` is not implicated at any
 point: the seat is created, the compositor opens it, and the disconnect is its own death.
 
-**What is still open** is whether the compositor starts on a `vkms` node at all. `vkms` is
-display-only, which is the shape that produced finding 1's allocator failure, so it may recur one
-layer further in — but the crash above is not yet evidence either way, because the run that
-produced it could not say why it died. If the cause does turn out to be the allocator, R29's second
-route — a QEMU virtual machine with `virtio-gpu`, what upstream Hyprland's own CI uses — is the
-answer, with the evidence for taking it already recorded.
+**The run after *that*** got the log, and the cause was not the allocator finding 1 met.
+Aquamarine created GBM allocators on **both** devices; what failed was an `open(2)`:
+
+```
+DRM dev /dev/dri/card1 has no render node, falling back to primary
+openRenderNode got drm device /dev/dri/card1
+ERR: openRenderNode failed to open drm device /dev/dri/card1
+CRIT: ASSERTION FAILED! Couldn't open a gbm fd  at line 348 in OpenGL.cpp
+```
+
+libseat hands the compositor an fd for the card, but Hyprland opens a render node itself for its GL
+context and that open bypasses libseat — and the image's user was in `seat` and nothing else. It is
+now in `video`, `render` and `input` too, each group created first so this does not depend on which
+package happened to bring one in.
+
+The same log showed the vkms detection added in the previous commit never fired: `vkms` registers
+on the **faux** bus (`/sys/devices/faux/vkms/drm/card0`), where `device/driver` resolves to nothing,
+so it reported "no vkms node found" on a runner that had one and the backend scanned and made the
+Hyper-V framebuffer primary — a device with no render node and one plane format against vkms's
+twenty-two. The driver is now read from `device/uevent` with the sysfs path as the fallback the faux
+bus needs, verified against both shapes, and `AQ_DRM_DEVICES` lists vkms first with the others
+behind it rather than hidden.
+
+**What is still open** is narrower: whether the GL context comes up on a `vkms` primary once the
+node can be opened. The allocator question is answered — GBM works here. If the renderer does not,
+R29's second route — a QEMU virtual machine with `virtio-gpu`, what upstream Hyprland's own CI uses
+— is the answer, and it removes both of this run's failure modes rather than working around them:
+a PCI device with a real render node.
 
 **Checkpoint**: A proposed change gets one pass/fail verdict with no maintainer action, and the E2E
 tier runs against a real compositor in automation.

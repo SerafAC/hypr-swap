@@ -90,11 +90,42 @@ feature's largest technical unknown, so it was resolved by experiment rather tha
   and the crash-report `mkdir` was the symptom. Every path derived from `HOME` was wrong; it is now
   read from `getent passwd` and passed across with `USER` and `LOGNAME`.
 
-**What is still open** is unchanged in shape and better instrumented: whether the compositor starts
-on a `vkms` node at all. `vkms` is display-only, so finding 1's allocator failure may recur for the
-same reason in a different place — but the crash above is not yet evidence either way, because the
-run that produced it could not say why it died. The next run either works or names the cause; if
-that cause is the allocator, route 2 is the answer and the evidence for taking it is on the record.
+**The run that finally said why (2026-09-02)** — **[verified]**, and the cause is *not* the
+allocator that finding 1 met:
+
+```
+drm: Found 2 GPUs
+drm: Starting backend for /dev/dri/card1, with driver hyperv_drm
+drm: gpu /dev/dri/card1 becomes primary drm
+drm: Starting backend for /dev/dri/card0, with driver vkms with primary /dev/dri/card1
+Created a GBM allocator with drm fd 21          ← GBM works, on both devices
+Created a GBM allocator with drm fd 24
+...
+DRM dev /dev/dri/card1 has no render node, falling back to primary
+openRenderNode got drm device /dev/dri/card1
+ERR: openRenderNode failed to open drm device /dev/dri/card1
+CRIT: ASSERTION FAILED! Couldn't open a gbm fd  at line 348 in OpenGL.cpp
+```
+
+Aquamarine created GBM allocators on **both** devices, which is the thing finding 1 could not do.
+What failed afterwards is an `open(2)`: libseat hands the compositor an fd for the card, but
+Hyprland opens a render node *itself* for its GL context, and that open bypasses libseat. The
+container's unprivileged user was in `seat` and nothing else, so it had no permission to open a DRM
+node directly. The image now puts it in `video`, `render` and `input` as well.
+
+The same log corrected the device story. `vkms` registers on the **faux** bus
+(`/sys/devices/faux/vkms/drm/card0`), where `device/driver` resolves to nothing — so the first
+attempt at naming the vkms node reported "no vkms node found" on a runner that had one, and the
+backend scanned and made the Hyper-V framebuffer primary. `hyperv_drm` has no render node and one
+plane format against vkms's twenty-two. The driver is now read from `device/uevent` with the sysfs
+path as the fallback the faux bus needs, and `AQ_DRM_DEVICES` lists vkms first with the others
+behind it rather than hidden.
+
+**What is still open** is narrower than it was: whether Hyprland's GL context comes up on a
+`vkms` primary once the node can be opened at all. The allocator question finding 1 raised is
+answered — GBM works here — so the remaining risk is the renderer, not the buffer. If it does not
+come up, route 2 is the answer: a QEMU `virtio-gpu` is a PCI device with a real render node, which
+removes both of this run's failure modes rather than working around them.
 
 **Rationale.** The harness is the project's most valuable test asset and rewriting it would be a
 larger change than this whole feature. Every measurement above says the harness does not need to

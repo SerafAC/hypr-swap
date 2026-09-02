@@ -41,8 +41,18 @@ RUN for binary in /usr/bin/Hyprland /usr/bin/sway; do \
 # Hyprland refuses to run as root (`Hyprland was launched with superuser privileges…`), and
 # containers run as root by default — [verified], research.md R30. The `--i-am-really-stupid`
 # escape hatch is not used: a `useradd` line is cheaper than running a compositor as root beside a
-# `cargo build`. `seat` is created by the seatd package and is what lets this user open a seat.
-RUN useradd --create-home --uid "$UID" --groups seat hypr
+# `cargo build`.
+#
+# `seat` is created by the seatd package and is what lets this user open a seat. `video` and
+# `render` are what let it *open a DRM node directly* — libseat hands the compositor an fd for the
+# card, but Hyprland opens a render node itself for GBM, and without the group that open() fails
+# with the assertion `Couldn't open a gbm fd` [verified, CI 2026-09-02]. `input` is for libinput.
+# Each group is created first if the base image has not already, so this does not depend on which
+# packages happened to bring one in.
+RUN for group in seat video render input; do \
+        getent group "$group" > /dev/null || groupadd --system "$group"; \
+    done \
+    && useradd --create-home --uid "$UID" --groups seat,video,render,input hypr
 
 # One toolchain, installed once, readable by every user — so the image works whether it is started
 # as `hypr` (the default) or as root (the automation path, which needs to start seatd before
