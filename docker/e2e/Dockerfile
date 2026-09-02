@@ -90,4 +90,7 @@ WORKDIR /work
 # a pure "did the environment come up" probe, which is what the `e2e` job asserts with before it
 # invokes the suite (contracts/ci.md).
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["cargo", "test", "--test", "e2e_*"]
+# `--no-fail-fast` because cargo otherwise stops at the first failing test *target*, and this tier
+# has eleven: one failing binary would hide whatever the other ten would have said, which is the
+# opposite of what a report from automation is for.
+CMD ["cargo", "test", "--no-fail-fast", "--test", "e2e_*"]

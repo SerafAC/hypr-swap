@@ -70,7 +70,9 @@ above. A contributor sees them fail in `cargo test --lib`, next to the code they
 `docker/e2e/Dockerfile` defines one image, used identically by automation and by a contributor.
 It carries a pinned Hyprland, `foot`, `seatd`, mesa, the cairo/pango development libraries and a
 `rustup` toolchain, runs as an unprivileged user, and its entry point runs
-`cargo test --test 'e2e_*'` against the repository mounted at `/work`.
+`cargo test --no-fail-fast --test 'e2e_*'` against the repository mounted at `/work` — the tier's
+own command, with `--no-fail-fast` so that one failing binary of the eleven does not hide what the
+other ten would have reported.
 
 It needs a Wayland session, and gets one of two ways ([research.md](../research.md) R29):
 
