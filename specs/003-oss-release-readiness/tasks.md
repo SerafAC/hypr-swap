@@ -248,7 +248,7 @@ only the E2E tier catches — and confirm each is caught without human involveme
 - [X] T047 [US3] Add a unit test parsing `deny.toml` that fails when an `ignore` entry's `reason` does not begin `until YYYY-MM-DD:` or when that date has passed — the gating half of FR-093's bounded acceptance, in `cargo test --lib` where a contributor sees it ([research.md](./research.md) R38)
 - [ ] T048 [US3] Run [quickstart.md](./quickstart.md) scenario 6: open **four** deliberately broken changes — a failing unit test, a formatting violation, a lint warning and a minimum-toolchain build failure — and confirm each fails in its own job naming its own reproducing command, within 30 minutes of submission. The fifth, an overlay regression only the E2E tier catches, is **not testable in automation** and its row is struck from the scenario: there is no E2E job (T044a) (SC-034, SC-033, FR-090)
 - [X] T049 [US3] Run [quickstart.md](./quickstart.md) scenario 5: the image runs the whole tier against a developer's own session — **86 passed, 0 failed**, verified repeatedly. Its purpose is now local compatibility testing against pinned versions rather than reproducing a CI failure, since there is no CI run to reproduce ([docker/e2e/README.md](../../docker/e2e/README.md), FR-089)
-- [ ] T050 [US3] Walk the inspection item for FR-091 — branch protection requires `ci-required` and nothing else — and confirm [contracts/ci.md](./contracts/ci.md) lists both the gating and the informational set. Unblocked: `ci-required` is green with all seven gating jobs. Needs a repository setting rather than a commit
+- [X] T050 [US3] Walk the inspection item for FR-091 — **done 2026-09-03**, and verified against the live repository rather than asserted: the ruleset on `master` reports `required_status_checks -> ci-required`, and nothing else, beside `deletion` and `non_fast_forward`. [contracts/ci.md](./contracts/ci.md) lists both sets. See the record below for the one row where the table and the `needs:` list still differ
 
 ### Story 3 record (T039, T049, and what T048/T050 still need)
 
@@ -507,6 +507,38 @@ R29's second route — a QEMU virtual machine with `virtio-gpu`, what upstream H
 — is the answer, and it removes both of this run's failure modes rather than working around them:
 a PCI device with a real render node.
 
+### T050 record — the gate is live, and one row still differs
+
+**Verified 2026-09-03** against the repository itself, anonymously:
+
+```
+GET /repos/SerafAC/hypr-swap/rules/branches/master
+- deletion
+- non_fast_forward
+- required_status_checks
+    requires: ci-required
+```
+
+`ci-required` and nothing else, which is FR-091 exactly. It was configured as a **ruleset**, and
+that is worth recording as a small improvement on what was planned: a ruleset is readable without
+repository admin, so the gating set can be checked by a contributor rather than taken on trust —
+classic branch protection is admin-only to read.
+
+**Admin bypass is deliberately left on.** Required status checks are evaluated after a push, so a
+protected branch with them rejects direct pushes; with bypass on, outside contributions are gated
+while the maintainer keeps the direct-push workflow this feature has used throughout. FR-091 is
+about *what* is required and whether that is visible in one place, not about who may bypass it.
+
+**The one divergence, stated rather than glossed.** [contracts/ci.md](./contracts/ci.md)'s gating
+table lists nine jobs; `ci-required`'s `needs:` lists seven. The two differ by `licenses`
+(`cargo deny check licenses`, FR-064), which has no job yet — T081 creates the job and adds it to
+the `needs:` list in the same change, because a `needs:` naming a job that does not exist makes the
+whole workflow unloadable. `e2e` accounts for the other row and is gone for good (R29, failed).
+Until T081 lands, the table describes the intended gating set and the `needs:` list describes the
+actual one; T081 closes that.
+
+---
+
 **Checkpoint**: A proposed change gets one pass/fail verdict with no maintainer action, and the E2E
 tier runs against a real compositor in automation.
 
@@ -600,7 +632,7 @@ component shipping inside it, names each licence, and finds the project's full l
 - [ ] T083 [US6] Extend `scripts/checks.sh` with the `licence-files` check: `LICENSE` exists and names a holder and a year; `Cargo.toml`'s `license` agrees with it; `Cargo.toml` carries description, licence, repository, documentation and keywords; every path under `protocols/` and `assets/` is accounted for in `THIRD-PARTY.md`, so zero files are unattributed (FR-062, FR-063, FR-065, SC-041)
 - [X] T084 [US6] Run `gitleaks detect --log-opts=--all` over the entire history for credentials, personal data and material the project has no right to publish, and record the outcome in `specs/003-oss-release-readiness/history-review.md` — **before** the repository is made public (FR-066a, [research.md](./research.md) R44)
 
-- [ ] T084a [US6] Make the repository public and turn on what only a public repository can do — GitHub Pages for T034's deployment and branch protection requiring `ci-required` (T042) — **only once** T084's review is recorded and clean (FR-066a, FR-078, FR-091)
+- [X] T084a [US6] Make the repository public and turn on what only a public repository can do — **all three done**: public 2026-09-02, GitHub Pages serving the site at `https://serafac.github.io/hypr-swap/`, and a ruleset on `master` requiring `ci-required` and nothing else (verified 2026-09-03). T084's review was recorded clean, though *after* the repository was made public rather than before — the ordering is recorded in [history-review.md](./history-review.md) (FR-066a, FR-078, FR-091)
 
 ### Story 6 record so far (T084, and what T084a still needs)
 
@@ -620,7 +652,7 @@ future history rewrite does not repeat it.
 |---|---|
 | Repository public | ✅ done 2026-09-02 |
 | GitHub Pages for T034's deployment | ✅ done 2026-09-02, by hand. `enablement: true` was tried first and **cannot** do it — the workflow token is refused with `Create Pages site failed: Resource not accessible by integration` even holding `pages: write` — so it was reverted and the setting switched on directly. The site is live: `https://serafac.github.io/hypr-swap/` returns 200 for the front page and for pages in both of FR-077's sections, and `docs.yml`'s build and deploy jobs both pass |
-| Branch protection requiring `ci-required` | ❌ not set — **and now unblocked**: `ci-required` went green on `0caa2cb` with all seven gating jobs passing, so requiring it no longer blocks every merge. This is the last item of T050 and needs a repository setting rather than a commit |
+| Branch protection requiring `ci-required` | ✅ done 2026-09-03, as a **ruleset** rather than a classic rule — which is the better outcome for FR-092's "published" spirit, because a ruleset is readable without repository admin: `GET /repos/SerafAC/hypr-swap/rules/branches/master` returns `required_status_checks -> ci-required`, `deletion`, `non_fast_forward` to anyone. The gate is therefore verifiable by a contributor, not only by the maintainer |
 
 **One further publication item, since closed**: the image was published to GHCR, where a package is
 **private by default even on a public repository** — an anonymous pull was refused. Rather than open
