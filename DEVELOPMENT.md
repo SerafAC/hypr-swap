@@ -106,24 +106,32 @@ Only one nested compositor can exist at a time, so these tests serialise on an i
 **Do not fight the harness with `--test-threads`**: it will not make them faster and it will make
 failures confusing.
 
-**Without a Wayland session, run the end-to-end tier in the published container image** rather than
-skipping it. It is the same image automation uses, so a failure there reproduces locally. The image
-is defined in the repository at `docker/e2e/Dockerfile`, and with a session of any kind you hand it
-yours and the harness nests inside it exactly as it nests inside a desktop:
+**Without a Wayland session there is no way to run this tier** — not in a container, and not in
+automation. The harness nests a compositor as an ordinary Wayland client, so it needs a parent
+session that can hand it a dmabuf allocator, and that needs a real GPU underneath. Both ways of
+faking one were built and measured, and neither works; that is why the project has no end-to-end
+CI job, and why the requirement asking for one is recorded as unmet rather than quietly dropped.
+The measurements are in `specs/003-oss-release-readiness/research.md` R29.
+
+**With a session, `docker/e2e/` gives you the same tier against pinned versions.** It is a local
+compatibility-testing tool rather than a CI environment: a fixed Hyprland, a fixed toolchain and
+the test dependencies, so you can ask "does this still work against the compositor the project
+supports?" without changing what is installed on your machine, and tell "my compositor updated"
+apart from "my change broke it". It is also the way to exercise the tier from a distribution that
+does not ship a current Hyprland.
 
 ```bash
+docker build -t hypr-swap-e2e docker/e2e
 docker run --rm \
-  -e XDG_RUNTIME_DIR -e WAYLAND_DISPLAY \
-  -v "$XDG_RUNTIME_DIR:$XDG_RUNTIME_DIR" \
   --device /dev/dri/renderD128 \
-  -v "$PWD:/src" ghcr.io/serafac/hypr-swap-e2e
+  -e WAYLAND_DISPLAY="$WAYLAND_DISPLAY" \
+  -v "$XDG_RUNTIME_DIR:/run/host" -e XDG_RUNTIME_DIR=/run/host \
+  -v "$PWD:/work" -w /work \
+  hypr-swap-e2e
 ```
 
-With no session at all the image starts its own parent Hyprland on the DRM backend and the harness
-nests inside that, unchanged — which needs a virtual GPU and a seat, and is what automation
-supplies. A plain container with neither cannot run this tier: Hyprland's DRM backend fails with
-`libseat: failed to open a seat`, and its Wayland backend fails with `no allocator available`.
-That is measured rather than assumed — see `specs/003-oss-release-readiness/research.md` R29.
+[docker/e2e/README.md](docker/e2e/README.md) covers the rest, including what to do when your
+`/dev/dri` nodes are not world-accessible.
 
 **The documentation site** builds with its own toolchain, and only documentation work needs it:
 

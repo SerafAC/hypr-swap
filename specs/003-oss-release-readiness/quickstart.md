@@ -110,10 +110,13 @@ Judged, not run — the inspection tier for the README and `DEVELOPMENT.md`:
 5. Give someone the site's styling page alone and ask for a complete custom appearance —
    colours, font and dimensions, no source reading. **SC-031**.
 
-## 5. A contributor reproduces an E2E failure locally (FR-089, SC-035)
+## 5. The tier runs against pinned versions (FR-089)
 
-The same image automation uses, against your own session — **[verified] working**
-([research.md](./research.md) R29):
+`docker/e2e/` is a **local compatibility-testing tool**: the compositor, the toolchain and the test
+dependencies at fixed versions, so "does this still work against the compositor the project
+supports?" is answerable without changing what is installed on your machine. It is not a CI
+environment — there is no E2E job to reproduce, because nothing can supply automation a compositor
+that can host a nested one ([research.md](./research.md) R29, **failed**).
 
 ```bash
 docker build -t hypr-swap-e2e docker/e2e
@@ -125,12 +128,11 @@ docker run --rm \
   hypr-swap-e2e
 ```
 
-**Expected**: a nested Hyprland starts inside the container, the suite runs against it, and the
-verdict matches what automation reported. **SC-035**: under 15 minutes from a red check to a
-reproduction.
+**Expected**: a nested Hyprland starts inside the container against the session you handed it, and
+the whole tier passes — **[verified], 86 passed, 0 failed**.
 
-Without a session of your own, the image needs a virtual GPU and a seat; that is the automation
-path of [contracts/ci.md](./contracts/ci.md), and it is what the CI phase's first task stands up.
+It cannot make a session; with none of your own there is no way to run this tier at all, which is
+the measured limit R29 records and [docker/e2e/README.md](../../docker/e2e/README.md) states.
 
 ## 6. Every gated failure is actually caught (SC-034)
 
@@ -143,10 +145,16 @@ without a human:
 | Reformat a file by hand | `fmt` |
 | Add a `clippy::pedantic` violation | `clippy` |
 | Use an API newer than `rust-version` | `msrv` |
-| Change entry ordering so only the overlay shows it | `e2e` |
 
 **Expected**: each fails for its own reason and names the local command that reproduces it
-(FR-090). The fifth is the one that matters: it is the reason FR-088 exists.
+(FR-090).
+
+**A fifth row used to be here** — "change entry ordering so only the overlay shows it", expected to
+fail `e2e` — and it was described as the one that mattered, because it is the reason FR-088 exists.
+It is struck because there is no `e2e` job: no automation can supply a compositor able to host the
+nested one this tier needs ([research.md](./research.md) R29, **failed**). That break is now caught
+only by running the tier on a machine with a Wayland session, which is exactly the exposure the
+deviation recorded at FR-088 describes.
 
 ## 7. A release, end to end (FR-105–FR-111, SC-037, SC-038)
 

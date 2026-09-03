@@ -1,5 +1,12 @@
-# The one E2E environment (FR-089): the image automation runs and the image a contributor runs are
-# the same image, so an automation failure reproduces locally (SC-035, research.md R29, R30).
+# A pinned stack to run the E2E tier against, on a machine whose own stack differs (FR-089).
+#
+# **This image is a local tool, not a CI environment.** It runs the suite against a Wayland session
+# you already have; it cannot create one, because a container has no GPU to start a compositor on —
+# measured, with both routes, in research.md R29. What it is *for* is holding the compositor, the
+# toolchain and the test dependencies at known versions, so that "does this still work against
+# Hyprland 0.56 / Rust 1.96?" is a question you can answer without changing what is installed on
+# your machine, and so that a failure caused by your compositor updating is distinguishable from
+# one caused by your change. See docker/e2e/README.md.
 #
 # Arch, because it is the only family that ships a current Hyprland, which is what this tier needs.
 # The distribution the *packages* target is a separate question and deliberately a different image
@@ -18,13 +25,13 @@ ARG RUST_TOOLCHAIN=1.96.0
 ARG UID=1000
 
 # `hyprland` brings `Hyprland` and `hyprctl`; `foot` is the harness's documented substitute for an
-# arbitrary application window; `seatd` supplies the seat the DRM backend needs when no session is
-# handed in; `mesa` the GBM/EGL stack; `cairo`/`pango` are the program's own link dependencies —
+# arbitrary application window; `mesa` the GBM/EGL stack; `cairo`/`pango` are the program's own
+# link dependencies —
 # Arch ships headers in the same package, so there is no separate development package to name.
 # `ttf-dejavu` exists because pango will not lay text out with no font installed at all, and the
 # overlay is text. `libcap` is for the `setcap -r` below.
 RUN pacman -Syu --noconfirm --needed \
-        hyprland foot seatd mesa \
+        hyprland foot mesa \
         cairo pango libxkbcommon \
         gcc pkgconf git rustup libcap ttf-dejavu \
     && rm -rf /var/cache/pacman/pkg/*
@@ -43,16 +50,15 @@ RUN for binary in /usr/bin/Hyprland /usr/bin/sway; do \
 # escape hatch is not used: a `useradd` line is cheaper than running a compositor as root beside a
 # `cargo build`.
 #
-# `seat` is created by the seatd package and is what lets this user open a seat. `video` and
-# `render` are what let it *open a DRM node directly* — libseat hands the compositor an fd for the
-# card, but Hyprland opens a render node itself for GBM, and without the group that open() fails
-# with the assertion `Couldn't open a gbm fd` [verified, CI 2026-09-02]. `input` is for libinput.
+# `video` and `render` are what let this user open a DRM node, which the nested compositor does
+# itself for GBM; `input` is for libinput. They are a starting point only — a host's numeric group
+# ids rarely match an image's, which is what the entry point's `--user root` path fixes properly.
 # Each group is created first if the base image has not already, so this does not depend on which
 # packages happened to bring one in.
-RUN for group in seat video render input; do \
+RUN for group in video render input; do \
         getent group "$group" > /dev/null || groupadd --system "$group"; \
     done \
-    && useradd --create-home --uid "$UID" --groups seat,video,render,input hypr
+    && useradd --create-home --uid "$UID" --groups video,render,input hypr
 
 # One toolchain, installed once, readable by every user — so the image works whether it is started
 # as `hypr` (the default) or as root (the automation path, which needs to start seatd before
@@ -79,16 +85,14 @@ ENV CARGO_TARGET_DIR=/tmp/hypr-swap-target
 RUN git config --system --add safe.directory '*'
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY parent.conf /etc/hypr-swap-e2e/parent.conf
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
 USER hypr
 WORKDIR /work
 
-# The entry point resolves a Wayland session — one handed in, or one it starts itself — and then
-# runs whatever it is given. The default is the E2E tier; `docker run … <image> true` is therefore
-# a pure "did the environment come up" probe, which is what the `e2e` job asserts with before it
-# invokes the suite (contracts/ci.md).
+# The entry point checks the session it was handed and then runs whatever it is given. The default
+# is the E2E tier, so `docker run … <image> true` is a "can this image see my session" probe and
+# `docker run … <image> cargo test --test e2e_switcher` runs one binary of it.
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # `--no-fail-fast` because cargo otherwise stops at the first failing test *target*, and this tier
 # has eleven: one failing binary would hide whatever the other ten would have said, which is the

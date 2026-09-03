@@ -11,7 +11,38 @@ Findings marked **[verified]** were established by running the thing on this mac
 
 ---
 
-## R29: Running the E2E tier where there is no Wayland session (FR-088, FR-089)
+## R29: Running the E2E tier where there is no Wayland session (FR-088, FR-089) — **FAILED**
+
+> **Outcome: abandoned on 2026-09-03, after both routes were built and measured.** There is no way
+> to run this tier in hosted automation that is worth maintaining. The decision below stands as the
+> record of what was tried and what each attempt proved; it is kept rather than deleted because the
+> measurements are the reason not to try again.
+>
+> **What the tier needs**: the harness nests a Hyprland as an ordinary Wayland client, so it needs a
+> parent session that can hand it a dmabuf allocator, which needs a real GPU driver underneath. That
+> is the single requirement every attempt broke against:
+>
+> | Attempt | How far it got |
+> |---|---|
+> | A plain container | Hyprland will not start: no seat, and no allocator from a GPU-less parent |
+> | **Route 1** — `vkms` on the runner | Module loads, seat serves, nodes open, parent publishes a session. The nested compositor never reports a monitor: `vkms` is display-only and has no render node to allocate from. **83 of 83 tests, one cause** |
+> | **Route 2** — QEMU + `virtio-gpu` | A render node *does* appear (the real difference from `vkms`) and the parent starts. The nested compositor starts, then `DRM_IOCTL_MODE_CREATE_DUMB failed: Permission denied` — without virgl there is no usable GPU driver, so mesa falls back to KMS dumb buffers on the primary node, which the parent holds DRM master on |
+>
+> Route 2's remaining variant — `virtio-gpu-gl` with host-side software GL — was **not** tested, by
+> decision. Its best case is a slow, software-rendered tier that would still fail the latency
+> budgets and would add a virtual machine to maintain; poor support here is not meaningfully
+> different from none, and the maintenance is real either way.
+>
+> **What replaced it.** The tier is verified on a developer's machine, recorded as a deviation
+> against FR-088 in [spec.md](./spec.md). `docker/e2e/` survives with a different purpose — local
+> compatibility testing against pinned versions, documented in
+> [docker/e2e/README.md](../../docker/e2e/README.md) — and there is no CI job and no published
+> image. The note in R30 about what the image contains still applies to that use.
+>
+> **What this cost, and what it bought.** Two routes built and measured end to end. It bought
+> certainty: the alternative was carrying an unproven "we could do this in CI" assumption
+> indefinitely, and the failures are specific enough that anyone proposing it again can be shown
+> exactly where it stops.
 
 **The question.** The harness (`tests/e2e/harness.rs`) starts a nested Hyprland as an ordinary
 Wayland client of the developer's session. Automation has no session. The spec calls this the
@@ -145,11 +176,28 @@ The chain is therefore complete and consistent with what R29 measured before any
 a nested compositor needs a real GPU somewhere underneath, and no synthetic KMS device supplies
 one.
 
-**Route 2 is the answer**, for exactly the reason it was written down as the fallback: a QEMU
-`virtio-gpu` is a PCI device with a **render node**, so the parent gets a real GBM/EGL renderer and
-can offer `linux-dmabuf` to its clients — which is the one thing the nested compositor needs and
-the one thing `vkms` cannot give it. It is also what upstream Hyprland's own CI does, from an
-`ubuntu-latest` runner, which is the same evidence that put it in this decision to begin with.
+**Route 2 was then built and measured too, and it fails one step further along** — **[verified]**,
+2026-09-03, in a local QEMU guest with `-vga none -device virtio-gpu-pci`, no host GPU involved:
+
+- **Stage A passed**, and this is the real difference from `vkms`: `/dev/dri/renderD128` exists, on
+  a PCI device.
+- **Stage B passed**: a parent Hyprland starts on it and publishes `wayland-1`.
+- **Stage C failed**: the nested Hyprland starts and publishes `wayland-2`, then cannot allocate —
+  `KMS: DRM_IOCTL_MODE_CREATE_DUMB failed: Permission denied`, `GBM: Failed to allocate a GBM
+  buffer: bo null`, `Monitor WAYLAND-1 has NO PREFERRED MODE`.
+
+The cause is *not* "no GPU" but "no GPU **driver**": plain `virtio-gpu` carries no virgl, so mesa
+has nothing to drive the render node with and falls back to KMS dumb buffers on the **primary**
+node — which the parent compositor holds DRM master on, so a second process is refused. This also
+disposes of the upstream-CI citation above: `-device virtio-gpu-pci` is enough to run *one*
+compositor, which is what upstream's test does, and not enough to nest a second inside it. That
+distinction was never checked when this decision was written.
+
+**The one untested variant, and why it stays untested.** `virtio-gpu-gl` with virglrenderer on
+host-side software GL would give the guest a real driver. Its best case is a software-rendered tier
+slow enough to fail the latency budgets anyway, plus a virtual machine to maintain in CI. The
+decision (2026-09-03) is that poor support here is not meaningfully different from none, and the
+maintenance cost is real either way. See the outcome note at the head of this decision.
 
 **Rationale.** The harness is the project's most valuable test asset and rewriting it would be a
 larger change than this whole feature. Every measurement above says the harness does not need to
@@ -175,6 +223,12 @@ compositor's own maintainers reached for a VM for the same reason.
   trade).
 
 ## R30: What the test-environment image contains (FR-089)
+
+> **Still current, with a narrowed purpose.** R29 failed, so this image is no longer a CI
+> environment and is not published anywhere. It survives as a **local** tool for compatibility
+> testing against pinned versions — see [docker/e2e/README.md](../../docker/e2e/README.md). Every
+> decision below about what it contains still holds, except `seatd`, which was only there to give
+> the container a seat when it started its own compositor and is dropped with that ambition.
 
 **Decision.** An Arch base (`archlinux:latest`), pinned by digest, carrying `hyprland`, `foot`,
 `seatd`, `mesa`, the cairo/pango development libraries and a `rustup` toolchain matching

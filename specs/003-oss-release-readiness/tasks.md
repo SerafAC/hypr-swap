@@ -234,21 +234,21 @@ only the E2E tier catches — and confirm each is caught without human involveme
 ### Implementation for User Story 3
 
 - [X] T039 [US3] Write `docker/e2e/Dockerfile`: an `archlinux:latest` base pinned by digest, carrying `hyprland`, `foot`, `seatd`, `mesa`, the cairo/pango development libraries and a `rustup` toolchain matching `rust-version`; create and drop to an unprivileged user because Hyprland refuses to run as root; run `setcap -r` on `Hyprland` and `sway` because file capabilities fail under Docker's default bounding set; entry point `cargo test --test 'e2e_*'` against the repository mounted at `/work` (FR-089, [research.md](./research.md) R29, R30)
-- [X] T040 [US3] Publish the image to `ghcr.io` from a workflow so automation and a contributor use the identical image (FR-089)
+- [X] T040 [P] [US3] ~~Publish the image to `ghcr.io` from a workflow~~ — **dropped, and the workflow deleted.** FR-089 requires the image to be *defined in the repository and usable locally*, not published; nothing consumed the registry copy (the `e2e` job built from the Dockerfile, and there is no `e2e` job now), and a GHCR package is private by default so no one could pull it anyway. The task's stated rationale — "so automation and a contributor use the identical image" — is delivered by the Dockerfile living in the repository. Constitution Principle I (YAGNI)
 - [X] T041 [US3] Create `.github/workflows/ci.yml` with one job per gating check — `build` (`cargo build --release`), `unit` (`cargo test --lib`), `clippy` (`cargo clippy --all-targets -- -D warnings`), `fmt` (`cargo fmt --check`), `msrv` (a build on the toolchain named by `Cargo.toml`'s `rust-version`), `docs` (`pnpm install --frozen-lockfile && pnpm build && pnpm validate`, on the same `pnpm/action-setup` + `setup-node` pair as T034; the pull-request build of the site that T034's deploy workflow deliberately leaves to it) and `checks` (`./scripts/checks.sh`) — triggered on every pull request and every push to the default branch (FR-085, FR-086, FR-087)
 - [X] T042 [US3] Add the aggregating `ci-required` job to `.github/workflows/ci.yml`, depending on exactly the gating jobs of [contracts/ci.md](./contracts/ci.md) — `build`, `unit`, `clippy`, `fmt`, `msrv`, `docs`, `checks`, `licenses` and `e2e` — and make it the single branch-protection requirement so a renamed or newly added job cannot silently start or stop gating. Any later task that adds a gating job (T044's `e2e`, T081's `licenses`) MUST add it to this `needs:` list in the same change: that list **is** the gating set FR-091 makes visible (FR-085, FR-091, SC-033, [research.md](./research.md) R39)
 - [X] T043 [US3] Give every job in `.github/workflows/ci.yml` a failure step printing the exact local command from [contracts/ci.md](./contracts/ci.md)'s "reproduce locally" column (FR-090)
-- [X] T044 [US3] Create `.github/workflows/e2e.yml` declared `on: workflow_call`, running `cargo test --test 'e2e_*'` in the T039 image against a compositor automation supplies — a virtual GPU and a seat, since a plain container cannot start Hyprland at all — and call it from `.github/workflows/ci.yml` as the `e2e` job named in T042's `needs:` list, because a job in a workflow `ci.yml` does not call cannot be a dependency of `ci-required` and a second required check would defeat FR-091's single visible gate (FR-088, FR-091, [research.md](./research.md) R29)
-- [ ] T044a [US3] **Build R29's route 2** — a QEMU virtual machine with `virtio-gpu`, KVM-accelerated, running the T039 image inside it — and restore `e2e` to a gating job: add it back to `.github/workflows/ci.yml` via the `workflow_call` trigger `e2e.yml` already carries, add `e2e` back to `ci-required`'s `needs:` list and to the gating table of [contracts/ci.md](./contracts/ci.md), and remove the recorded deviation at FR-088 in [spec.md](./spec.md) and the tier row in [plan.md](./plan.md). Route 1 is measured and dead: a parent on `vkms` has no render node and cannot hand the nested compositor a dmabuf allocator (FR-088, FR-091, [research.md](./research.md) R29)
-- [X] T045 [US3] Make the `e2e` job assert the parent session is up *before* invoking `cargo test`, so an environment failure — a broken runner — reports distinctly from a genuine test failure ([contracts/ci.md](./contracts/ci.md), spec edge case)
+- [X] T044 [US3] ~~Create `.github/workflows/e2e.yml`~~ — **built, measured, and deleted.** It ran, and the tier it ran could never pass: see the Story 3 record below and [research.md](./research.md) R29, now marked **failed**. Keeping a job that fails on every push is the "permanently red teaches everyone to ignore red" outcome FR-093 legislates against, so there is no E2E job in automation at all
+- [X] T044a [US3] ~~Build R29's route 2 — a QEMU virtual machine with `virtio-gpu`~~ — **dropped after a spike measured it.** A local QEMU guest with `-vga none -device virtio-gpu-pci` gets a render node (unlike `vkms`) and starts a parent compositor, then refuses the nested one: `DRM_IOCTL_MODE_CREATE_DUMB failed: Permission denied` — no virgl means no driver behind the render node. The remaining variant, `virtio-gpu-gl` on host-side software GL, is left untested by decision: its best case is a tier slow enough to fail the latency budgets, bought with a virtual machine to maintain (FR-088, [research.md](./research.md) R29)
+- [X] T045 [US3] ~~Make the `e2e` job assert the parent session is up *before* invoking `cargo test`~~ — **built and deleted with T044.** It worked and did exactly what it was for: it is what distinguished "the runner cannot start a compositor" from "the change is broken" through every round of R29's measurements. It has nothing left to guard now that there is no job
 - [X] T046 [P] [US3] Create `deny.toml` with the `[advisories]` section, and `.github/workflows/advisories.yml` running `cargo deny check advisories` as an **informational** job, so an advisory is surfaced without blocking every contributor on someone else's disclosure (FR-093, [research.md](./research.md) R38)
 
 ### Tests for User Story 3
 
 - [X] T047 [US3] Add a unit test parsing `deny.toml` that fails when an `ignore` entry's `reason` does not begin `until YYYY-MM-DD:` or when that date has passed — the gating half of FR-093's bounded acceptance, in `cargo test --lib` where a contributor sees it ([research.md](./research.md) R38)
-- [ ] T048 [US3] Run [quickstart.md](./quickstart.md) scenario 6: open five deliberately broken changes, one of each gated kind, and confirm each fails in its own job naming its own reproducing command, arriving within 30 minutes of submission (SC-034, SC-033, FR-090)
-- [X] T049 [US3] Run [quickstart.md](./quickstart.md) scenario 5: reproduce an E2E failure locally in the published image against your own Wayland session (FR-089, SC-035)
-- [ ] T050 [US3] Walk the inspection item for FR-091 — branch protection requires `ci-required` and nothing else — and confirm [contracts/ci.md](./contracts/ci.md) lists both the gating and the informational set
+- [ ] T048 [US3] Run [quickstart.md](./quickstart.md) scenario 6: open **four** deliberately broken changes — a failing unit test, a formatting violation, a lint warning and a minimum-toolchain build failure — and confirm each fails in its own job naming its own reproducing command, within 30 minutes of submission. The fifth, an overlay regression only the E2E tier catches, is **not testable in automation** and its row is struck from the scenario: there is no E2E job (T044a) (SC-034, SC-033, FR-090)
+- [X] T049 [US3] Run [quickstart.md](./quickstart.md) scenario 5: the image runs the whole tier against a developer's own session — **86 passed, 0 failed**, verified repeatedly. Its purpose is now local compatibility testing against pinned versions rather than reproducing a CI failure, since there is no CI run to reproduce ([docker/e2e/README.md](../../docker/e2e/README.md), FR-089)
+- [ ] T050 [US3] Walk the inspection item for FR-091 — branch protection requires `ci-required` and nothing else — and confirm [contracts/ci.md](./contracts/ci.md) lists both the gating and the informational set. Unblocked: `ci-required` is green with all seven gating jobs. Needs a repository setting rather than a commit
 
 ### Story 3 record (T039, T049, and what T048/T050 still need)
 
@@ -423,7 +423,44 @@ reproduces the CI symptom exactly — `timed out after 10s waiting until the nes
 reports a monitor`. Every CI suite run so far carried it, so it confounded all of them. Removed;
 mesa picks its own driver for whichever node it is given, which is what it is for.
 
-**Interim position, taken deliberately on 2026-09-02: `e2e` is informational.** Route 2 is a
+**Final position, 2026-09-03: R29 is marked failed and the E2E job is gone.** Route 2 was spiked
+before being built — a local QEMU guest with the exact flags R29 quotes from upstream Hyprland's CI
+(`-vga none -device virtio-gpu-pci`), no host GPU involved. It got further than `vkms` and stopped
+at the same place:
+
+| Stage | Result |
+|---|---|
+| A — a render node exists | ✅ `/dev/dri/renderD128` on a PCI device. `vkms` never had one |
+| B — a parent Hyprland starts on it | ✅ up on `wayland-1` |
+| C — a **nested** Hyprland reports a monitor | ❌ starts, publishes `wayland-2`, then `DRM_IOCTL_MODE_CREATE_DUMB failed: Permission denied` |
+
+The cause is "no GPU **driver**", not "no GPU": without virgl mesa has nothing to drive the render
+node with, so it falls back to KMS dumb buffers on the primary node — which the parent holds DRM
+master on, so a second process is refused. That also disposes of R29's upstream-CI citation:
+`virtio-gpu-pci` runs *one* compositor, which is upstream's test, and cannot nest a second.
+
+**The decision (the maintainer's, on this evidence)**: stop. The one untested variant,
+`virtio-gpu-gl` on host-side software GL, has a best case of a software-rendered tier slow enough to
+fail the latency budgets, bought with a virtual machine to maintain in CI — poor support here is not
+meaningfully different from none, and the maintenance is real either way. What that means in the
+tree:
+
+| Where | What changed |
+|---|---|
+| `.github/workflows/e2e.yml`, `e2e-image.yml` | **deleted.** A job that fails on every push is the "permanently red" outcome FR-093 legislates against, and nothing consumed the published image |
+| `docker/e2e/` | **kept, repurposed** — local compatibility testing against pinned versions, with its own [README](../../docker/e2e/README.md). The automation half of the entry point (seatd, the parent compositor, vkms detection) is gone with the ambition; 271 lines became 89 |
+| [research.md](./research.md) R29 | marked **FAILED**, with both routes' measurements kept as the reason not to try again |
+| [spec.md](./spec.md) FR-088 | deviation upgraded from "unmet for now" to **unmet, not being pursued** |
+| [plan.md](./plan.md) | tier row is "developer machine — requirement unmet"; Complexity Tracking records that its own cost estimate was wrong |
+| T040, T044, T044a, T045 | closed — dropped or built-and-deleted, each with its reason |
+
+**What the exposure actually is.** An overlay regression that only the E2E tier catches now reaches
+`master` unless someone runs that tier on a machine with a Wayland session. That is a real hole and
+it is stated at FR-088 rather than papered over. The other eight gating checks are unaffected: the
+unit tier, which is where most of this project's behaviour is verified, runs on every change.
+
+**Interim position, taken on 2026-09-02 — superseded the next day by the record above, and kept
+because it is the step between "route 1 failed" and "both routes failed": `e2e` is informational.** Route 2 is a
 substantially larger piece of work than route 1, so rather than block the phase on it the tier now
 runs on every change and reports without gating. This is the alternative [plan.md](./plan.md)'s
 Complexity Tracking table explicitly **rejected**, so it is recorded rather than quietly adopted:
@@ -431,7 +468,7 @@ Complexity Tracking table explicitly **rejected**, so it is recorded rather than
 | Where | What it now says |
 |---|---|
 | `ci.yml` | `e2e` removed from `ci-required`'s `needs:` and no longer called; a comment says why and when it returns |
-| `e2e.yml` | its own `pull_request`/`push` triggers, like `advisories`; keeps `workflow_call` so route 2 restores the old arrangement by adding one job back |
+| `e2e.yml` | its own `pull_request`/`push` triggers, like `advisories`; kept `workflow_call` so route 2 could restore the old arrangement by adding one job back — ~~route 2 was then measured and the file deleted~~ |
 | [contracts/ci.md](./contracts/ci.md) | `e2e` moved from the gating table to the informational one, with the measurement and the tier that covers it meanwhile |
 | [spec.md](./spec.md) | a deviation recorded at FR-088 — the requirement is unchanged and unwaived, it is currently **unmet** |
 | [plan.md](./plan.md) | FR-088's tier row becomes "developer machine, pending route 2"; the Complexity Tracking entry records that its rejected alternative is in force as an interim measure |
@@ -585,11 +622,11 @@ future history rewrite does not repeat it.
 | GitHub Pages for T034's deployment | ✅ done 2026-09-02, by hand. `enablement: true` was tried first and **cannot** do it — the workflow token is refused with `Create Pages site failed: Resource not accessible by integration` even holding `pages: write` — so it was reverted and the setting switched on directly. The site is live: `https://serafac.github.io/hypr-swap/` returns 200 for the front page and for pages in both of FR-077's sections, and `docs.yml`'s build and deploy jobs both pass |
 | Branch protection requiring `ci-required` | ❌ not set — **and now unblocked**: `ci-required` went green on `0caa2cb` with all seven gating jobs passing, so requiring it no longer blocks every merge. This is the last item of T050 and needs a repository setting rather than a commit |
 
-**One further publication item, outside T084a's wording but in FR-089's spirit**: the image
-`e2e-image.yml` publishes is a GHCR package, and a GHCR package is **private by default even on a
-public repository** — an anonymous pull of `ghcr.io/serafac/hypr-swap-e2e` is refused. Until its
-package visibility is set to public, a contributor cannot pull the image automation used and must
-build it, which is the half of SC-035 the publish step exists to remove.
+**One further publication item, since closed**: the image was published to GHCR, where a package is
+**private by default even on a public repository** — an anonymous pull was refused. Rather than open
+the package, the publishing workflow was deleted (T040): FR-089 asks for an image defined in the
+repository and usable locally, not a published one, and nothing consumed the registry copy. The
+image is built from `docker/e2e/` by whoever wants it.
 
 **Checkpoint**: Every file in the tree is attributable to an origin and a licence; the history has
 been reviewed, the review recorded, and only then is the repository public.

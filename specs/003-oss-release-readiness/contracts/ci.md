@@ -27,11 +27,11 @@ one is added to the other in the same change; that is what makes the gating set 
 rather than spread across job names (FR-091).
 
 **Where `e2e` went.** It was in this table, aggregated into `ci.yml` via `uses:` so that
-`ci-required` could `needs:` it. It is now **informational** and has its own workflow, because
-route 1 of [research.md](../research.md) R29 cannot host a nested compositor and route 2 is not
-built — see the informational table below and the deviation recorded against FR-088 in
-[spec.md](../spec.md). `e2e.yml` keeps its `workflow_call` trigger, so route 2 restores the gating
-arrangement by adding one job back to `ci.yml` and one name back to both lists above.
+`ci-required` could `needs:` it. **There is no `e2e` job any more.** Both ways of supplying
+automation with a compositor were built and measured, and neither can host the nested compositor
+the harness needs ([research.md](../research.md) R29, marked failed). The tier is verified on a
+developer's machine instead, which is recorded as a deviation against FR-088 in
+[spec.md](../spec.md).
 
 **Where the site is built.** The `docs` job above is the pull-request build, and it is what gates.
 `docs.yml` builds and deploys only on pushes to the default branch (FR-078, [research.md](../research.md)
@@ -43,7 +43,6 @@ that broke it.
 | Job | Why it does not gate |
 |---|---|
 | `advisories` (`cargo deny check advisories`) | An advisory is news about the world, not a defect in the change under review; blocking every contributor on someone else's disclosure is how a project learns to ignore red. Acceptances are recorded and time-bounded — see below. |
-| `e2e` (`cargo test --no-fail-fast --test 'e2e_*'` in the image) | **Temporary, and a recorded deviation from FR-088 rather than a design position.** Automation can supply the tier a *session* but not a *GPU*: a parent compositor on `vkms` has no render node, so it cannot hand the nested compositor a dmabuf allocator, and all 83 tests time out waiting for a monitor ([research.md](../research.md) R29, measured). Until route 2 — a QEMU virtual machine with `virtio-gpu` — is built, the tier gates nothing in automation and its gating tier is a contributor's own machine, run with the command in [quickstart.md](../quickstart.md) scenario 5. It still runs on every change and still reports. |
 
 The **expiry of an acceptance is gating**, in `unit`: `deny.toml`'s `ignore` entries must carry a
 `reason` beginning `until YYYY-MM-DD:`, and a unit test fails once that date has passed or if the
@@ -68,37 +67,28 @@ Two checks are deliberately **not** shell steps but unit tests, because they com
 against values that live in the code: the settings-catalogue walk (FR-083) and the advisory expiry
 above. A contributor sees them fail in `cargo test --lib`, next to the code they changed.
 
-## The E2E environment (FR-088, FR-089)
+## The E2E environment (FR-089)
 
-`docker/e2e/Dockerfile` defines one image, used identically by automation and by a contributor.
-It carries a pinned Hyprland, `foot`, `seatd`, mesa, the cairo/pango development libraries and a
-`rustup` toolchain, runs as an unprivileged user, and its entry point runs
-`cargo test --no-fail-fast --test 'e2e_*'` against the repository mounted at `/work` — the tier's
-own command, with `--no-fail-fast` so that one failing binary of the eleven does not hide what the
-other ten would have reported.
+**The end-to-end tier does not run in automation.** Both routes for supplying a compositor were
+built and measured and neither can host the nested compositor the harness needs
+([research.md](../research.md) R29, marked failed): a `vkms` parent has no render node to allocate
+from, and a `virtio-gpu` parent has a render node but no driver behind it, so the nested compositor
+is refused KMS dumb buffers on a node the parent holds master on. The tier's verification is a
+developer's machine — the deviation is recorded against FR-088 in [spec.md](../spec.md).
 
-It needs a Wayland session, and gets one of two ways ([research.md](../research.md) R29):
+`docker/e2e/Dockerfile` survives, with a narrower purpose: **local compatibility testing against
+pinned versions.** It carries a pinned Hyprland, `foot`, mesa, cairo/pango and a `rustup` toolchain
+matching `rust-version`, runs as an unprivileged user, and runs
+`cargo test --no-fail-fast --test 'e2e_*'` against the repository mounted at `/work`. It answers
+"does this still work against the compositor and toolchain the project supports?" without changing
+what is installed on the machine asking. It is **not** published to any registry: nothing consumes
+it but the person who built it, and FR-089 asks only that the image be defined in the repository
+and usable locally. [docker/e2e/README.md](../../../docker/e2e/README.md) is its documentation.
 
-- **a contributor's own session** — the image is run with the host's `XDG_RUNTIME_DIR`,
-  `WAYLAND_DISPLAY` and one render node; verified working, and the exact command is in
-  [quickstart.md](../quickstart.md);
-- **automation supplies one** — a virtual GPU and a seat, on which the image starts its own parent
-  compositor before running the suite. A plain container cannot do this: Hyprland 0.56 has no
-  headless-only mode, its DRM backend needs a seat and its Wayland backend needs a dmabuf
-  allocator, all three measured in R29.
-
-Either way the harness is unchanged: it nests inside whichever session it is given, exactly as it
-does on a developer's machine.
-
-**Where the image is published.** `e2e-image.yml` pushes the default branch's image to
-`ghcr.io/<owner>/hypr-swap-e2e`, tagged `latest` and by commit, so a contributor can pull the image
-rather than build it and a bug report can quote its digest. The `e2e` job *builds* from the
-Dockerfile rather than pulling, so a change to the image is verified by the change that makes it.
-
-**When the environment itself fails** — the image cannot start a compositor, rather than a test
-failing — the job reports that distinctly, by asserting the parent session is up before invoking
-`cargo test`. An environment failure is a broken runner, not a broken change, and the message says
-so.
+It runs against a session the contributor already has — passed in with the host's
+`XDG_RUNTIME_DIR`, `WAYLAND_DISPLAY` and one render node. That command is in
+[quickstart.md](../quickstart.md) and in the image's README. The harness is unchanged: it nests
+inside whichever session it is given.
 
 ## Where this is published
 

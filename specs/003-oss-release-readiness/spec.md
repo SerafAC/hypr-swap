@@ -490,17 +490,21 @@ Numbering continues features 001 and 002 (FR-062 onward).
   building against it, so the declared minimum cannot silently drift.
 - **FR-088**: Automated checks MUST run the end-to-end suite against a compositor supplied by
   automation, so that overlay behaviour — not only pure logic — is verified before merge.
-  > **Recorded deviation, 2026-09-02 — not met in automation, and gating nothing until it is.**
-  > Both routes for supplying a compositor were measured ([research.md](./research.md) R29). The
-  > cheaper one gives automation a *session* but not a *GPU*: a parent compositor on `vkms` has no
-  > render node, so it cannot hand the nested compositor a dmabuf allocator, and all 83 tests time
-  > out waiting for a monitor. The suite is therefore **informational** in automation — it runs on
-  > every change and reports, but is not in `ci-required`'s gating set. The requirement is
-  > unchanged and unwaived; what changed is that it is currently unmet, which
-  > [contracts/ci.md](./contracts/ci.md) states in both its tables rather than leaving the gate to
-  > imply it. Until then the tier's verification is a contributor's own machine
-  > ([quickstart.md](./quickstart.md) scenario 5), and closing this needs route 2 — a QEMU virtual
-  > machine with `virtio-gpu`, which supplies a real render node.
+  > **Recorded deviation, 2026-09-03 — NOT MET, and not being pursued.** Both routes for supplying
+  > automation with a compositor were built and measured, and neither works
+  > ([research.md](./research.md) R29, marked failed). A `vkms` parent has no render node to
+  > allocate from and the nested compositor never gets a monitor — 83 of 83 tests, one cause. A
+  > QEMU `virtio-gpu` parent *does* expose a render node, but without virgl there is no driver
+  > behind it, so mesa falls back to KMS dumb buffers on the primary node and the nested compositor
+  > is refused them. The one remaining variant, `virtio-gpu-gl` on host-side software GL, was left
+  > untested by decision: its best case is a software-rendered tier slow enough to fail the latency
+  > budgets, bought with a virtual machine to maintain in CI.
+  >
+  > The requirement is **unchanged and unwaived** — it is simply unmet, and there is no `e2e` job
+  > in automation at all rather than a permanently red one. The tier's verification is a
+  > developer's machine ([quickstart.md](./quickstart.md) scenario 5), which is what
+  > [plan.md](./plan.md)'s tier table now names for it. Reopening this needs a fact about the
+  > world to change: a hosted runner with a GPU, or a compositor that can nest without one.
 
 - **FR-089**: The container image that supplies that compositor MUST be defined in the repository
   and MUST be usable by a contributor locally, so that an end-to-end failure seen in automation can

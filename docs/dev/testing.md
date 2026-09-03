@@ -58,38 +58,60 @@ cargo test --test e2e_harness -- nested_instance_starts    # one test
 so the tests serialise on an internal lock. Raising the thread count does not make them faster and
 does make failures confusing.
 
-## Running the E2E tier without a Wayland session
+## The E2E tier needs a Wayland session, and nothing can fake one
 
-If you are on a headless machine, in a container, or simply not running Hyprland, the tier is not
-lost — it runs in the project's published test-environment image, which is the same image automation
-uses, so a failure in CI reproduces locally.
+There is no way to run this tier without one — not in a plain container, and not in automation.
+The harness nests a compositor as an ordinary Wayland client, so it needs a parent session that can
+hand it a dmabuf allocator, and that needs a real GPU underneath.
 
-The image is defined in the repository at `docker/e2e/Dockerfile`: an Arch base carrying Hyprland,
-`foot`, `seatd`, mesa, the cairo/pango development libraries and a toolchain matching
-`rust-version`. Two things in it are not obvious and are there deliberately — it creates and drops
-to an unprivileged user, because **Hyprland refuses to run as root** and containers run as root by
-default; and it strips the `cap_sys_nice` file capabilities from the compositor binaries, because
-executing a file that carries capabilities fails with `Operation not permitted` under a container's
-default bounding set.
+That is measured rather than assumed. A plain container cannot start Hyprland at all: the DRM
+backend fails with `libseat: failed to open a seat` and the Wayland backend with
+`no allocator available`. Two ways of supplying automation with a synthetic GPU were then built and
+measured, and both failed at the same point — the *nested* compositor:
 
-**With a Wayland session of any kind** — the common case — hand the image your session and it nests
-inside it exactly as the harness nests inside a developer's desktop:
+| Attempt | How far it got |
+|---|---|
+| `vkms` on a CI runner | The parent compositor starts and publishes a session. The nested one never reports a monitor: `vkms` is display-only, so it has no render node to allocate from |
+| A QEMU virtual machine with `virtio-gpu` | A render node appears and the parent starts. The nested compositor is then refused KMS dumb buffers — without virgl there is no driver behind the render node, and the fallback path needs a node the parent holds DRM master on |
+
+**So this project has no end-to-end CI job.** The requirement asking for one is recorded as unmet
+rather than quietly dropped, and the tier is verified on a developer's machine. The measurements,
+and the routes that were rejected along the way, are in
+[`specs/003-oss-release-readiness/research.md`](https://github.com/SerafAC/hypr-swap/blob/master/specs/003-oss-release-readiness/research.md)
+R29.
+
+## Running the tier against pinned versions
+
+`docker/e2e/` is a **local compatibility-testing tool**, not a CI environment. It holds the
+compositor, the toolchain and the test dependencies at fixed versions, so you can ask "does this
+still work against the compositor the project supports?" without changing what is installed on your
+machine — and tell "my compositor updated under me" apart from "my change broke it". It is also how
+to exercise the tier from a distribution that does not ship a current Hyprland, since Arch is the
+only family that does.
+
+It still needs a session; it runs the suite against yours.
 
 ```bash
+docker build -t hypr-swap-e2e docker/e2e
+
 docker run --rm \
-  -e XDG_RUNTIME_DIR -e WAYLAND_DISPLAY \
-  -v "$XDG_RUNTIME_DIR:$XDG_RUNTIME_DIR" \
   --device /dev/dri/renderD128 \
-  -v "$PWD:/src" ghcr.io/serafac/hypr-swap-e2e
+  -e WAYLAND_DISPLAY="$WAYLAND_DISPLAY" \
+  -v "$XDG_RUNTIME_DIR:/run/host" -e XDG_RUNTIME_DIR=/run/host \
+  -v "$PWD:/work" -w /work \
+  hypr-swap-e2e
 ```
 
-**With no session at all**, the image starts its own parent Hyprland on the DRM backend and the
-harness nests inside that, unchanged — which needs a virtual GPU and a seat, and is what automation
-supplies. A plain container with neither cannot run this tier: Hyprland's DRM backend fails with
-`libseat: failed to open a seat`, and its Wayland backend fails with `no allocator available`. That
-is measured, not assumed, and the measurements are in
-[`specs/003-oss-release-readiness/research.md`](https://github.com/SerafAC/hypr-swap/blob/master/specs/003-oss-release-readiness/research.md)
-R29 and R30 along with the routes that were rejected.
+Two things in the image are not obvious and are there deliberately: it creates and drops to an
+unprivileged user, because **Hyprland refuses to run as root** and containers run as root by
+default; and it strips the `cap_sys_nice` file capabilities from the compositor binaries, because
+executing a file that carries capabilities fails with `Operation not permitted` under a container's
+default bounding set. If your `/dev/dri` nodes are not world-accessible, start it with
+`--user root` — it then joins the groups that own them, by number, and drops privileges before
+running anything.
+
+[`docker/e2e/README.md`](https://github.com/SerafAC/hypr-swap/blob/master/docker/e2e/README.md) is
+the image's own documentation.
 
 ## The document checks
 
