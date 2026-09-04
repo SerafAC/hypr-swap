@@ -20,3 +20,7 @@
 # produces is derived from docs/ and is rebuilt by `pnpm build`.
 /node_modules
 /site
+
+# Generated from packaging/aur/PKGBUILD by the release workflow and by `makepkg --printsrcinfo`;
+# it is pushed to the AUR rather than kept here (FR-107).
+/packaging/aur/.SRCINFO

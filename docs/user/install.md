@@ -45,7 +45,7 @@ the current Ubuntu LTS, and on Debian stable before each release is published.
 ## Fedora, RHEL and derivatives
 
 ```bash
-sudo dnf install ./hypr-swap-<version>.x86_64.rpm
+sudo dnf install ./hypr-swap-<version>-1.x86_64.rpm
 ```
 
 Requires `cairo` and `pango`; `libnotify` is a suggestion. Built in a container of the oldest

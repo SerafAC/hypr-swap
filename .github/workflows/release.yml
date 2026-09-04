@@ -1,0 +1,709 @@
+# One triggered workflow, one input, and nothing about cutting a release living only in a
+# maintainer's head (FR-105). It refuses rather than publishing anything unreproducible: every
+# precondition of [contracts/release.md] is checked before the first byte is written, every
+# artefact is built from the tag rather than from a branch head, and the release stays a **draft**
+# until every published file has been re-downloaded and checked against its digest (FR-110,
+# FR-108).
+#
+# The job order below **is** the step table of [contracts/release.md]:
+#
+#   prepare  steps 1–4   preconditions, then the version, the changelog, the commit and the tag
+#   gate     step 5      the gating checks of [contracts/ci.md], re-run against the new tag
+#   deb/rpm  steps 6–7   the binary and both packages, each in its family's oldest container
+#   smoke    step 8      both packages installed and run in clean containers
+#   publish  steps 9–11  SHA256SUMS, the draft with its notes, verification, then publication
+#   aur      step 12     the Arch recipe, regenerated from what was actually published
+#
+# [contracts/release.md]: ../../specs/003-oss-release-readiness/contracts/release.md
+# [contracts/ci.md]: ../../specs/003-oss-release-readiness/contracts/ci.md
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to release, as MAJOR.MINOR.PATCH (the first release is 1.0.0)
+        required: true
+        type: string
+
+# Writing the release commit, the tag, the release itself and the regenerated recipe.
+permissions:
+  contents: write
+  actions: write
+
+# One release at a time, and never cancelled: a run interrupted between tagging and publishing is
+# what the draft-resume path exists to recover, and cancelling it mid-way is how that happens.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # -------------------------------------------------------------------------------------------
+  # Steps 1–4. Every precondition is checked in the first step, before anything is written, so a
+  # refused release leaves no trace: no orphan tag, no bumped version to revert, no half-written
+  # changelog (FR-110).
+  # -------------------------------------------------------------------------------------------
+  prepare:
+    name: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+      resume: ${{ steps.check.outputs.resume }}
+      sha: ${{ steps.commit.outputs.sha || steps.check.outputs.sha }}
+    steps:
+      # A push to the default branch has to survive the branch ruleset that requires
+      # `ci-required` (FR-091). `RELEASE_TOKEN` is honoured when it is set — a personal token
+      # belonging to a bypass actor — and the built-in token is used otherwise, which is enough
+      # when GitHub Actions itself is a bypass actor on that ruleset.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Check every precondition
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          # --- the input itself (FR-101) -------------------------------------------------------
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::\`$VERSION\` is not a MAJOR.MINOR.PATCH version"
+            exit 1
+          fi
+          tag="v$VERSION"
+
+          # --- precondition 1: the default branch, and a clean tree ----------------------------
+          if [ "${{ github.ref_name }}" != "$DEFAULT_BRANCH" ]; then
+            echo "::error::a release is cut from $DEFAULT_BRANCH, not from ${{ github.ref_name }} (FR-110)"
+            exit 1
+          fi
+          # Trivially true on a fresh hosted runner, which is the point: it is what stops a reused
+          # or self-hosted workspace from publishing a tree that differs from the commit.
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::the working tree is not clean, so what would be released is not what is committed (FR-110)"
+            git status --short
+            exit 1
+          fi
+
+          # --- precondition 2: the tag, and the draft-resume case (FR-110, research.md R36) -----
+          # Asked before the version is compared, because a resumed run is releasing a version the
+          # branch has *already* been raised to: comparing it against the manifest would refuse
+          # every resume there could ever be.
+          resume=false
+          sha="$(git rev-parse HEAD)"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            state="$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)"
+            case "$state" in
+              true)
+                # A half-finished release. Everything is rebuilt from the tag that already exists,
+                # so one version can never have two different artefact sets.
+                resume=true
+                sha="$(git rev-parse "refs/tags/$tag^{commit}")"
+                echo "::notice::$tag exists and its release is still a draft — resuming from $sha"
+                ;;
+              false)
+                echo "::error::$tag is already published, and a published version is immutable (FR-110)"
+                exit 1
+                ;;
+              *)
+                echo "::error::$tag exists but has no release; refusing to guess what it was meant to be"
+                exit 1
+                ;;
+            esac
+          fi
+
+          # --- the version is a step forward, on a run that is taking one (FR-101, FR-105) -----
+          if [ "$resume" = false ]; then
+            current="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+            # Compared component by component rather than as text, so 1.10.0 follows 1.9.0.
+            greater="$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -1)"
+            if [ "$VERSION" = "$current" ] || [ "$greater" != "$VERSION" ]; then
+              echo "::error::$VERSION is not strictly greater than the current version $current"
+              exit 1
+            fi
+
+            # The public history begins at 1.0.0 and there is no 0.x line (FR-101,
+            # contracts/versioning.md). "First release" means the repository carries no release tag.
+            if [ -z "$(git tag --list 'v*')" ] && [ "$VERSION" != "1.0.0" ]; then
+              echo "::error::this is the first release, and the first release is exactly 1.0.0 (FR-101), not $VERSION"
+              exit 1
+            fi
+          fi
+
+          # --- precondition 3: the gate is green on the commit being released (FR-110) ---------
+          # The commit that will be tagged, or on a resumed run the commit already tagged. The
+          # gate is re-run against the tag in the `gate` job as well, because steps 1–4 create a
+          # *new* commit: no artefact is ever built from a commit no check has seen.
+          verdict="$(gh api "repos/${{ github.repository }}/commits/$sha/check-runs" --paginate \
+            --jq '[.check_runs[] | select(.name == "ci-required")] | sort_by(.completed_at) | last | .conclusion // "none"')"
+          if [ "$verdict" != "success" ]; then
+            echo "::error::ci-required is \`$verdict\` on $sha; a release is only cut from a green commit (FR-110)"
+            exit 1
+          fi
+
+          # --- precondition 4: there is something to release (FR-102a) -------------------------
+          # Not on a resumed run: that tag's changelog section was closed when it was created, so
+          # `[Unreleased]` on the branch is legitimately empty again.
+          if [ "$resume" = false ]; then
+            entries="$(awk '/^## \[Unreleased\]/ {inside = 1; next} /^## / {inside = 0} inside && /^- /' CHANGELOG.md | wc -l)"
+            if [ "$entries" -eq 0 ]; then
+              echo "::error::CHANGELOG.md's [Unreleased] section is empty; it is what the release notes are made of (FR-102a)"
+              exit 1
+            fi
+          fi
+
+          {
+            echo "version=$VERSION"
+            echo "tag=$tag"
+            echo "resume=$resume"
+            echo "sha=$sha"
+          } >> "$GITHUB_OUTPUT"
+          echo "every precondition holds; releasing $VERSION from $sha"
+
+      # --- steps 1–3, then step 4 ------------------------------------------------------------
+      - name: Raise the version and close the changelog section
+        if: steps.check.outputs.resume == 'false'
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # Step 1. One definition of the version, so raising it here raises it in the binary, in
+          # both package recipes and in the documentation checks (FR-105).
+          sed -i "0,/^version = \".*\"$/s//version = \"$VERSION\"/" Cargo.toml
+          cargo update --workspace
+
+          # Step 2. Rename [Unreleased] to the version and the date, and open a fresh empty one
+          # above it. Nothing else in this file is ever edited by a machine (FR-102a).
+          python3 - "$VERSION" <<'PY'
+          import datetime, sys
+          version = sys.argv[1]
+          today = datetime.date.today().isoformat()
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          heading = "## [Unreleased]\n"
+          if heading not in text:
+              raise SystemExit("CHANGELOG.md has no [Unreleased] heading to close")
+          text = text.replace(heading, f"## [Unreleased]\n\n## [{version}] - {today}\n", 1)
+          open("CHANGELOG.md", "w", encoding="utf-8").write(text)
+          PY
+
+          # Step 3. The three statements of the version have to agree before any of them is
+          # committed (FR-103). The fourth — what the built binary actually reports — is asserted
+          # against the packages in the `smoke` job, before anything is published.
+          manifest="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          [ "$manifest" = "$VERSION" ] || { echo "::error::Cargo.toml says $manifest, not $VERSION"; exit 1; }
+          grep -qF "## [$VERSION] - " CHANGELOG.md ||
+            { echo "::error::CHANGELOG.md carries no heading for $VERSION"; exit 1; }
+
+      - name: Commit and tag
+        id: commit
+        if: steps.check.outputs.resume == 'false'
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+          TAG: ${{ steps.check.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "release: $VERSION"
+          git tag -a "$TAG" -m "$VERSION"
+          git push origin "HEAD:${{ github.ref_name }}"
+          git push origin "$TAG"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  # -------------------------------------------------------------------------------------------
+  # Step 5. The gate, re-run against the tag itself — the commit the artefacts are built from is
+  # a commit the checks have seen (FR-110).
+  #
+  # Dispatched explicitly rather than waited for: a push made with the built-in token starts no
+  # workflow, by design, and `workflow_dispatch` is the documented exception to that rule.
+  # -------------------------------------------------------------------------------------------
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    needs: prepare
+    timeout-minutes: 60
+    steps:
+      - name: Run the gating checks against ${{ needs.prepare.outputs.tag }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh workflow run ci.yml --repo "${{ github.repository }}" --ref "$TAG"
+
+          # The dispatch returns no identifier, so the run is found by the commit it is against.
+          run_id=""
+          for _ in $(seq 1 30); do
+            sleep 10
+            run_id="$(gh run list --repo "${{ github.repository }}" --workflow ci.yml \
+              --event workflow_dispatch --limit 20 \
+              --json databaseId,headSha,createdAt \
+              --jq "[.[] | select(.headSha == \"$SHA\")] | sort_by(.createdAt) | last | .databaseId // empty")"
+            [ -n "$run_id" ] && break
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::no ci run appeared for $SHA within five minutes"
+            exit 1
+          fi
+          echo "watching run $run_id"
+
+          # `gh run watch --exit-status` fails the step on anything but success, which is the
+          # verdict this job exists to produce. A run's success is every one of its jobs
+          # succeeding, `ci-required` included.
+          gh run watch "$run_id" --repo "${{ github.repository }}" --exit-status --interval 20 ||
+            {
+              echo "::error::the gating checks are not green on $TAG; nothing is built and nothing is published (FR-110)"
+              exit 1
+            }
+
+  # -------------------------------------------------------------------------------------------
+  # Steps 6–7, Debian family. Built inside a container of the **oldest still-supported Ubuntu
+  # LTS**, because what a dynamically linked binary can run on is decided by the glibc and the
+  # library versions it was built against (FR-106, FR-109a, research.md R33, R34).
+  #
+  # The standalone `x86_64` binary artefact comes out of this job for the same reason: built here,
+  # it runs on every release of every family the matrix names, which is what the install
+  # documentation promises a reader downloading it.
+  # -------------------------------------------------------------------------------------------
+  deb:
+    name: deb
+    runs-on: ubuntu-latest
+    needs: [prepare, gate]
+    container: ubuntu:22.04
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Install the build environment
+        run: |
+          set -eu
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install --no-install-recommends -y \
+            build-essential pkg-config libcairo2-dev libpango1.0-dev libxkbcommon-dev \
+            curl ca-certificates git xz-utils
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          # The tag itself has to be in the checkout: `build.rs` asks git what it was built from,
+          # and a describe that cannot see the tag makes the binary report a suffix (FR-104).
+          fetch-depth: 0
+
+      - name: Let build.rs read the checkout
+        # Without this git refuses a checkout it does not own, `git describe` fails, and the
+        # binary reports its version with no idea what it was built from (FR-104).
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build the release binary
+        run: cargo build --release --locked
+
+      - name: Keep the binary before the packager touches it
+        run: |
+          set -eu
+          mkdir -p artefacts
+          cp target/release/hypr-swap "artefacts/hypr-swap-$VERSION-x86_64"
+          # Built from the tag, so the version carries no source suffix and is exactly the tag
+          # (FR-103, FR-104).
+          reported="$(./target/release/hypr-swap --version)"
+          [ "$reported" = "hypr-swap $VERSION" ] ||
+            { echo "::error::the binary reports \`$reported\`, not \`hypr-swap $VERSION\` (FR-103)"; exit 1; }
+
+      - name: Build the .deb
+        run: |
+          set -eu
+          cargo install cargo-deb --locked
+          # Debian policy keeps the upstream changelog compressed at changelog.gz; cargo-deb
+          # copies an asset verbatim, so it is gzipped here, which is where Cargo.toml's asset
+          # list points.
+          gzip -9 -kn CHANGELOG.md
+          mv CHANGELOG.md.gz target/changelog.gz
+          cargo deb --no-build
+          cp target/debian/*.deb artefacts/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: artefacts/
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------------------------
+  # Steps 6–7, RPM family, in a container of the oldest Fedora still receiving updates. The
+  # toolchain comes from rustup rather than from the distribution, so the build does not depend on
+  # whether that release happens to carry a Rust new enough for `rust-version`.
+  # -------------------------------------------------------------------------------------------
+  rpm:
+    name: rpm
+    runs-on: ubuntu-latest
+    needs: [prepare, gate]
+    container: fedora:43
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Install the build environment
+        run: |
+          set -eu
+          dnf install -y gcc pkgconf-pkg-config cairo-devel pango-devel libxkbcommon-devel \
+            curl ca-certificates git tar
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          # The tag itself has to be in the checkout: `build.rs` asks git what it was built from,
+          # and a describe that cannot see the tag makes the binary report a suffix (FR-104).
+          fetch-depth: 0
+
+      - name: Let build.rs read the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build the release binary
+        run: cargo build --release --locked
+
+      - name: Build the .rpm
+        run: |
+          set -eu
+          cargo install cargo-generate-rpm --locked
+          cargo generate-rpm
+          mkdir -p artefacts
+          cp target/generate-rpm/*.rpm artefacts/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: artefacts/
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------------------------
+  # Step 8. Each package installed in a *clean* container of its family's oldest and current
+  # release, with nothing else in it — which is what makes "installs with no manual dependency
+  # work" a measurement rather than a claim (FR-109, SC-039). The licence is asserted on disk at
+  # the family's conventional path, because a package that ships no licence is not
+  # redistributable (FR-066).
+  #
+  # `--environment` is [contracts/cli.md]'s bug-report block and lands with FR-116; until it does,
+  # this step is the check that notices.
+  #
+  # [contracts/cli.md]: ../../specs/003-oss-release-readiness/contracts/cli.md
+  # -------------------------------------------------------------------------------------------
+  smoke:
+    name: smoke (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    needs: [prepare, deb, rpm]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest supported release of each family is the one the package was built on; the
+          # current one is what most people are running. Both are named in
+          # specs/003-oss-release-readiness/contracts/packaging.md's matrix.
+          - { image: "ubuntu:22.04", artefact: deb }
+          - { image: "ubuntu:latest", artefact: deb }
+          - { image: "debian:stable", artefact: deb }
+          - { image: "fedora:43", artefact: rpm }
+          - { image: "fedora:latest", artefact: rpm }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artefact }}
+          path: packages
+
+      - name: Install it and run it
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          IMAGE: ${{ matrix.image }}
+          FAMILY: ${{ matrix.artefact }}
+        run: |
+          set -euo pipefail
+
+          # The assertions run inside the container, so they are written to a file rather than
+          # threaded through a nested shell quote. `$VERSION` reaches them through the
+          # environment; nothing here is interpolated into the script text.
+          cat > packages/smoke.sh <<'SMOKE'
+          set -eu
+
+          case "$FAMILY" in
+              deb)
+                  export DEBIAN_FRONTEND=noninteractive
+                  apt-get update -qq
+                  # Through apt rather than `dpkg -i`, because resolving the declared dependencies
+                  # is the half of "installs with no manual dependency work" worth checking.
+                  apt-get install -y /packages/hypr-swap_*_amd64.deb
+                  licence=/usr/share/doc/hypr-swap/copyright
+                  ;;
+              rpm)
+                  dnf install -y /packages/hypr-swap-*.x86_64.rpm
+                  licence=/usr/share/licenses/hypr-swap/LICENSE
+                  ;;
+          esac
+
+          # The version the installed program reports is the released one (FR-103).
+          reported="$(hypr-swap --version)"
+          if [ "$reported" != "hypr-swap $VERSION" ]; then
+              echo "::error::the installed binary reports \`$reported\`, not \`hypr-swap $VERSION\`"
+              exit 1
+          fi
+
+          # The bug-report block prints and exits 0 with no compositor to talk to (FR-116).
+          hypr-swap --environment
+
+          # The licence is on disk where this family keeps it, and the rest of the install map is
+          # there with it (FR-066, contracts/packaging.md).
+          for file in "$licence" /usr/share/doc/hypr-swap/README.md /usr/share/doc/hypr-swap/THIRD-PARTY.md; do
+              [ -s "$file" ] || { echo "::error::$file is missing from the package"; exit 1; }
+          done
+
+          . /etc/os-release
+          echo "hypr-swap $VERSION installs and runs on $PRETTY_NAME"
+          SMOKE
+
+          docker run --rm \
+            -v "$PWD/packages:/packages:ro" \
+            -e VERSION -e FAMILY \
+            "$IMAGE" bash /packages/smoke.sh
+
+  # -------------------------------------------------------------------------------------------
+  # Steps 9–11. The release exists as a **draft** carrying every artefact; each one is then
+  # re-downloaded and checked against `SHA256SUMS` before the draft is flipped to published, so
+  # nothing unverifiable is ever visible to anyone (FR-108, FR-110, research.md R36).
+  # -------------------------------------------------------------------------------------------
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    needs: [prepare, gate, deb, rpm, smoke]
+    outputs:
+      archive-sha256: ${{ steps.sums.outputs.archive_sha256 }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+
+      - name: Collect the artefacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find downloaded -type f -exec cp {} release/ \;
+          # The source archive is GitHub's own tag archive, downloaded once and published as an
+          # asset: an uploaded asset is immutable, which is what gives the Arch recipe a digest it
+          # can rely on (FR-107, FR-108).
+          curl -fsSL -o "release/hypr-swap-$VERSION.tar.gz" \
+            "https://github.com/${{ github.repository }}/archive/refs/tags/$TAG.tar.gz"
+          ls -l release
+
+      - name: Compute SHA256SUMS
+        id: sums
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd release
+          # Plain names, so `sha256sum -c SHA256SUMS` works in whatever directory a reader
+          # downloaded them into.
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+          echo "archive_sha256=$(sha256sum "hypr-swap-$VERSION.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Compose the release notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          contract=specs/003-oss-release-readiness/contracts/packaging.md
+
+          # One section of a Markdown document, by heading, with its links flattened to their text
+          # so the notes carry no path that only resolves inside the repository. The packager
+          # block is *extracted* rather than restated: contracts/packaging.md stays the one
+          # definition of what a package installs and what it needs (Principle III, FR-111).
+          section() {
+            awk -v want="$1" '
+              /^## / { inside = (index($0, want) > 0); next }
+              inside { print }
+            ' "$contract" | sed -E 's/\[([^]]*)\]\([^)]*\)/\1/g'
+          }
+
+          {
+            # The changelog entry for this version, which is the part written for users (FR-102).
+            awk -v v="## [$VERSION] - " '
+              index($0, v) == 1 { inside = 1; next }
+              /^## / { inside = 0 }
+              inside { print }
+            ' CHANGELOG.md
+
+            cat <<NOTES
+
+          ## For packagers
+
+          Everything below is generated from the project's own packaging contract, so a
+          distribution's packager never has to ask the maintainer for it (FR-111).
+
+          ### Build
+
+          \`\`\`bash
+          cargo build --release
+          \`\`\`
+
+          Rust $(sed -n 's/^rust-version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml) or newer, and the **development** packages for cairo, pango
+          and pangocairo; the library minimums are in the build matrix below.
+
+          ### What a package installs
+          NOTES
+            section "What a package installs"
+            echo "### Declared dependencies"
+            section "Declared dependencies"
+            echo "### Where the packages are built, and what they run on"
+            section "Where the packages are built, and what they run on"
+
+            cat <<NOTES
+
+          ## Verifying what you downloaded
+
+          \`\`\`bash
+          sha256sum -c SHA256SUMS
+          \`\`\`
+          NOTES
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Create or refresh the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # The resume path: the draft's assets are replaced wholesale by ones rebuilt from the
+            # same tag, so the same version cannot end up with two different files.
+            gh release edit "$TAG" --draft --title "$VERSION" --notes-file release-notes.md
+            for asset in $(gh release view "$TAG" --json assets --jq '.assets[].name'); do
+              gh release delete-asset "$TAG" "$asset" --yes
+            done
+          else
+            gh release create "$TAG" --draft --title "$VERSION" --notes-file release-notes.md
+          fi
+          gh release upload "$TAG" release/* --clobber
+
+      - name: Verify every asset by re-downloading it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Downloaded from the release rather than read off this runner: the question FR-108 asks
+          # is whether what a stranger fetches matches the digest, not whether what was uploaded
+          # did. It is asked while the release is still a draft, because a file that fails it must
+          # never have been visible.
+          mkdir -p verify && cd verify
+          gh release download "$TAG" --clobber
+          sha256sum -c SHA256SUMS
+          echo "every asset matches its digest"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false --latest
+
+      - name: Verify again, now that it is published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p published && cd published
+          gh release download "$TAG" --clobber
+          sha256sum -c SHA256SUMS
+
+  # -------------------------------------------------------------------------------------------
+  # Step 12. **After** the release is published and verified, so a run that fails late never
+  # leaves the AUR pointing at a release that does not exist (FR-107, research.md R35).
+  #
+  # When the key is absent this fails loudly rather than being skipped: "in step with the released
+  # version" is not conditional, and a silently skipped push is exactly how a recipe falls behind.
+  # -------------------------------------------------------------------------------------------
+  aur:
+    name: aur
+    runs-on: ubuntu-latest
+    needs: [prepare, publish]
+    container: archlinux:latest
+    steps:
+      - name: Install the packaging tools
+        run: pacman -Sy --noconfirm --needed base-devel git openssh pacman-contrib
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Regenerate the recipe from what was published
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCHIVE_SHA256: ${{ needs.publish.outputs.archive-sha256 }}
+        run: |
+          set -euo pipefail
+          [ -n "$ARCHIVE_SHA256" ] || { echo "::error::no digest for the published archive"; exit 1; }
+          cd packaging/aur
+          sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          sed -i "s/^sha256sums=.*/sha256sums=('$ARCHIVE_SHA256')/" PKGBUILD
+          # makepkg refuses to run as root, and the .SRCINFO the AUR requires is generated from
+          # the recipe rather than written by hand.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          useradd -m builder && chown -R builder .
+          su builder -c 'makepkg --printsrcinfo' > .SRCINFO
+          cat PKGBUILD .SRCINFO
+
+      - name: Commit the recipe back
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packaging/aur/PKGBUILD
+          git commit -m "release: point the Arch recipe at $VERSION"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"
+
+      - name: Push it to the AUR
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AUR_SSH_KEY:-}" ]; then
+            echo "::error::AUR_SSH_KEY is not configured, so the AUR recipe cannot be kept in step with the release (FR-107). Configure the key and re-run this job."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$AUR_SSH_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          printf 'Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur\n  User aur\n  StrictHostKeyChecking accept-new\n' > ~/.ssh/config
+          git clone ssh://aur@aur.archlinux.org/hypr-swap.git aur
+          cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO aur/
+          cd aur
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "$VERSION"
+          git push

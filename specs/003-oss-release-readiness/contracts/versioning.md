@@ -19,14 +19,15 @@ authoritative definition, named here so that "is this breaking?" is answerable w
 | Command-line flags and their output shape | [001 contracts/cli.md](../../001-workspace-swap-overlay/contracts/cli.md), [cli.md](./cli.md) |
 | Exit codes | as above |
 | Diagnostic subjects | [001 contracts/diagnostics.md](../../001-workspace-swap-overlay/contracts/diagnostics.md), [diagnostics.md](./diagnostics.md) |
+| The install map — where a package puts each file | [packaging.md](./packaging.md) |
 
 ### What each level means
 
 - **MAJOR** — any change to the surface above that an existing user's configuration, bind lines,
   scripts or expectations could notice: a key renamed or removed, an accepted value withdrawn, a
   default changed, a shortcut name changed, a flag removed or its output reshaped, an exit code
-  reassigned, a diagnostic subject renamed. Raising a supported-compositor **minimum** is also
-  major: it withdraws support a user had.
+  reassigned, a diagnostic subject renamed, a file moved to a different path inside a package.
+  Raising a supported-compositor **minimum** is also major: it withdraws support a user had.
 - **MINOR** — new capability that leaves the surface intact: a new setting with a default that
   reproduces today's behaviour, a new flag, a new diagnostic condition, a new accepted value for an
   existing setting.

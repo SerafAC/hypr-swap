@@ -195,6 +195,7 @@ The full account, module by module, is
 | `specs/` | The specifications, plans, contracts and research decisions, one directory per feature — the authority on what was promised |
 | `docs/` | The documentation, as plain Markdown — the pages of the published site, and nothing else |
 | `scripts/` | `checks.sh`, the document checks, runnable exactly as the `checks` job runs them; and `docmd-include.mjs`, the site's `::include[]` |
+| `packaging/` | `aur/PKGBUILD`, the Arch recipe. The `.deb` and `.rpm` recipes are not here — they are `[package.metadata.deb]` and `[package.metadata.generate-rpm]` in `Cargo.toml`, so that both read the one `version` |
 | `protocols/` | The vendored `hyprland-global-shortcuts-v1.xml`, a build input |
 | `assets/` | `placeholder.svg`, the icon drawn where no program icon resolves — compiled into the binary |
 | `target/` | Cargo's build output. Not in the repository |

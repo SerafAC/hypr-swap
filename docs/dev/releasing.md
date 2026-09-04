@@ -22,6 +22,19 @@ Three things are worth checking, because they are the three that will stop it:
   judge get judged: the supported-versions list in `SECURITY.md`, the distribution matrix, the
   packager block, the previous-release configuration fixture.
 
+## What it needs configured, once
+
+Two things live in the repository's settings rather than in the tree, and both fail the run rather
+than being worked around:
+
+- **`AUR_SSH_KEY`**, the key the AUR push authenticates with. Without it the final step fails
+  loudly and says so. Keeping the recipe in step with the release is not conditional, and a push
+  that silently skips itself is exactly how a recipe falls behind.
+- **A way for the release commit to reach the default branch.** The branch ruleset requires
+  `ci-required`, and required checks are evaluated on push, so either GitHub Actions is a bypass
+  actor on that ruleset or a `RELEASE_TOKEN` secret holds a token belonging to one. The workflow
+  prefers `RELEASE_TOKEN` when it is set and uses the built-in token otherwise.
+
 ## The procedure
 
 What follows is not a description of the workflow — it **is** the workflow's contract, included at

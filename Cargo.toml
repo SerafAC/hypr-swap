@@ -37,3 +37,63 @@ pedantic = { level = "warn", priority = -1 }
 
 [profile.release]
 lto = true
+
+# --------------------------------------------------------------------------------------------
+# The distribution packages (FR-106, FR-109, research.md R33). Both recipes read this file's one
+# `version`, so raising it in a release raises it everywhere (FR-105), and both write the install
+# map of [contracts/packaging.md] — the same five files, at each family's conventional paths.
+#
+# Neither is built here: the release workflow runs them inside a container of the oldest
+# still-supported release of each family, because what a dynamically linked binary can run on is
+# decided by the glibc it was built against (FR-109a, research.md R34).
+#
+# [contracts/packaging.md]: specs/003-oss-release-readiness/contracts/packaging.md
+# --------------------------------------------------------------------------------------------
+
+[package.metadata.deb]
+maintainer = "SerafAC <seraf_ac@hotmail.com>"
+# `LICENSE` verbatim becomes /usr/share/doc/hypr-swap/copyright, which is where the Debian family
+# looks for it (FR-066). No lines are skipped: the file is the licence and nothing else.
+license-file = ["LICENSE", "0"]
+section = "utils"
+priority = "optional"
+extended-description = """\
+An overlay listing every workspace and the windows it contains, shown while a modifier is held \
+and committed the moment it is released. A second shortcut swaps the highlighted workspace with \
+the one on the focused monitor. The daemon is started from the user's hyprland.conf; it installs \
+no unit file and needs no configuration."""
+# Stated rather than left to `$auto`, so the contract and the package cannot disagree. Hyprland is
+# deliberately absent: pinning a compositor version would refuse installs the program supports.
+depends = "libcairo2, libpango-1.0-0, libpangocairo-1.0-0, libc6"
+recommends = "libnotify-bin"
+assets = [
+    ["target/release/hypr-swap", "usr/bin/hypr-swap", "755"],
+    ["README.md", "usr/share/doc/hypr-swap/README.md", "644"],
+    ["THIRD-PARTY.md", "usr/share/doc/hypr-swap/THIRD-PARTY.md", "644"],
+    # Debian policy keeps the *upstream* changelog at changelog.gz, compressed. cargo-deb copies
+    # an asset verbatim rather than compressing it, so the release workflow gzips CHANGELOG.md to
+    # this path immediately before it packages (`.github/workflows/release.yml`, the deb step);
+    # `cargo deb` run by hand without that step fails naming this file, which is the intended
+    # answer rather than a package carrying plain text under a .gz name.
+    ["target/changelog.gz", "usr/share/doc/hypr-swap/changelog.gz", "644"],
+]
+revision = ""
+
+[package.metadata.generate-rpm]
+summary = "Alt-Tab style workspace switcher with cross-monitor swapping for Hyprland"
+# The RPM family keeps the licence under /usr/share/licenses and the rest under /usr/share/doc.
+assets = [
+    { source = "target/release/hypr-swap", dest = "/usr/bin/hypr-swap", mode = "755" },
+    { source = "LICENSE", dest = "/usr/share/licenses/hypr-swap/LICENSE", mode = "644", doc = true },
+    { source = "README.md", dest = "/usr/share/doc/hypr-swap/README.md", mode = "644", doc = true },
+    { source = "THIRD-PARTY.md", dest = "/usr/share/doc/hypr-swap/THIRD-PARTY.md", mode = "644", doc = true },
+    { source = "CHANGELOG.md", dest = "/usr/share/doc/hypr-swap/CHANGELOG.md", mode = "644", doc = true },
+]
+
+# Stated for the same reason as the Debian list above; Hyprland is deliberately absent from both.
+[package.metadata.generate-rpm.requires]
+cairo = "*"
+pango = "*"
+
+[package.metadata.generate-rpm.suggests]
+libnotify = "*"

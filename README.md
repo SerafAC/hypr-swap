@@ -58,7 +58,7 @@ check it against:
 sudo apt install ./hypr-swap_<version>_amd64.deb
 
 # Fedora, RHEL and derivatives
-sudo dnf install ./hypr-swap-<version>.x86_64.rpm
+sudo dnf install ./hypr-swap-<version>-1.x86_64.rpm
 
 # Arch — from the AUR
 paru -S hypr-swap

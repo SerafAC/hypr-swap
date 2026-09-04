@@ -1,0 +1,49 @@
+# Maintainer: SerafAC <seraf_ac@hotmail.com>
+#
+# Built from the release's **source archive**, never from the default branch, so there is an
+# integrity value to check and the recipe names one exact commit (FR-107, research.md R35). The
+# archive is fetched from the release's own assets rather than from GitHub's `/archive/` route:
+# an uploaded asset is immutable, which is what makes the digest below worth checking.
+#
+# `pkgver` and the `sha256sums` line are rewritten by `.github/workflows/release.yml` from the
+# archive it has just published, after the release is verified — which is what keeps this file
+# from falling behind a release. Do not edit those two by hand.
+
+pkgname=hypr-swap
+pkgver=0.0.0
+pkgrel=1
+pkgdesc="Alt-Tab style workspace switcher with cross-monitor swapping for Hyprland"
+arch=('x86_64')
+url="https://github.com/SerafAC/hypr-swap"
+license=('MIT')
+depends=('cairo' 'pango')
+makedepends=('rust' 'pkgconf')
+optdepends=(
+    'libnotify: desktop notifications for problems only the user can fix'
+    'papirus-icon-theme: real program icons in the overlay; any freedesktop-layout icon set will do'
+)
+source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "$pkgname-$pkgver"
+    cargo build --release --locked
+}
+
+check() {
+    cd "$pkgname-$pkgver"
+    # The unit tier only: the end-to-end tier needs a live Wayland session, which a build
+    # container does not have (DEVELOPMENT.md, the per-tier section).
+    cargo test --release --locked --lib
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    install -Dm755 "target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
+    # Arch's conventional locations for the same five files the other two packages install
+    # (specs/003-oss-release-readiness/contracts/packaging.md).
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 THIRD-PARTY.md "$pkgdir/usr/share/doc/$pkgname/THIRD-PARTY.md"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 CHANGELOG.md "$pkgdir/usr/share/doc/$pkgname/CHANGELOG.md"
+}

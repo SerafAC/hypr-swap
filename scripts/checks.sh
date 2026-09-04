@@ -342,12 +342,81 @@ docs_dev_links_to_specs() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# changelog — a change to the program is a change a user can read about (FR-102a)
+# ---------------------------------------------------------------------------
+
+# The range this change is measured against: the merge base with the branch it is proposed into
+# on a pull request, with the default branch otherwise. Prints nothing and fails when there is no
+# range to compute — a shallow clone, or the default branch itself — and the check then falls back
+# to the working tree, which is what a contributor running this locally is asking about.
+changelog_base() {
+    local base
+    if [ -n "${GITHUB_BASE_REF:-}" ]; then
+        base=$(git merge-base "origin/$GITHUB_BASE_REF" HEAD 2>/dev/null) && {
+            printf '%s' "$base"
+            return 0
+        }
+    fi
+    if [ "$(git rev-parse -q --verify HEAD 2>/dev/null)" != "$(git rev-parse -q --verify master 2>/dev/null)" ]; then
+        base=$(git merge-base master HEAD 2>/dev/null) && {
+            printf '%s' "$base"
+            return 0
+        }
+    fi
+    return 1
+}
+
+changelog() {
+    local file=CHANGELOG.md
+
+    [ -f "$file" ] || {
+        fail "changelog: $file is missing (FR-102)" \
+            "Every release's entry is written by hand, in Keep a Changelog form."
+        return
+    }
+
+    if ! grep -q '^## \[Unreleased\]' "$file"; then
+        fail "changelog: $file has no [Unreleased] section (FR-102a)" \
+            "The release workflow renames it to the version; without it there is nothing to close."
+        return
+    fi
+
+    # What this change touched under src/. Committed changes when there is a range to compare
+    # against, and the working tree when there is not.
+    local touched base
+    if base=$(changelog_base); then
+        touched=$(git diff --name-only "$base" -- src/)
+    else
+        touched=$(git status --porcelain -- src/ | sed 's/^...//')
+    fi
+
+    if [ -z "$touched" ]; then
+        pass "changelog: nothing under src/ changed, so no entry is owed (FR-102a)"
+        return
+    fi
+
+    # An entry is a list item between the [Unreleased] heading and the next release heading. Its
+    # own subsection headings do not count: a heading with nothing under it is not a change a user
+    # can read about.
+    local entries
+    entries=$(awk '/^## \[Unreleased\]/ {inside = 1; next} /^## / {inside = 0} inside && /^- /' "$file" | wc -l)
+    if [ "$entries" -eq 0 ]; then
+        fail "changelog: src/ changed and $file's [Unreleased] section is empty (FR-102a)" \
+            "Add what a user can now do, what changed, or what broke — in their vocabulary, not the code's. A change that alters no documented behaviour can say so in the pull request instead."
+        printf '     files: %s\n' "$(printf '%s' "$touched" | tr '\n' ' ')" >&2
+    else
+        pass "changelog: src/ changed and $file's [Unreleased] section has $entries entr(ies) (FR-102a)"
+    fi
+}
+
 docs_map
 docs_pages
 docs_development_tree
 docs_front_page_version
 docs_troubleshooting_conditions
 docs_dev_links_to_specs
+changelog
 
 if [ "$failures" -ne 0 ]; then
     printf '\n%d check(s) failed. Reproduce with: ./scripts/checks.sh\n' "$failures" >&2

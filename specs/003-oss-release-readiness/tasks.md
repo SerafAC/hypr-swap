@@ -556,25 +556,112 @@ oldest and the current release of its family, and read what changed in it.
 
 ### Implementation for User Story 4
 
-- [ ] T051 [US4] Create `CHANGELOG.md` in Keep a Changelog form with an `[Unreleased]` section and its `Added`/`Changed`/`Deprecated`/`Removed`/`Fixed`/`Security` headings, written by hand for users and never derived from commit messages, with a header link to [contracts/versioning.md](./contracts/versioning.md) (FR-102, FR-102a)
-- [ ] T052 [US4] Add the `[package.metadata.deb]` and `[package.metadata.generate-rpm]` sections to `Cargo.toml` — the install map and declared dependencies of [contracts/packaging.md](./contracts/packaging.md), both reading the one `version` (FR-106, FR-109, [research.md](./research.md) R33)
-- [ ] T053 [P] [US4] Create `packaging/aur/PKGBUILD` building from the release's **source archive** rather than the default branch, with `depends`, `makedepends` and `optdepends` per [contracts/packaging.md](./contracts/packaging.md), installing to Arch's conventional locations (FR-107, [research.md](./research.md) R35)
-- [ ] T054 [US4] Create `.github/workflows/release.yml` as a `workflow_dispatch` with one `version` input, validated as semver, strictly greater than the current `Cargo.toml` version, and exactly `1.0.0` for the first release (FR-101, FR-105)
-- [ ] T055 [US4] Add the release workflow's preconditions, all checked before anything is written: triggered on the default branch with a clean tree; the tag `v<version>` does not exist unless a *draft* release exists for it; the gating checks are green on the commit being released; `CHANGELOG.md` has a non-empty `[Unreleased]` section (FR-110). Because T056 then creates a new commit, the gate is re-run against the tag in T057 — the artefacts must never be built from a commit no check has seen
-- [ ] T056 [US4] Add the release workflow's version steps: raise `version` in `Cargo.toml`, refresh `Cargo.lock`, rename `[Unreleased]` to `## [<version>] - <date>` and open a fresh empty one, assert the runtime version, the new tag and the changelog heading agree, then commit and tag (FR-102a, FR-103, FR-105)
-- [ ] T057 [US4] Add the release workflow's build steps, gated on a green `ci-required` run against the newly created tag (FR-110, T055): the `x86_64` release binary; the `.deb` built in the oldest supported Ubuntu LTS container and the `.rpm` in the oldest supported Fedora container (FR-106, FR-109a, [research.md](./research.md) R34)
-- [ ] T058 [US4] Add the release workflow's package smoke test: install each package in a clean container of that family's oldest *and* current release and run `--version` and `--environment`, asserting the licence is on disk at the path in [contracts/packaging.md](./contracts/packaging.md) (FR-066, FR-109, SC-039)
-- [ ] T059 [US4] Add the release workflow's AUR step, **after** the release is published and verified (T060), so a run that fails late never leaves the AUR pointing at a release that does not exist: regenerate `packaging/aur/PKGBUILD`'s `pkgver` and `sha256sums` from the published archive, commit, and push to the AUR — failing the step loudly when the key is absent rather than skipping it, since FR-107's "in step with the released version" is not conditional (FR-107, FR-110)
-- [ ] T060 [US4] Add the release workflow's integrity steps: compute `SHA256SUMS` over every artefact, publish, then verify every published asset by re-downloading (FR-108)
-- [ ] T061 [US4] Add the release notes: the changelog entry plus the packager block — build dependencies with minimum versions, runtime dependencies, the build steps and the install map from [contracts/packaging.md](./contracts/packaging.md) (FR-111)
-- [ ] T062 [US4] Make the release a **draft** until the final verification step, and make a re-run for an existing tag fail on a published release but resume on a draft — checking out the existing tag and rebuilding from that exact commit, so one version can never have two different artefact sets (FR-110, [research.md](./research.md) R36)
+- [X] T051 [US4] Create `CHANGELOG.md` in Keep a Changelog form with an `[Unreleased]` section and its `Added`/`Changed`/`Deprecated`/`Removed`/`Fixed`/`Security` headings, written by hand for users and never derived from commit messages, with a header link to [contracts/versioning.md](./contracts/versioning.md) (FR-102, FR-102a)
+- [X] T052 [US4] Add the `[package.metadata.deb]` and `[package.metadata.generate-rpm]` sections to `Cargo.toml` — the install map and declared dependencies of [contracts/packaging.md](./contracts/packaging.md), both reading the one `version` (FR-106, FR-109, [research.md](./research.md) R33)
+- [X] T053 [P] [US4] Create `packaging/aur/PKGBUILD` building from the release's **source archive** rather than the default branch, with `depends`, `makedepends` and `optdepends` per [contracts/packaging.md](./contracts/packaging.md), installing to Arch's conventional locations (FR-107, [research.md](./research.md) R35)
+- [X] T054 [US4] Create `.github/workflows/release.yml` as a `workflow_dispatch` with one `version` input, validated as semver, strictly greater than the current `Cargo.toml` version, and exactly `1.0.0` for the first release (FR-101, FR-105)
+- [X] T055 [US4] Add the release workflow's preconditions, all checked before anything is written: triggered on the default branch with a clean tree; the tag `v<version>` does not exist unless a *draft* release exists for it; the gating checks are green on the commit being released; `CHANGELOG.md` has a non-empty `[Unreleased]` section (FR-110). Because T056 then creates a new commit, the gate is re-run against the tag in T057 — the artefacts must never be built from a commit no check has seen
+- [X] T056 [US4] Add the release workflow's version steps: raise `version` in `Cargo.toml`, refresh `Cargo.lock`, rename `[Unreleased]` to `## [<version>] - <date>` and open a fresh empty one, assert the runtime version, the new tag and the changelog heading agree, then commit and tag (FR-102a, FR-103, FR-105)
+- [X] T057 [US4] Add the release workflow's build steps, gated on a green `ci-required` run against the newly created tag (FR-110, T055): the `x86_64` release binary; the `.deb` built in the oldest supported Ubuntu LTS container and the `.rpm` in the oldest supported Fedora container (FR-106, FR-109a, [research.md](./research.md) R34)
+- [X] T058 [US4] Add the release workflow's package smoke test: install each package in a clean container of that family's oldest *and* current release and run `--version` and `--environment`, asserting the licence is on disk at the path in [contracts/packaging.md](./contracts/packaging.md) (FR-066, FR-109, SC-039)
+- [X] T059 [US4] Add the release workflow's AUR step, **after** the release is published and verified (T060), so a run that fails late never leaves the AUR pointing at a release that does not exist: regenerate `packaging/aur/PKGBUILD`'s `pkgver` and `sha256sums` from the published archive, commit, and push to the AUR — failing the step loudly when the key is absent rather than skipping it, since FR-107's "in step with the released version" is not conditional (FR-107, FR-110)
+- [X] T060 [US4] Add the release workflow's integrity steps: compute `SHA256SUMS` over every artefact, publish, then verify every published asset by re-downloading (FR-108)
+- [X] T061 [US4] Add the release notes: the changelog entry plus the packager block — build dependencies with minimum versions, runtime dependencies, the build steps and the install map from [contracts/packaging.md](./contracts/packaging.md) (FR-111)
+- [X] T062 [US4] Make the release a **draft** until the final verification step, and make a re-run for an existing tag fail on a published release but resume on a draft — checking out the existing tag and rebuilding from that exact commit, so one version can never have two different artefact sets (FR-110, [research.md](./research.md) R36)
 
 ### Tests for User Story 4
 
-- [ ] T063 [US4] Extend `scripts/checks.sh` with the `changelog` check: a change touching `src/` requires a non-empty `[Unreleased]` section (FR-102a)
-- [ ] T064 [US4] Create `tests/e2e_lifecycle.rs` with `e2e_version_reports_build` — `--version` from a non-tag build carries the git-describe suffix (FR-104, US1-AS6) — and `e2e_version_matches_metadata` — `--version` agrees with `Cargo.toml` (FR-103)
+- [X] T063 [US4] Extend `scripts/checks.sh` with the `changelog` check: a change touching `src/` requires a non-empty `[Unreleased]` section (FR-102a)
+- [X] T064 [US4] Create `tests/e2e_lifecycle.rs` with `e2e_version_reports_build` — `--version` from a non-tag build carries the git-describe suffix (FR-104, US1-AS6) — and `e2e_version_matches_metadata` — `--version` agrees with `Cargo.toml` (FR-103)
 - [ ] T065 [US4] Run [quickstart.md](./quickstart.md) scenario 7 end to end: trigger a release, download it as an outsider, `sha256sum -c SHA256SUMS`, install each package in a clean container of its family's oldest and current release, then confirm all four refusals (existing published tag, dirty tree, red checks, resumed draft) — the clean-system install taking under 5 minutes with no compilation (FR-108, FR-110, SC-027, SC-037, SC-038, SC-039)
-- [ ] T066 [US4] Walk the inspection items for FR-101a, FR-102, FR-109a and FR-111 — the breaking-change definition in [contracts/versioning.md](./contracts/versioning.md), a changelog entry written for users, a distribution matrix naming releases that are actually supported, and release notes carrying the packager block
+- [X] T066 [US4] Walk the inspection items for FR-101a, FR-102, FR-109a and FR-111 — the breaking-change definition in [contracts/versioning.md](./contracts/versioning.md), a changelog entry written for users, a distribution matrix naming releases that are actually supported, and release notes carrying the packager block
+
+### Story 4 record (T051–T064, T066, and what T065 still needs)
+
+**Both packages were built and opened, on 2026-09-03, rather than assumed.** `cargo-deb` and
+`cargo-generate-rpm` were installed locally and run against this tree; the `.deb`'s `data.tar.xz`
+and the `.rpm`'s header were read back and compared against
+[contracts/packaging.md](./contracts/packaging.md)'s install map file by file. Both agree. Four
+things were learned doing it, and each is a line in `Cargo.toml` rather than a note here:
+
+- **`cargo-deb` copies an asset verbatim; it does not compress one.** Naming `CHANGELOG.md`'s
+  destination `changelog.gz` produced a plain-text file with a `.gz` name — a package that lies
+  about its own contents. Its `changelog =` key does compress, but installs to
+  `changelog.Debian.gz`, which Debian policy reserves for a *packaging* changelog; ours is the
+  upstream one. So the release workflow gzips `CHANGELOG.md` to `target/changelog.gz` immediately
+  before packaging and the asset points there. `cargo deb` run by hand without that step fails
+  naming the file, which is the right answer rather than a silent lie.
+- **`revision = ""`.** Left to itself `cargo-deb` produces `hypr-swap_<version>-1_amd64.deb`, and
+  both [contracts/release.md](./contracts/release.md) and the install documentation promise
+  `hypr-swap_<version>_amd64.deb`. A release publishes exactly one package per version, so there
+  is no revision to carry.
+- **The `.rpm` keeps its `-1`.** `hypr-swap-<version>-1.x86_64.rpm` is what `cargo-generate-rpm`
+  produces and what the release contract already named. `README.md` and `docs/user/install.md`
+  said `hypr-swap-<version>.x86_64.rpm`, which no run of the workflow would ever produce; both
+  were corrected to the verified name.
+- **`THIRD-PARTY.md` is in both install maps and does not exist yet** — it is T078, in US6. The
+  local build was verified against a temporary stand-in, which was then deleted rather than
+  committed as a stub. Until T078 lands, the `deb` and `rpm` jobs fail naming that file.
+
+**The gate is dispatched, not waited for.** A push made with the built-in `GITHUB_TOKEN` starts no
+workflow, by design, so the release commit reaching `master` would never have produced the CI run
+that step 5 of [contracts/release.md](./contracts/release.md) requires. `workflow_dispatch` is
+GitHub's documented exception to that rule, so the `gate` job dispatches `ci.yml` against the
+**tag** and watches that run to its verdict. This is stricter than waiting for the branch's run
+would have been: the run is against the exact ref the artefacts are built from.
+
+**Two repository settings the workflow depends on, neither of which is in the tree.**
+
+- The ruleset verified in the T050 record requires `ci-required` on `master`, and required status
+  checks are evaluated on push, so the release commit is rejected unless GitHub Actions is a
+  bypass actor on that ruleset. The workflow honours an optional `RELEASE_TOKEN` secret for the
+  case where it is not, and falls back to the built-in token otherwise.
+- `AUR_SSH_KEY` must exist before the first release. The AUR step **fails loudly** without it
+  rather than skipping — R35 allowed a conditional push and T059 overrules it, because a silently
+  skipped push is exactly how the recipe falls behind (FR-107).
+
+**The Arch recipe fetches the release's asset, not GitHub's `/archive/` route.** GitHub regenerates
+a tag archive on request; an uploaded asset is immutable. The workflow downloads the tag archive
+once, publishes it as `hypr-swap-<version>.tar.gz`, and writes *that* file's digest into the
+recipe — which is the only way `sha256sums` stays true for as long as the release exists.
+
+**`--environment` does not exist yet.** The `smoke` job runs it in every container, per T058 and
+step 8 of the release contract; it lands with FR-116 in T091 (US7). Written the other way round —
+tolerating its absence — the step would pass before the thing it checks was built.
+
+**T066, walked on 2026-09-03.** Three of the four items hold as they stand; the first did not.
+
+- **FR-101a** — the breaking-change table named seven surfaces, and every authority it cites
+  exists. It did **not** name the install map, while `docs/dev/releasing.md` tells a maintainer
+  the definition covers it. Moving a packaged file is a change a user's scripts and a downstream
+  packager both notice, so the row was added to
+  [contracts/versioning.md](./contracts/versioning.md) and to the MAJOR bullet, and the page and
+  the site now say the same thing.
+- **FR-102** — the `[Unreleased]` entries describe what a user can do, in the vocabulary of binds,
+  workspaces, themes and icons, with no function or module named anywhere in the file.
+- **FR-109a** — the matrix still names releases that are actually supported: Ubuntu 22.04 LTS is
+  the oldest LTS under standard support, and Fedora 43 is the oldest Fedora still receiving
+  updates. This was judged from the published support windows rather than fetched, and it is a
+  checklist item precisely because it goes stale — re-confirm it at the release itself.
+- **FR-111** — the packager block was **generated** and read, not imagined: the notes step was run
+  against this tree and produced the changelog entry followed by the build command, the toolchain
+  minimum read out of `Cargo.toml`, and all three of the packaging contract's tables. It extracts
+  those sections from `contracts/packaging.md` rather than restating them, so the notes cannot
+  drift from the contract.
+
+**T065 is not done, and cannot be done from a checkout.** It asks for a real release: a triggered
+run, an outsider's download, `sha256sum -c`, four clean-container installs, and all four refusals
+demonstrated. That publishes 1.0.0, and 1.0.0 cannot be cut while US5–US8 are unbuilt — the
+packages would ship without `THIRD-PARTY.md` and the smoke test would run an `--environment` that
+does not exist. It is the last thing this feature does, not the next.
+
+What *was* verified without triggering anything: every `run:` block in the workflow parses as
+bash; the changelog rename, the `[Unreleased]` emptiness test and the release-notes composition
+were each executed against the real files; both packages were built and their contents read; and
+`./scripts/checks.sh`, `cargo test --lib`, `cargo test --test e2e_lifecycle`, `cargo clippy
+--all-targets -- -D warnings`, `cargo fmt --check`, `pnpm build` and `pnpm validate` are green.
+
+---
 
 **Checkpoint**: A release exists that an outsider can obtain, verify, install and read about.
 
