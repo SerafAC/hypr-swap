@@ -44,6 +44,20 @@ built-in theme sets it to.
 
 ::include[../../specs/002-overlay-visuals/contracts/style-values.md#colours]
 
+Two of the eleven are *marks* rather than fills, and what they draw is worth stating:
+
+- **`highlight`** fills the background of the entry the keyboard is currently on — the one that
+  commits when you release the modifier.
+- **`active_mark`** marks the workspace each monitor is *already displaying*. In the grid
+  presentation it is the frame around the miniature; in the list it is the short bar down the left
+  edge of the row, whose thickness is `mark_width`. It is drawn as a mark rather than as a
+  different fill precisely so it survives being highlighted at the same time: one entry can carry
+  the `highlight` background and the `active_mark` frame together, and the two answer different
+  questions — where you are about to go, and where you are now.
+
+With several monitors you will see several active marks at once, one per monitor, since each
+monitor has its own current workspace. Every other workspace in the overlay carries none.
+
 ## The built-in themes
 
 There are two, and their values are the two columns of the table above: `theme = "dark"` (the

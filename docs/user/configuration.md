@@ -32,6 +32,26 @@ introduced, and this is its contract, included here rather than restated:
 
 ::include[../../specs/001-workspace-swap-overlay/contracts/config.md]
 
+### Reading the two marks
+
+Whichever presentation you choose, the overlay carries two independent marks, and they mean
+different things:
+
+- The **highlighted** entry is the one the keyboard is on — the workspace that will be switched to
+  when you release the modifier. It is drawn as a filled background behind the whole entry.
+- The **active** workspace of each monitor is the one that monitor is *already displaying*. In the
+  grid it is the frame around the miniature — green by default; in the list it is the short bar
+  down the left edge of the row.
+
+The active mark is per monitor, so with several monitors connected several entries carry it at
+once — one for each monitor's current workspace — and every other workspace carries none. That is
+the usual reason some grid miniatures are framed and others are not.
+
+The two can land on the same entry, which is why the active mark is an outline and a bar rather
+than a second fill: an entry that is both highlighted and active shows the highlight background
+*and* the frame. Both colours are configurable — `highlight` and `active_mark` in
+[appearance and themes](./styling.md).
+
 ## The visual settings
 
 Icons, the icon set and the overlay's palette. The `[style]` table is large enough to have its own
