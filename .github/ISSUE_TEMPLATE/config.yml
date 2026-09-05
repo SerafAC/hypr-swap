@@ -1,0 +1,10 @@
+# FR-119: a security finding goes to the private channel, not the public tracker. `blank_issues`
+# stays disabled so that every report arrives through a form that asks for what is needed.
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/SerafAC/hypr-swap/blob/master/SECURITY.md
+    about: Do not open a public issue. SECURITY.md has the private reporting channel and the acknowledgement time you can expect.
+  - name: Question, or not sure it is a bug
+    url: https://serafac.github.io/hypr-swap/user/troubleshooting/
+    about: The troubleshooting page covers each diagnostic the daemon emits and what to do about it.

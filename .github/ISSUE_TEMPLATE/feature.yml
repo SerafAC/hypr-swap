@@ -1,0 +1,67 @@
+# FR-098: the form asks what the reporter is trying to achieve rather than the change they have
+# designed, and shows the scope boundaries at the point of asking — where they are cheap to read,
+# rather than after the idea has been written up.
+name: Feature request
+description: Something you are trying to do that the program makes hard or impossible
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The most useful thing you can put here is **the problem**, not the solution. A described
+        problem can be solved in a way nobody had thought of; a described solution can only be
+        accepted or refused.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      description: |
+        The task, in terms of your desktop rather than the program's internals. What are you doing
+        when this comes up, and what happens today?
+      placeholder: |
+        I keep a browser on one monitor and an editor on the other, and when I switch to the
+        workspace with my terminal on it I lose track of which monitor the editor ended up on.
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: What do you do about it now?
+      description: The workaround, another program, or nothing. This says a great deal about how much the problem costs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: If you have an idea for how it might work, describe it here
+      description: Optional, and deliberately last. It is useful context, not the request itself.
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+
+        ### Before you submit: what hypr-swap is, and is not
+
+        It targets **Hyprland on Wayland, and nothing else**. It depends on Hyprland's own IPC
+        sockets and its global-shortcuts protocol, so other compositors are out of scope rather than
+        merely untested. It deliberately **does not** manage windows, replace your bar or launcher,
+        draw anything outside its own overlay, or aim to become a general-purpose desktop shell. It
+        makes **no network access of any kind** and collects no telemetry, and that will not change.
+
+        A request outside those lines will be closed as out of scope — which is a statement about
+        this program, not about the idea. The full statement is in the
+        [README](https://github.com/SerafAC/hypr-swap#scope-and-privacy).
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: I have read the scope boundaries above and think this falls inside them
+          required: true

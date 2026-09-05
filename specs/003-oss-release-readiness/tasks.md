@@ -678,19 +678,70 @@ published contribution guidance.
 
 ### Implementation for User Story 5
 
-- [ ] T067 [US5] Write `CONTRIBUTING.md`: the design rules the project holds to (KISS/YAGNI/DRY from the constitution), how the spec-driven workflow applies to a behavioural change, and what review will examine — referring to `DEVELOPMENT.md` for setup rather than restating it (FR-094)
-- [ ] T068 [US5] Add to `CONTRIBUTING.md` the convention that code cites FR numbers, and that a behavioural change updates the feature specification, the plan's coverage table and the task list alongside the code (FR-095)
-- [ ] T069 [US5] Add to `CONTRIBUTING.md` what response a contributor should expect, including that the project is maintained by a single maintainer on a best-effort basis (FR-100)
-- [ ] T070 [US5] Add to `CONTRIBUTING.md` a **link** to `DEVELOPMENT.md`'s per-tier section (T020) for which tier a contributor without a live compositor cannot run locally and how to run it in the published container instead, plus one line on what automation verifies on their behalf — the answer itself stays in `DEVELOPMENT.md`, which the document map makes authoritative (US5-AS2, FR-075, FR-084)
-- [ ] T071 [P] [US5] Write `CODE_OF_CONDUCT.md` with the conduct expectations and a reporting address (FR-096)
-- [ ] T072 [P] [US5] Create `.github/ISSUE_TEMPLATE/bug.yml` whose required fields are exactly the `EnvironmentReport` lines — program version, compositor version, configuration, diagnostic output — plus expected versus observed behaviour (FR-097, [data-model.md](./data-model.md) → Bug report)
-- [ ] T073 [P] [US5] Create `.github/ISSUE_TEMPLATE/feature.yml` asking what the reporter is trying to achieve rather than the change they have designed, showing the project's scope boundaries at the point of asking (FR-098)
-- [ ] T074 [P] [US5] Create `.github/ISSUE_TEMPLATE/config.yml` pointing security reports at `SECURITY.md` rather than the public tracker (FR-119)
-- [ ] T075 [P] [US5] Create `.github/pull_request_template.md` with the checklist covering tests, documentation, changelog and specification updates (FR-099)
+- [X] T067 [US5] Write `CONTRIBUTING.md`: the design rules the project holds to (KISS/YAGNI/DRY from the constitution), how the spec-driven workflow applies to a behavioural change, and what review will examine — referring to `DEVELOPMENT.md` for setup rather than restating it (FR-094)
+- [X] T068 [US5] Add to `CONTRIBUTING.md` the convention that code cites FR numbers, and that a behavioural change updates the feature specification, the plan's coverage table and the task list alongside the code (FR-095)
+- [X] T069 [US5] Add to `CONTRIBUTING.md` what response a contributor should expect, including that the project is maintained by a single maintainer on a best-effort basis (FR-100)
+- [X] T070 [US5] Add to `CONTRIBUTING.md` a **link** to `DEVELOPMENT.md`'s per-tier section (T020) for which tier a contributor without a live compositor cannot run locally and how to run it in the published container instead, plus one line on what automation verifies on their behalf — the answer itself stays in `DEVELOPMENT.md`, which the document map makes authoritative (US5-AS2, FR-075, FR-084)
+- [X] T071 [P] [US5] Write `CODE_OF_CONDUCT.md` with the conduct expectations and a reporting address (FR-096)
+- [X] T072 [P] [US5] Create `.github/ISSUE_TEMPLATE/bug.yml` whose required fields are exactly the `EnvironmentReport` lines — program version, compositor version, configuration, diagnostic output — plus expected versus observed behaviour (FR-097, [data-model.md](./data-model.md) → Bug report)
+- [X] T073 [P] [US5] Create `.github/ISSUE_TEMPLATE/feature.yml` asking what the reporter is trying to achieve rather than the change they have designed, showing the project's scope boundaries at the point of asking (FR-098)
+- [X] T074 [P] [US5] Create `.github/ISSUE_TEMPLATE/config.yml` pointing security reports at `SECURITY.md` rather than the public tracker (FR-119)
+- [X] T075 [P] [US5] Create `.github/pull_request_template.md` with the checklist covering tests, documentation, changelog and specification updates (FR-099)
 
 ### Tests for User Story 5
 
-- [ ] T076 [US5] Walk the inspection items for FR-094–FR-100 from [quickstart.md](./quickstart.md)'s release checklist: the guidance states the rules, the spec-driven flow, what review looks for and the best-effort expectation; the conduct document carries a reporting address; the issue forms mark the environment fields required and ask for the goal; the pull-request checklist covers all four; a report arriving through the form carries the version, the compositor version and the diagnostic output with no follow-up needed (SC-040)
+- [X] T076 [US5] Walk the inspection items for FR-094–FR-100 from [quickstart.md](./quickstart.md)'s release checklist: the guidance states the rules, the spec-driven flow, what review looks for and the best-effort expectation; the conduct document carries a reporting address; the issue forms mark the environment fields required and ask for the goal; the pull-request checklist covers all four; a report arriving through the form carries the version, the compositor version and the diagnostic output with no follow-up needed (SC-040)
+
+### Story 5 record (T067–T076, and the two forward references it leaves)
+
+**Walked on 2026-09-05**, against the files themselves rather than asserted. Each of the release
+checklist's inspection rows for FR-094–FR-100, and where it is satisfied:
+
+| Row | Where | State |
+|---|---|---|
+| FR-094 — the rules | `CONTRIBUTING.md` “The rules the project holds to”: KISS/YAGNI/DRY from the constitution, plus the pure/shell seam as the rule that decides where most changes go | ✅ |
+| FR-094 — the spec-driven flow | “How a change is specified”: a fix needs no specification, a behavioural change needs a requirement to point at and an issue opened first | ✅ |
+| FR-094 — what review looks for | “What review looks for”, a seven-row table in the order it comes up | ✅ |
+| FR-095 | Both halves, in “How a change is specified”: code cites `FR-xxx` and `research.md Rnn`; a behavioural change updates the requirement, the coverage row and the task markers *alongside* the code, not after | ✅ |
+| FR-100 | “What to expect”, opening on one maintainer, best-effort, in their own time, then the four things that follow from it | ✅ |
+| FR-121 — the dependency bar | Partly. The rules section says the standard library is preferred over a new dependency and that an abstraction is justified in the Complexity Tracking table; FR-121's explicit bar for a *dependency* is **T106**, in US8, which sharpens this row rather than adding a second one | ⚠️ |
+| FR-096 | `CODE_OF_CONDUCT.md`, reporting address `seraf_ac@hotmail.com` — the address `Cargo.toml` already publishes as the packages' maintainer, so there is one of them rather than two | ✅ |
+| FR-097, FR-098 | The two forms; required fields below | ✅ |
+| FR-099 | `.github/pull_request_template.md`: tests, documentation, changelog, specification — all four, each naming the command or the artefact that satisfies it | ✅ |
+
+**The forms were parsed, not eyeballed.** All three are valid YAML, and `bug.yml`'s required set is
+exactly `environment`, `diagnostics`, `expected`, `observed`, with `reproduce` and `configuration`
+optional. That is SC-040 structurally rather than by good intentions: GitHub will not accept a
+report missing the environment block or the diagnostic output, so the version, the compositor
+version and the output cannot be absent from a submitted report. `feature.yml` requires the goal and
+the current workaround, and puts the idea last and optional; the scope boundaries appear as a
+markdown block *above* the submit checkbox, at the point of asking rather than after the fact.
+
+**One small addition beyond the task list, argued rather than slipped in.** `config.yml` carries a
+second contact link to the troubleshooting page alongside the security one. FR-119 asks only for the
+security redirect; the second link exists because `blank_issues_enabled: false` means someone with a
+question and no bug has nowhere to go, and sending them to the page that explains every diagnostic
+is cheaper for both sides than a bug report that turns out to be a misread message.
+
+**Two forward references are now live in the tree, and they are dead links until their tasks land:**
+
+| Link | From | Closed by |
+|---|---|---|
+| `SECURITY.md` | `CONTRIBUTING.md`'s opening, `config.yml`'s security contact link, `bug.yml`'s header | **T104** (US8) |
+| `hypr-swap --environment` | `bug.yml`'s environment field, which asks for its output verbatim | **T085–T093** (US7) |
+
+Both are what their tasks specify — T074 names `SECURITY.md` explicitly, and
+[contracts/cli.md](./contracts/cli.md) says the form asks for the `--environment` block verbatim —
+so the answer is to land US7 and US8, not to soften the references. Neither is reachable by a
+stranger yet: the forms are only offered by GitHub's issue chooser, and nothing has been released.
+The release checklist walks FR-119 and FR-120 before the first release, which is where this would
+be caught if US8 were somehow skipped.
+
+**`./scripts/checks.sh` passes** — nothing under `src/` changed, so no changelog entry is owed, and
+the document map is unaffected: `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` are root documents the
+`docs-map` check does not police, and `README.md` and `DEVELOPMENT.md` already linked to
+`CONTRIBUTING.md` before it existed. Every relative link and heading anchor in the two new documents
+was resolved; only `SECURITY.md` is missing, as above.
 
 **Checkpoint**: A newcomer can find, without asking, what a good change carries and what happens
 after they submit it.

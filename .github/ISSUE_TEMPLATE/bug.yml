@@ -1,0 +1,91 @@
+# The required fields are exactly the `EnvironmentReport` lines plus expected versus observed
+# behaviour (FR-097, specs/003-oss-release-readiness/data-model.md → Bug report). `--environment`
+# prints that block in one piece, so the form asks for it verbatim rather than re-asking for each
+# line and getting three of the six (contracts/cli.md).
+name: Bug report
+description: Something the program does that it should not, or does not do that it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Four things are needed to act on a report, and all four are below. The environment block is
+        printed for you — you should not have to go and look any of it up.
+
+        **Found a security vulnerability?** Do not file it here. [SECURITY.md](https://github.com/SerafAC/hypr-swap/blob/master/SECURITY.md)
+        has the private channel.
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        The output of `hypr-swap --environment`, pasted whole. It carries the program version, the
+        compositor version, which configuration file was resolved, the settings that differ from
+        their defaults, the icon set actually in use, and whether `notify-send` is present. It reads
+        nothing else — not the file's contents, not window titles, not the network.
+      render: text
+      placeholder: |
+        hypr-swap:    1.0.0+v1.0.0-14-gabc1234
+        hyprland:     0.56.2 (v0.56.2)
+        config:       /home/user/.config/hypr-swap/config.toml (present)
+        settings:     presentation = "grid", theme = "light"
+        icon-set:     Papirus-Dark
+        notify-send:  present
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic output
+      description: |
+        What the daemon printed. If you started it yourself, that is what appeared in the terminal;
+        if your session started it, the compositor collects it — the
+        [troubleshooting page](https://serafac.github.io/hypr-swap/user/troubleshooting/) says where.
+        Paste the lines around the problem, not only the last one.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened instead
+      description: If the overlay is involved, a screenshot or a short recording says more than a paragraph.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: |
+        The steps, from a fresh start of the daemon. Include your monitor layout and which
+        workspaces were where if the problem involves more than one monitor — those are the reports
+        hardest to reproduce blind.
+      placeholder: |
+        1. Two monitors, workspaces 1 and 2 on the left, 3 on the right
+        2. Hold ALT and tap TAB twice
+        3. Release
+    validations:
+      required: false
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration file
+      description: |
+        Only if the `settings` line above does not tell the whole story — an invalid value, for
+        instance, is not a setting that differs from its default. Paste the file rather than
+        describing it.
+      render: toml
+    validations:
+      required: false
