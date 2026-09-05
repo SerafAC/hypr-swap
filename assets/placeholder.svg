@@ -1,4 +1,7 @@
 <!--
+  Provenance (FR-063), accounted for in THIRD-PARTY.md at the repository root:
+  written for this project — no upstream — © 2026 SerafAC, MIT, the same terms as LICENSE.
+
   The generic icon for a program whose own icon could not be resolved (FR-041).
 
   Drawn as a window frame rather than a question mark: an unresolved icon is a normal outcome, not

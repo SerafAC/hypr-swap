@@ -2,7 +2,9 @@
 # file (research.md R38).
 #
 #     cargo deny check advisories
+#     cargo deny check licenses
 #
+# The two differ in whether they gate, and that is the only thing about them worth remembering.
 # The advisory check is **informational** in automation: an advisory is news about the world, not a
 # defect in the change under review, and blocking every contributor on someone else's disclosure is
 # how a project learns to ignore red (contracts/ci.md).
@@ -32,3 +34,41 @@ version = 2
 #     { id = "RUSTSEC-0000-0000", reason = "until 2026-12-31: no fixed release exists upstream; the
 #       affected path is not reachable from this program." }
 ignore = []
+
+# --------------------------------------------------------------------------------------------
+# The dependency-licence position (FR-064, research.md R38).
+#
+#     cargo deny check licenses
+#
+# This one **gates**, unlike the advisory check above, and the difference is not arbitrary: an
+# advisory is news about the world, whereas a dependency arriving under an unexpected licence is a
+# property of the change under review, and the contributor who added it is the person who can
+# answer for it.
+#
+# The list below is what makes THIRD-PARTY.md's "every licence in the graph is permissive"
+# statement true rather than aspirational. Adding a licence here is a deliberate act: it changes
+# what the project tells a packager they are redistributing, so THIRD-PARTY.md's table changes in
+# the same commit.
+# --------------------------------------------------------------------------------------------
+
+[licenses]
+version = 2
+
+# Exactly what the graph contains today — build-time, runtime and development dependencies alike.
+# Every one is permissive; none is copyleft. A crate introducing anything else fails the gate.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+# Development dependencies are read too. They are not redistributed, so this is stricter than it
+# has to be — but "the whole graph" needs no footnote explaining what was left out of it, and the
+# E2E harness's dependencies are as much a contributor's concern as the shipped ones.
+include-dev = true

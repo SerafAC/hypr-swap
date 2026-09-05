@@ -83,6 +83,7 @@ cargo test --lib
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ./scripts/checks.sh
+cargo deny check licenses    # only if you added or changed a dependency
 ```
 
 **The end-to-end tier needs a live Hyprland session, and there is no way to run it without one.**
@@ -90,8 +91,8 @@ If you do not have one — or want to test against the versions the project pins
 you happen to have installed — [DEVELOPMENT.md's *Which tier needs what*](DEVELOPMENT.md#which-tier-needs-what)
 is the authoritative account of what each tier requires and how to run the end-to-end tier in the
 project's `docker/e2e/` image instead. Automation verifies the release build, the unit tier, clippy,
-formatting, the minimum-toolchain build, the documentation site and the document checks on your
-behalf, and reports one verdict; it cannot run the end-to-end tier at all, which is recorded as an
+formatting, the minimum-toolchain build, the documentation site, the document checks and the
+dependency licences on your behalf, and reports one verdict; it cannot run the end-to-end tier at all, which is recorded as an
 unmet requirement rather than quietly dropped
 ([`research.md` R29](specs/003-oss-release-readiness/research.md)).
 

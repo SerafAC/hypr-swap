@@ -30,6 +30,93 @@ pass() {
 }
 
 # ---------------------------------------------------------------------------
+# licence-files — the project is redistributable and every file is attributable
+# (FR-062, FR-063, FR-065, SC-041)
+# ---------------------------------------------------------------------------
+
+licence_files() {
+    local licence=LICENSE account=THIRD-PARTY.md
+
+    # FR-062: the full text, at the conventional top-level location.
+    if [ ! -f "$licence" ]; then
+        fail "licence-files: $licence is missing (FR-062)" \
+            "Without it the project is not redistributable; nobody may use what it does not licence."
+        return
+    fi
+
+    # The holder and the year, stated rather than implied by the file's name. Both halves are
+    # required: a licence naming no holder grants nothing that can be relied on.
+    local copyright
+    copyright=$(sed -n 's/^Copyright ([cC]) \([0-9]\{4\}\)\(-[0-9]\{4\}\)\{0,1\} \(..*\)$/\1 \3/p' "$licence" | head -1)
+    if [ -n "$copyright" ]; then
+        pass "licence-files: $licence names a holder and a year ($copyright) (FR-062)"
+    else
+        fail "licence-files: $licence has no \`Copyright (c) <year> <holder>\` line (FR-062)" \
+            "State the year and the copyright holder; the licence has to say who is granting it."
+    fi
+
+    # FR-062: and it is the licence the manifest declares. Two statements of one fact is one place
+    # too many, so the check is that they agree rather than that either is right.
+    local declared
+    declared=$(sed -n 's/^license[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+    if [ -z "$declared" ]; then
+        fail "licence-files: Cargo.toml declares no \`license\` (FR-062, FR-065)" \
+            "A packager reads the manifest first; it must name the licence LICENSE spells out."
+    elif head -1 "$licence" | grep -qF -- "$declared"; then
+        pass "licence-files: $licence is the \`$declared\` licence Cargo.toml declares (FR-062)"
+    else
+        fail "licence-files: $licence does not open with Cargo.toml's \`$declared\` (FR-062)" \
+            "The manifest and the licence text must be the same licence; change both or neither."
+    fi
+
+    # FR-065: what a packager and a source index expect to find in the manifest.
+    local key missing_keys=""
+    for key in description license repository documentation keywords; do
+        grep -qE "^$key[[:space:]]*=[[:space:]]*[^[:space:]]" Cargo.toml || missing_keys="$missing_keys $key"
+    done
+    if [ -n "$missing_keys" ]; then
+        fail "licence-files: Cargo.toml carries no:$missing_keys (FR-065)" \
+            "See specs/003-oss-release-readiness/contracts/packaging.md → Metadata for the full set."
+    else
+        pass "licence-files: Cargo.toml carries the source-index metadata (FR-065)"
+    fi
+
+    # FR-063, SC-041: zero unattributed files. Everything shipping inside the tree that could have
+    # come from elsewhere is listed in the account — including what did not, because "this one is
+    # ours" is an answer and silence is not.
+    if [ ! -f "$account" ]; then
+        fail "licence-files: $account is missing (FR-063)" \
+            "Every third-party component shipping inside the tree is accounted for there."
+        return
+    fi
+
+    local path unlisted="" unheaded=""
+    while IFS= read -r path; do
+        [ -z "$path" ] && continue
+        grep -qF -- "$path" "$account" || unlisted="$unlisted $path"
+        # And the other half of R45's answer: a file carries its own provenance too, so that a
+        # copy taken out of this tree does not lose it.
+        grep -qF -- "$account" "$path" || unheaded="$unheaded $path"
+    done <<INNER_EOF
+$(find protocols assets -type f 2>/dev/null | sort)
+INNER_EOF
+
+    if [ -n "$unlisted" ]; then
+        fail "licence-files: $account does not account for:$unlisted (FR-063, SC-041)" \
+            "Give each one its origin, its version or revision, and its licence."
+    else
+        pass "licence-files: $account accounts for every path under protocols/ and assets/ (FR-063)"
+    fi
+
+    if [ -n "$unheaded" ]; then
+        fail "licence-files: no provenance header pointing at $account in:$unheaded (FR-063)" \
+            "A file read on its own must still say where it came from; see research.md R45."
+    else
+        pass "licence-files: every such file carries its own provenance header (FR-063)"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # docs-map — the document map of contracts/documentation.md holds (FR-068–FR-070)
 # ---------------------------------------------------------------------------
 
@@ -410,6 +497,7 @@ changelog() {
     fi
 }
 
+licence_files
 docs_map
 docs_pages
 docs_development_tree

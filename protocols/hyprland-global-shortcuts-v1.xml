@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Vendored from hyprwm/hyprland-protocols, protocols/hyprland-global-shortcuts-v1.xml
-     Upstream revision: 5d6a3ee1474dc560fee59cd571c4c20920ca8b17
-     Do not edit; re-vendor to update. -->
+<!-- Third-party component (FR-063). Accounted for in THIRD-PARTY.md at the repository root.
+
+     Origin:    hyprwm/hyprland-protocols, protocols/hyprland-global-shortcuts-v1.xml
+     Revision:  5d6a3ee1474dc560fee59cd571c4c20920ca8b17
+     Copyright: © 2022 Vaxry
+     Licence:   BSD-3-Clause — the full text is the <copyright> element below, which is also
+                what that licence requires be reproduced in any redistribution.
+
+     Do not edit; re-vendor to update, and change the revision here and in THIRD-PARTY.md. -->
 <protocol name="hyprland_global_shortcuts_v1">
   <copyright>
     Copyright © 2022 Vaxry

@@ -3,8 +3,21 @@ name = "hypr-swap"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.96"
+# The copyright holder LICENSE names. cargo-deb reads this to write the `Copyright:` line of the
+# Debian `copyright` file; without it the generated file says the information is missing.
+authors = ["SerafAC <seraf_ac@hotmail.com>"]
 description = "Alt-Tab style workspace switcher with cross-monitor swapping for Hyprland"
 license = "MIT"
+# What a packager and a source index expect to find here (FR-065, contracts/packaging.md). The
+# licence above is the one LICENSE spells out and the one the `licence-files` check compares
+# against; `documentation` is the published site, which is where a reader is sent for anything
+# longer than the README.
+repository = "https://github.com/SerafAC/hypr-swap"
+documentation = "https://serafac.github.io/hypr-swap/"
+homepage = "https://serafac.github.io/hypr-swap/"
+readme = "README.md"
+keywords = ["hyprland", "wayland", "workspace", "switcher", "alt-tab"]
+categories = ["command-line-utilities", "gui", "os::linux-apis"]
 
 [dependencies]
 wayland-client = "0.31"
@@ -52,8 +65,10 @@ lto = true
 
 [package.metadata.deb]
 maintainer = "SerafAC <seraf_ac@hotmail.com>"
-# `LICENSE` verbatim becomes /usr/share/doc/hypr-swap/copyright, which is where the Debian family
-# looks for it (FR-066). No lines are skipped: the file is the licence and nothing else.
+# /usr/share/doc/hypr-swap/copyright is where the Debian family looks for the licence (FR-066).
+# cargo-deb writes a short DEP-5 header — format, upstream name, source, holder, licence — and
+# then this file's full text beneath it; the `0` says skip no lines, because LICENSE is the
+# licence and nothing else.
 license-file = ["LICENSE", "0"]
 section = "utils"
 priority = "optional"

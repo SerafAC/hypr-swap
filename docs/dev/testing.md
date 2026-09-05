@@ -17,6 +17,7 @@ Lint and format sit alongside them and gate a merge the same way:
 ```bash
 cargo clippy --all-targets -- -D warnings   # pedantic is enabled at warn level
 cargo fmt --check
+cargo deny check licenses                  # the dependency graph's licences (FR-064)
 ```
 
 ## The unit tier

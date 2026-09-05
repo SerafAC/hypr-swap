@@ -759,20 +759,20 @@ component shipping inside it, names each licence, and finds the project's full l
 ### Implementation for User Story 6
 
 - [X] T077 [P] [US6] Create `LICENSE` with the full MIT text at the repository root, naming the copyright holder and year, matching the `license` already declared in `Cargo.toml` (FR-062, [research.md](./research.md) R45)
-- [ ] T078 [P] [US6] Create `THIRD-PARTY.md` accounting for every component shipping inside the tree — `protocols/hyprland-global-shortcuts-v1.xml` and `assets/placeholder.svg` at minimum — each with its upstream origin, its version or revision and its own licence, and add the same header to each file itself (FR-063)
-- [ ] T079 [US6] Add the source-index metadata to `Cargo.toml`: `repository`, `documentation`, `homepage`, `keywords`, `categories` and `readme`, beside the existing `description` and `license` (FR-065)
-- [ ] T080 [US6] Add the `[licenses]` section to `deny.toml` and state the project's position on its build-time and runtime dependency licences in `THIRD-PARTY.md`, so a packager can judge redistributability without auditing the graph themselves (FR-064, [research.md](./research.md) R38)
-- [ ] T081 [US6] Add `cargo deny check licenses` as a **gating** job named `licenses` in `.github/workflows/ci.yml` **and add it to `ci-required`'s `needs:` list** (T042) — a gate nothing requires is exactly what FR-091 forbids — distinct from the informational `advisories` job of T046 (FR-064, FR-091)
-- [ ] T082 [US6] Confirm both distribution packages ship `LICENSE` to their family's conventional path — `/usr/share/doc/hypr-swap/copyright` and `/usr/share/licenses/hypr-swap/LICENSE` — via the `Cargo.toml` metadata of T052 (FR-066, [contracts/packaging.md](./contracts/packaging.md))
+- [X] T078 [P] [US6] Create `THIRD-PARTY.md` accounting for every component shipping inside the tree — `protocols/hyprland-global-shortcuts-v1.xml` and `assets/placeholder.svg` at minimum — each with its upstream origin, its version or revision and its own licence, and add the same header to each file itself (FR-063)
+- [X] T079 [US6] Add the source-index metadata to `Cargo.toml`: `repository`, `documentation`, `homepage`, `keywords`, `categories` and `readme`, beside the existing `description` and `license` (FR-065)
+- [X] T080 [US6] Add the `[licenses]` section to `deny.toml` and state the project's position on its build-time and runtime dependency licences in `THIRD-PARTY.md`, so a packager can judge redistributability without auditing the graph themselves (FR-064, [research.md](./research.md) R38)
+- [X] T081 [US6] Add `cargo deny check licenses` as a **gating** job named `licenses` in `.github/workflows/ci.yml` **and add it to `ci-required`'s `needs:` list** (T042) — a gate nothing requires is exactly what FR-091 forbids — distinct from the informational `advisories` job of T046 (FR-064, FR-091)
+- [X] T082 [US6] Confirm both distribution packages ship `LICENSE` to their family's conventional path — `/usr/share/doc/hypr-swap/copyright` and `/usr/share/licenses/hypr-swap/LICENSE` — via the `Cargo.toml` metadata of T052 (FR-066, [contracts/packaging.md](./contracts/packaging.md))
 
 ### Tests for User Story 6
 
-- [ ] T083 [US6] Extend `scripts/checks.sh` with the `licence-files` check: `LICENSE` exists and names a holder and a year; `Cargo.toml`'s `license` agrees with it; `Cargo.toml` carries description, licence, repository, documentation and keywords; every path under `protocols/` and `assets/` is accounted for in `THIRD-PARTY.md`, so zero files are unattributed (FR-062, FR-063, FR-065, SC-041)
+- [X] T083 [US6] Extend `scripts/checks.sh` with the `licence-files` check: `LICENSE` exists and names a holder and a year; `Cargo.toml`'s `license` agrees with it; `Cargo.toml` carries description, licence, repository, documentation and keywords; every path under `protocols/` and `assets/` is accounted for in `THIRD-PARTY.md`, so zero files are unattributed (FR-062, FR-063, FR-065, SC-041)
 - [X] T084 [US6] Run `gitleaks detect --log-opts=--all` over the entire history for credentials, personal data and material the project has no right to publish, and record the outcome in `specs/003-oss-release-readiness/history-review.md` — **before** the repository is made public (FR-066a, [research.md](./research.md) R44)
 
 - [X] T084a [US6] Make the repository public and turn on what only a public repository can do — **all three done**: public 2026-09-02, GitHub Pages serving the site at `https://serafac.github.io/hypr-swap/`, and a ruleset on `master` requiring `ci-required` and nothing else (verified 2026-09-03). T084's review was recorded clean, though *after* the repository was made public rather than before — the ordering is recorded in [history-review.md](./history-review.md) (FR-066a, FR-078, FR-091)
 
-### Story 6 record so far (T084, and what T084a still needs)
+### Story 6 record (T077–T084a — the phase is complete)
 
 **T084 ran on 2026-09-02** against `master` at `aa3a81b`: `gitleaks` 8.30.1 over all 33 commits,
 **no leaks found**, plus the personal-data and third-party-material checks FR-066a also asks for.
@@ -797,6 +797,46 @@ future history rewrite does not repeat it.
 the package, the publishing workflow was deleted (T040): FR-089 asks for an image defined in the
 repository and usable locally, not a published one, and nothing consumed the registry copy. The
 image is built from `docker/e2e/` by whoever wants it.
+
+**T078–T083 landed on 2026-09-05.** What follows is worth recording rather than smoothing over:
+
+**The `copyright` file is not `LICENSE` verbatim, and `Cargo.toml` said it was.** `cargo-deb`
+prepends a five-line DEP-5 header — format, upstream name, source, holder, licence — and puts the
+file's text beneath it; `license-file`'s `0` says skip no lines *of LICENSE*, not that nothing is
+added. The comment in `Cargo.toml` claimed otherwise and now describes what the tool actually does.
+The header also revealed a real gap: with no `authors` key, it read `Copyright information missing
+(maintainer: …)`, which is a poor thing for a licence file to say. `authors` is now declared and the
+line names the holder. FR-066 was met either way — the full text ships — but the file a Debian user
+opens now says who is granting the licence.
+
+**T082 was verified by building both packages, not by reading the manifest.** `cargo deb --no-build`
+and `cargo generate-rpm` were run against the release binary and their payloads listed. Both match
+[contracts/packaging.md](./contracts/packaging.md)'s install map exactly:
+
+| | Debian family | RPM family |
+|---|---|---|
+| Binary | `/usr/bin/hypr-swap` | `/usr/bin/hypr-swap` |
+| Licence | `/usr/share/doc/hypr-swap/copyright` ✅ | `/usr/share/licenses/hypr-swap/LICENSE` ✅ |
+| Third-party account | `/usr/share/doc/hypr-swap/THIRD-PARTY.md` ✅ | same ✅ |
+| README | `/usr/share/doc/hypr-swap/README.md` ✅ | same ✅ |
+| Changelog | `/usr/share/doc/hypr-swap/changelog.gz` ✅ | `/usr/share/doc/hypr-swap/CHANGELOG.md` ✅ |
+
+**The licence allow-list reads development dependencies too** (`include-dev = true`). It is stricter
+than redistribution requires — a dev-dependency ships to nobody — but "every licence in the graph is
+permissive" then needs no footnote saying what was excluded from "every". The set the graph actually
+contains is nine, all permissive, no copyleft: MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception,
+BSD-2-Clause, BSD-3-Clause, 0BSD, Zlib, Unicode-3.0, Unlicense. `cargo deny check licenses` passes
+clean, and `licenses` is in `ci-required`'s `needs:` list in the same change that created the job.
+
+**T083's check bites both ways.** `licence-files` verifies the index *and* the in-file header, which
+is R45's two-sided answer: an unlisted file and a file whose own header was dropped are both
+failures. Negative-tested with a decoy file under `assets/`; both assertions fired.
+
+**Three documents were listing a gating set that no longer matched.** `DEVELOPMENT.md`,
+`CONTRIBUTING.md` and `docs/dev/testing.md` each enumerate what gates a merge, and adding a gate
+without adding it there would have made all three false. Each now names `cargo deny check licenses`
+and says it needs `cargo install cargo-deny --locked`; `DEVELOPMENT.md` also states why its sibling
+`advisories` does not gate, which is the distinction FR-091 exists to keep visible.
 
 **Checkpoint**: Every file in the tree is attributable to an origin and a licence; the history has
 been reviewed, the review recorded, and only then is the repository public.

@@ -146,6 +146,24 @@ jobs:
         run: |
           echo "::error::a document check failed — reproduce locally with: ./scripts/checks.sh"
 
+  # The dependency-licence gate (FR-064, research.md R38). Distinct from the `advisories` job of
+  # `advisories.yml`, and gating where that one is informational: an advisory is news about the
+  # world, whereas a dependency arriving under an unexpected licence is a property of the change
+  # under review. The allowed set is `deny.toml`'s `[licenses]` section, and THIRD-PARTY.md's
+  # statement to packagers is what that section makes true.
+  licenses:
+    name: licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+      - name: How to reproduce this
+        if: failure()
+        run: |
+          echo "::error::a dependency's licence is not in the allowed set — reproduce locally with: cargo deny check licenses. Either drop the dependency, or add the licence to deny.toml's [licenses] allow list and update THIRD-PARTY.md's table in the same change."
+
   # The E2E tier is **not** here. It is informational for now and runs as its own workflow, the way
   # `advisories` does — R29's route 1 is measurably unable to host a nested compositor and route 2
   # is not built yet (contracts/ci.md, and the deviation recorded against FR-088 in spec.md). It
@@ -160,10 +178,6 @@ jobs:
   # change is visible here, in one file. Any task that adds a gating job adds it to this list in
   # the same change.
   #
-  # `licenses` (`cargo deny check licenses`, FR-064) belongs in this list and is added by the task
-  # that creates the job; a `needs:` naming a job that does not exist makes the whole workflow
-  # unloadable, so the two land together.
-  #
   # `e2e` is deliberately absent. It gated until route 1 was measured and found unable to host a
   # nested compositor at all; it returns to this list in the same change that makes it pass, which
   # is what keeps this list and the gating table of contracts/ci.md the same statement.
@@ -172,7 +186,7 @@ jobs:
     name: ci-required
     runs-on: ubuntu-latest
     if: always()
-    needs: [build, unit, clippy, fmt, msrv, docs, checks]
+    needs: [build, unit, clippy, fmt, msrv, docs, checks, licenses]
     steps:
       - name: Verdict
         env:

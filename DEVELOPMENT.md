@@ -79,7 +79,13 @@ cargo test --test 'e2e_*'              # end-to-end — needs a live Hyprland se
 ./scripts/checks.sh                    # the document checks — nothing required
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
+cargo deny check licenses              # needs `cargo install cargo-deny --locked`
 ```
+
+`cargo deny check licenses` gates too: a dependency arriving under a licence outside `deny.toml`'s
+allowed set fails the merge, because that set is what makes `THIRD-PARTY.md`'s statement to
+packagers true rather than aspirational (FR-064). Its sibling `cargo deny check advisories` runs in
+automation but does **not** gate — an advisory is news about the world, not a defect in your change.
 
 Narrower runs, when you are working on one thing:
 
