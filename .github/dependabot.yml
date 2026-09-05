@@ -1,0 +1,45 @@
+# Dependency updates, for the half of the repository the advisory check cannot see
+# (research.md R38, R31).
+#
+# FR-093's advisory watch is `cargo-deny`, in `advisories.yml`. It reads Cargo metadata, so nothing
+# it does says anything about the documentation site's `pnpm-lock.yaml` — and a watch that quietly
+# covers half a repository is worse than one whose limits are written down. The `npm` entry below is
+# what closes that half; `npm` is Dependabot's name for the ecosystem, and it is the one that reads
+# a pnpm lockfile.
+#
+# The asymmetry that follows is deliberate: **a Cargo advisory reaches the maintainer as a failing
+# check, an npm advisory as a pull request.** It is proportionate. Nothing in the site's dependency
+# tree ships to a user or runs on their machine; its blast radius is a documentation site built by
+# CI, and gating a contributor's merge on a transitive advisory in a build-time-only Markdown
+# generator is the "permanently red" outcome FR-093 legislates against.
+#
+# Security updates for both ecosystems are raised by GitHub whether or not this file exists. What
+# this file adds is the *version* updates — the ordinary staying-current that stops a dependency
+# rotting until its fix is a rewrite.
+version: 2
+
+updates:
+  # The program. Direct dependencies in `Cargo.toml`, plus the lockfile.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Monday, alongside `advisories.yml`'s scheduled run, so the week's dependency news — the
+    # advisories and the updates that may answer them — arrives together rather than twice.
+    open-pull-requests-limit: 5
+
+  # The documentation site: `package.json` and `pnpm-lock.yaml` at the repository root.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    # Three docmd packages released in lockstep on one version number. Separately they are three
+    # pull requests a week that must be merged together anyway, and a stream nobody reads is a
+    # watch nobody reads.
+    groups:
+      docmd:
+        patterns:
+          - "@docmd/*"

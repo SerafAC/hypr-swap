@@ -995,15 +995,96 @@ dependency.
 
 ### Implementation for User Story 8
 
-- [ ] T104 [P] [US8] Write `SECURITY.md` with a private reporting channel distinct from the public tracker and an expected acknowledgement time (FR-119)
-- [ ] T104a [P] [US8] Create `.github/dependabot.yml` with two ecosystems, both rooted at `/`: `cargo` for the program and `npm` for the documentation site (Dependabot's ecosystem is named `npm` and is the one that reads a `pnpm-lock.yaml`). The npm tree is the part `cargo-deny` structurally cannot see, so without this FR-093's advisory watch covers only half the repository ([research.md](./research.md) R38, R31)
-- [ ] T105 [US8] Add the supported-version statement to `SECURITY.md` — which released versions receive fixes ([data-model.md](./data-model.md) → Supported version range) (FR-120)
-- [ ] T106 [US8] Add the dependency policy to `CONTRIBUTING.md`: a new dependency requires written justification in the plan's Complexity Tracking table, consistent with the constitution's simplicity principle, so a contributor proposing one knows the bar in advance (FR-121)
+- [X] T104 [P] [US8] Write `SECURITY.md` with a private reporting channel distinct from the public tracker and an expected acknowledgement time (FR-119)
+- [X] T104a [P] [US8] Create `.github/dependabot.yml` with two ecosystems, both rooted at `/`: `cargo` for the program and `npm` for the documentation site (Dependabot's ecosystem is named `npm` and is the one that reads a `pnpm-lock.yaml`). The npm tree is the part `cargo-deny` structurally cannot see, so without this FR-093's advisory watch covers only half the repository ([research.md](./research.md) R38, R31)
+- [X] T105 [US8] Add the supported-version statement to `SECURITY.md` — which released versions receive fixes ([data-model.md](./data-model.md) → Supported version range) (FR-120)
+- [X] T106 [US8] Add the dependency policy to `CONTRIBUTING.md`: a new dependency requires written justification in the plan's Complexity Tracking table, consistent with the constitution's simplicity principle, so a contributor proposing one knows the bar in advance (FR-121)
 
 ### Tests for User Story 8
 
-- [ ] T107 [US8] Confirm `cargo deny check advisories` surfaces a deliberately introduced vulnerable dependency, and that an `ignore` entry with an `until YYYY-MM-DD:` reason accepts it without the project sitting permanently red — with T047's test failing once that date passes (FR-093, US8-AS3)
-- [ ] T108 [US8] Walk the inspection items for FR-119 and FR-120 — the channel works and the supported-version list is current
+- [X] T107 [US8] Confirm `cargo deny check advisories` surfaces a deliberately introduced vulnerable dependency, and that an `ignore` entry with an `until YYYY-MM-DD:` reason accepts it without the project sitting permanently red — with T047's test failing once that date passes (FR-093, US8-AS3)
+- [X] T108 [US8] Walk the inspection items for FR-119 and FR-120 — the channel works and the supported-version list is current
+
+### Story 8 record (T104–T108 — the phase is complete)
+
+**T104, T105 landed on 2026-09-05.** `SECURITY.md` publishes two private channels, both distinct
+from the tracker: GitHub's private vulnerability reporting as the preferred route, and
+`seraf_ac@hotmail.com` for a reporter with no account. **The address is the one
+`CODE_OF_CONDUCT.md` already publishes**, deliberately — a project maintained by one person that
+lists two different private addresses is asking a reporter to guess which one is read.
+
+The acknowledgement time is **14 days**, matching the outer bound `CONTRIBUTING.md` already states
+for a change. A shorter promise would have read better and been worth less: FR-100's best-effort
+statement and FR-119's acknowledgement time are the same claim about the same person, and they had
+to agree.
+
+**The supported-version statement (FR-120) is a policy plus a fact, and the fact expires.** The
+policy — only the most recent release receives fixes, issued as a new release rather than a
+backport — is stable. The fact is that *nothing is released yet*: `Cargo.toml`'s `0.1.0` is
+pre-publication and the public history begins at 1.0.0
+([contracts/versioning.md](./contracts/versioning.md)). The page says so rather than implying a
+support window that does not exist, and the release checklist's FR-120 item is what keeps it true.
+The distribution-package caveat is stated in the same section: a distribution's package lags at the
+distribution's pace, and that is not this project's channel to answer for.
+
+> **The one repository setting this needed is on.** GitHub's private vulnerability reporting was
+> **not enabled** when `SECURITY.md` was written — it cannot be switched on from the tree, being
+> Settings → Advanced Security, like T084a's Pages and ruleset items — so the document was written
+> to survive either state, with the unconditional email route beneath the preferred one. The
+> maintainer **enabled it on 2026-09-05**, and the confirmation is one an outsider can repeat rather
+> than the maintainer's word: `https://github.com/SerafAC/hypr-swap/security` now serves a **Report
+> a vulnerability** button linking to `/security/advisories/new` to an anonymous reader, which it
+> does not when the setting is off. Both of FR-119's channels work.
+
+**T104a: `.github/dependabot.yml`, two ecosystems at `/`.** The `npm` entry is the point of the
+task — `cargo-deny` reads Cargo metadata, so without it FR-093's advisory watch covered the program
+and said nothing about the site's `pnpm-lock.yaml` (R38, R31). Two decisions beyond what the task
+specified, both to keep the watch readable rather than merely present:
+
+- **Both run Monday**, alongside `advisories.yml`'s `17 6 * * 1` schedule, so the week's dependency
+  news arrives in one batch rather than two.
+- **The three `@docmd/*` packages are grouped into one pull request.** They release in lockstep on
+  one version number, so ungrouped they are three pull requests a week that must be merged together
+  anyway — and a stream nobody reads is a watch nobody reads, which is the failure mode R38 argues
+  against in its other half.
+
+**T106: `CONTRIBUTING.md` gained its own `## Adding a dependency` section**, rather than another
+sentence under KISS. FR-121's phrase is "so a contributor proposing one knows the bar in advance",
+and a bar folded into a principle is not something anyone reads in advance. The section states what
+the justification answers — the requirement by number, why the standard library or the existing tree
+will not do, what arrives with it, its licence, and who maintains it — and names two consequences a
+contributor would otherwise discover in review: the bar covers **development** dependencies and the
+**site's npm tree** (`deny.toml` has `include-dev = true`), and adding a licence to the allow-list
+changes `THIRD-PARTY.md`'s table in the same commit.
+
+**T107 was run for real, not reasoned about.** `atty 0.2.14` was added as a development dependency —
+chosen because both its advisories say *"No safe upgrade is available!"*, which is precisely the
+case FR-093 legislates for:
+
+| Step | Result |
+|---|---|
+| `atty 0.2.14` added, `cargo deny check advisories` | **FAILED**, exit 1 — `error[unsound]` RUSTSEC-2021-0145 (potential unaligned read) and `error[unmaintained]` RUSTSEC-2024-0375, each naming the dependency path back to the crate |
+| Two `ignore` entries added, `reason = "until 2026-12-31: …"` | **`advisories ok`**, exit 0 — accepted, and the project is not sitting red |
+| `cargo test --lib advisory_acceptances_are_bounded_and_current` (T047) | **passes** while the date is in the future |
+| One date edited back to `2026-08-01` | **fails**: *"the acceptance of RUSTSEC-2021-0145 expired on (2026, 8, 1) and today is (2026, 9, 5)"* |
+| The same entry rewritten as a bare `"RUSTSEC-2021-0145"` | **fails**: *"is a bare advisory id. Write it as { id = …, reason = "until YYYY-MM-DD: …" } so the acceptance expires"* |
+
+`Cargo.toml`, `Cargo.lock` and `deny.toml` were restored from copies taken before the experiment;
+`cargo deny check advisories` and the unit test are green on the restored tree, and `git status`
+shows no change to any of the three. **US8-AS3 holds in both directions**: an advisory with no fix
+can be accepted deliberately, and it cannot be forgotten.
+
+**T108, the inspection walk**, with the one honest gap:
+
+| Item | State |
+|---|---|
+| FR-119 — a private channel exists, distinct from the tracker | ✅ Two. `blank_issues_enabled: false` and `config.yml`'s contact link mean the tracker cannot be reached without first being told not to use it for this |
+| FR-119 — the preferred channel works | ✅ Private vulnerability reporting enabled 2026-09-05; the button is visible anonymously on the Security tab. The email works unconditionally beside it |
+| FR-119 — an acknowledgement time is stated | ✅ 14 days, with what to do if it passes |
+| FR-120 — the supported versions are published | ✅ The policy, the table, and the fact that nothing is released yet |
+| Every inbound reference resolves | ✅ All six — `CONTRIBUTING.md`, `docs/index.md`, `docs/user/troubleshooting.md`, `docs/dev/releasing.md`, `ISSUE_TEMPLATE/config.yml`, `bug.yml` — pointed at a file that did not exist until now, and all now resolve |
+| Every outbound link and anchor resolves | ✅ Checked mechanically, including `README.md#scope-and-privacy` and `THIRD-PARTY.md#the-dependency-graphs-licences` |
+| `./scripts/checks.sh` | ✅ All checks passed; no changelog entry owed, nothing under `src/` changed |
 
 **Checkpoint**: Someone with a security finding has somewhere private to send it, and the
 maintainer learns about a vulnerable dependency from the project's own checks.

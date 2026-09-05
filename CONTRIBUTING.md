@@ -33,6 +33,44 @@ calling it. [DEVELOPMENT.md's architecture section](DEVELOPMENT.md#architecture)
 and why the shell is kept as small as it is. A new condition, ordering, fallback or piece of
 arithmetic written into the Wayland handler is the most common reason a change is sent back.
 
+## Adding a dependency
+
+One consequence of the simplicity principle comes up often enough to state on its own, so that you
+know the bar before you write against it rather than after: **a new dependency is justified in
+writing before it is added, not defended after it is reviewed.** The justification is a row in the
+feature's `plan.md` Complexity Tracking table — what it is, which requirement needs it, and what
+simpler thing was rejected in its favour — and the constitution makes that binding rather than
+customary. A change that arrives with a new entry in `Cargo.toml` and nothing in that table is sent
+back for the table, not for the crate.
+
+If your change is a bug fix with no feature directory of its own and it needs a dependency, that is
+a sign it is not a bug fix. Open an issue and it can be worked out there.
+
+The bar applies to a development dependency and to the documentation site's npm tree exactly as it
+does to something the program links: `deny.toml` reads the whole graph, dev dependencies included,
+and a crate nobody ships is still a crate somebody has to keep working.
+
+What the justification answers:
+
+- **Which requirement needs it**, by number. A dependency traceable to no requirement is the YAGNI
+  case above, in a more expensive form.
+- **Why the standard library, or something already in the tree, will not do.** This is the one that
+  decides most of them. `toml`, `serde`, `cairo` and `resvg` are already here and already carry
+  their cost; a second way to do something they do needs more than a nicer interface.
+- **What arrives with it.** Transitive dependencies, a build script, a native toolchain, a minimum
+  toolchain higher than `rust-version` — all of them land on every contributor and every packager,
+  not only on you.
+- **Its licence.** It must already be in `deny.toml`'s allow-list, or your change adds it there.
+  `cargo deny check licenses` gates the merge, so this is not a matter of intent. Adding a licence
+  to that list changes what the project tells a packager it redistributes, so
+  [`THIRD-PARTY.md`](THIRD-PARTY.md#the-dependency-graphs-licences)'s table changes in the same
+  commit.
+- **Who maintains it, and what happens if they stop.** Not a veto — most of the tree would fail a
+  strict reading of it — but an answer worth having in writing before the answer is needed.
+
+None of this is a judgement on the crate. It is that a dependency is the easiest thing in a project
+to add and the hardest to remove, and the asymmetry is worth a paragraph of writing up front.
+
 ## How a change is specified
 
 The project is developed spec-first, with [spec-kit](https://github.com/github/spec-kit): a feature
