@@ -6,6 +6,8 @@
 
 use serde::Deserialize;
 
+use crate::SUPPORTED_HYPRLAND;
+
 /// A monitor's connector name, e.g. `eDP-1` or `HEADLESS-2`. Identity for monitors everywhere.
 pub type MonitorName = String;
 
@@ -154,6 +156,85 @@ impl From<RawWindow> for Window {
             ),
             floating: raw.floating,
             mapped: raw.mapped,
+        }
+    }
+}
+
+// --- The compositor's own version (FR-118, research.md R42) -----------------
+
+/// Hyprland's `j/version` response, of which exactly two fields are read.
+///
+/// The rest of that response — the commit, the build's library versions, the ABI hash — is
+/// deliberately ignored: the daemon asks this question once, at start-up, to answer FR-118, and
+/// anything more would be state this application has no use for.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct CompositorVersion {
+    /// e.g. `0.56.2`.
+    pub version: String,
+    /// e.g. `v0.56.2`. Carried for the `--environment` report only, and absent on builds that
+    /// were not made from a tag.
+    #[serde(default)]
+    pub tag: Option<String>,
+}
+
+/// How a reported version stands against [`SUPPORTED_HYPRLAND`].
+///
+/// Three outcomes rather than a boolean because the two failures are reported differently: one
+/// names a version that is too old, the other names a string that could not be read at all
+/// (`contracts/diagnostics.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Support<'a> {
+    /// At or above the minimum. There is no maximum — a newer compositor is assumed to work.
+    Supported,
+    TooOld {
+        found: (u32, u32, u32),
+        minimum: (u32, u32),
+    },
+    /// The version string is not a version this application can compare. Borrowed rather than
+    /// owned so the record quotes exactly what the compositor said, without copying it.
+    Unknown { found: &'a str },
+}
+
+impl CompositorVersion {
+    /// `MAJOR.MINOR[.PATCH]`, with an optional `v` prefix and any trailing suffix ignored.
+    ///
+    /// Pure and total: `None` for anything that does not begin with two dot-separated numbers,
+    /// which is what makes the "could not be read" branch of FR-118 a decision rather than a
+    /// guess. The leniency is deliberate — `0.56.2`, `v0.56.2`, `0.56.2-dirty` and `0.55` are all
+    /// versions a Hyprland build really reports, and none of them should cost the user a warning.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<(u32, u32, u32)> {
+        let text = text.trim();
+        let text = text.strip_prefix('v').unwrap_or(text);
+        // The suffix begins at the first character that is neither a digit nor a separator, so
+        // `-dirty`, `rc1` and `+build` all fall off together.
+        let end = text
+            .find(|c: char| !c.is_ascii_digit() && c != '.')
+            .unwrap_or(text.len());
+        let mut parts = text[..end].split('.');
+        let major = parts.next()?.parse().ok()?;
+        let minor = parts.next()?.parse().ok()?;
+        // A two-component version is a real form; a fourth component is more trailing suffix.
+        let patch = match parts.next() {
+            Some(patch) => patch.parse().ok()?,
+            None => 0,
+        };
+        Some((major, minor, patch))
+    }
+
+    /// Whether this compositor is inside the supported range (FR-118).
+    ///
+    /// The patch level is parsed but not compared: [`SUPPORTED_HYPRLAND`] is a `MAJOR.MINOR`
+    /// minimum, because that is the granularity at which Hyprland's protocol surface moves.
+    #[must_use]
+    pub fn supported(&self) -> Support<'_> {
+        let minimum = SUPPORTED_HYPRLAND.minimum;
+        match Self::parse(&self.version) {
+            None => Support::Unknown {
+                found: &self.version,
+            },
+            Some((major, minor, _patch)) if (major, minor) >= minimum => Support::Supported,
+            Some(found) => Support::TooOld { found, minimum },
         }
     }
 }
@@ -328,5 +409,92 @@ mod tests {
         let parsed: Vec<Window> = serde_json::from_str(json).expect("deserialises");
         assert_eq!(parsed[0].size, (0, 10));
         assert!(!parsed[0].has_area());
+    }
+
+    // T094 — the compositor version (FR-118, research.md R42).
+
+    #[test]
+    fn the_version_response_reads_only_the_two_fields_it_needs() {
+        // The real `j/version` reply, abbreviated but shaped exactly as the running compositor
+        // sends it: every other field is ignored, as it is everywhere else in this module.
+        let json = r#"{"branch":"v0.56.2","commit":"efb5099","version":"0.56.2",
+                       "dirty":false,"tag":"v0.56.2","commits":"7661",
+                       "buildAquamarine":"0.15.0"}"#;
+        let parsed: CompositorVersion = serde_json::from_str(json).expect("deserialises");
+        assert_eq!(parsed.version, "0.56.2");
+        assert_eq!(parsed.tag.as_deref(), Some("v0.56.2"));
+
+        // A build made from no tag reports none, and that is not a parse failure.
+        let untagged: CompositorVersion =
+            serde_json::from_str(r#"{"version":"0.57.0"}"#).expect("deserialises");
+        assert_eq!(untagged.tag, None);
+    }
+
+    #[test]
+    fn a_version_parses_in_every_form_a_hyprland_build_reports() {
+        // The plain form, the `v` prefix, a two-component version, and the suffixes a build from
+        // a working tree or a pre-release carries.
+        assert_eq!(CompositorVersion::parse("0.56.2"), Some((0, 56, 2)));
+        assert_eq!(CompositorVersion::parse("v0.56.2"), Some((0, 56, 2)));
+        assert_eq!(CompositorVersion::parse("0.55"), Some((0, 55, 0)));
+        assert_eq!(CompositorVersion::parse("v0.55"), Some((0, 55, 0)));
+        assert_eq!(CompositorVersion::parse("0.56.2-dirty"), Some((0, 56, 2)));
+        assert_eq!(CompositorVersion::parse("0.57.0-rc1"), Some((0, 57, 0)));
+        assert_eq!(CompositorVersion::parse("1.0.0+build.7"), Some((1, 0, 0)));
+        // A fourth component is more trailing suffix, not a different version.
+        assert_eq!(CompositorVersion::parse("0.56.2.1"), Some((0, 56, 2)));
+        // Whitespace around the value is the compositor's formatting, not part of the version.
+        assert_eq!(CompositorVersion::parse("  0.56.2\n"), Some((0, 56, 2)));
+    }
+
+    #[test]
+    fn anything_that_is_not_two_numbers_is_not_a_version() {
+        // `None` is what puts FR-118's "could not be read" branch on stderr, so each of these is
+        // a way a real build could answer that this application must not guess about.
+        for text in ["", "next", "v", "0", "0.", ".5", "v.", "unknown", "0.x.2"] {
+            assert_eq!(
+                CompositorVersion::parse(text),
+                None,
+                "{text:?} is not a version"
+            );
+        }
+    }
+
+    #[test]
+    fn support_is_decided_against_the_one_published_range() {
+        let at = |version: &str| CompositorVersion {
+            version: version.to_owned(),
+            tag: None,
+        };
+        let (major, minor) = SUPPORTED_HYPRLAND.minimum;
+
+        // Exactly the minimum is supported, and so is everything above it — there is no maximum.
+        assert_eq!(at("0.55").supported(), Support::Supported);
+        assert_eq!(at("0.55.0").supported(), Support::Supported);
+        assert_eq!(at("v0.56.2").supported(), Support::Supported);
+        assert_eq!(at("1.0.0").supported(), Support::Supported);
+
+        // Below it, the record names the version found and the minimum it was measured against.
+        assert_eq!(
+            at("0.52.1").supported(),
+            Support::TooOld {
+                found: (0, 52, 1),
+                minimum: (major, minor),
+            }
+        );
+        assert_eq!(
+            at("0.54.9").supported(),
+            Support::TooOld {
+                found: (0, 54, 9),
+                minimum: (major, minor),
+            }
+        );
+
+        // The patch level is not compared: the range is a MAJOR.MINOR minimum, so a hypothetical
+        // `0.55` with any patch is inside it.
+        assert_eq!(at("0.55.99").supported(), Support::Supported);
+
+        // And an unreadable version quotes back exactly what the compositor said.
+        assert_eq!(at("next").supported(), Support::Unknown { found: "next" });
     }
 }

@@ -68,6 +68,24 @@ pub enum Condition {
     /// mysteriously generic icon. Reported once per program and then cached, so the record cannot
     /// repeat on every overlay opening (FR-044).
     IconUnreadable,
+    /// The daemon is up and can serve a shortcut (FR-112).
+    ///
+    /// Reported from the first connected lifetime, once the world, the Wayland client and the
+    /// event stream are all up. A reconnection reports its own [`Self::CompositorConnection`]
+    /// record instead, because the daemon started once.
+    Started,
+    /// The daemon is exiting, and why (FR-113).
+    ///
+    /// Reported on every exit path, including the ones that never reach [`Self::Started`] — a
+    /// daemon that dies at start-up is exactly the case a user cannot otherwise diagnose. It is
+    /// the last line the process writes (SC-042).
+    Stopping,
+    /// The compositor's version is below the supported range, or could not be read (FR-118).
+    ///
+    /// Never fatal and never notified: the daemon carries on, because it may well work and taking
+    /// the user's switcher away over a version comparison is a worse failure than the obscure one
+    /// this record replaces (research.md R42).
+    CompositorVersionUnsupported,
 }
 
 impl Condition {
@@ -77,7 +95,8 @@ impl Condition {
             Self::InvalidConfigValue
             | Self::UnknownConfigKey
             | Self::NotifyDeliveryFailed
-            | Self::IconUnreadable => Level::Warn,
+            | Self::IconUnreadable
+            | Self::CompositorVersionUnsupported => Level::Warn,
             Self::ShortcutRegistrationFailed
             | Self::SecondInstance
             | Self::CompositorUnreachableAtStartup
@@ -85,7 +104,10 @@ impl Condition {
             | Self::SwapRolledBack
             | Self::RollbackFailed
             | Self::OverlayFocusRefused => Level::Error,
-            Self::CompositorConnection | Self::SelectionTargetVanished => Level::Info,
+            Self::CompositorConnection
+            | Self::SelectionTargetVanished
+            | Self::Started
+            | Self::Stopping => Level::Info,
         }
     }
 
@@ -106,7 +128,10 @@ impl Condition {
             | Self::SelectionTargetVanished
             | Self::OverlayFocusRefused
             | Self::NotifyDeliveryFailed
-            | Self::IconUnreadable => None,
+            | Self::IconUnreadable
+            | Self::Started
+            | Self::Stopping
+            | Self::CompositorVersionUnsupported => None,
         }
     }
 
@@ -346,7 +371,7 @@ fn report_spawn_failure(error: &std::io::Error) {
 mod tests {
     use super::*;
 
-    const ALL: [Condition; 12] = [
+    const ALL: [Condition; 16] = [
         Condition::InvalidConfigValue,
         Condition::UnknownConfigKey,
         Condition::ShortcutRegistrationFailed,
@@ -359,6 +384,10 @@ mod tests {
         Condition::SelectionTargetVanished,
         Condition::OverlayFocusRefused,
         Condition::NotifyDeliveryFailed,
+        Condition::IconUnreadable,
+        Condition::Started,
+        Condition::Stopping,
+        Condition::CompositorVersionUnsupported,
     ];
 
     #[test]
@@ -587,6 +616,69 @@ mod tests {
         // not go through `Condition` at all, which is what makes that structural.
         assert_eq!(Level::Info.as_str(), "INFO");
         assert!(!paint_record(0, "list", "placeholder").contains('\n'));
+    }
+
+    // T095 — the three conditions this feature adds (contracts/diagnostics.md, FR-114).
+
+    #[test]
+    fn the_lifecycle_conditions_report_at_the_documented_levels() {
+        // A daemon starting or stopping is not a problem, and a version warning is a record for a
+        // bug report rather than a fault: Info, Info, Warn (FR-112, FR-113, FR-118).
+        assert_eq!(Condition::Started.level(), Level::Info);
+        assert_eq!(Condition::Stopping.level(), Level::Info);
+        assert_eq!(Condition::CompositorVersionUnsupported.level(), Level::Warn);
+    }
+
+    #[test]
+    fn the_lifecycle_conditions_never_notify() {
+        // FR-030 reserves notifications for what the user must act on, and none of these is:
+        // there is nothing to do about a daemon that started, and a version mismatch is not fatal
+        // (research.md R42).
+        for condition in [
+            Condition::Started,
+            Condition::Stopping,
+            Condition::CompositorVersionUnsupported,
+        ] {
+            assert!(!condition.notifies(), "{condition:?} must not notify");
+            assert!(condition.summary().is_none());
+        }
+    }
+
+    #[test]
+    fn the_lifecycle_records_carry_the_documented_subjects() {
+        // The subjects are part of the stable surface (contracts/versioning.md), so the exact
+        // lines contracts/diagnostics.md publishes are asserted here rather than only in the E2E
+        // suite, where they cost a compositor to check.
+        assert_eq!(
+            format_record(
+                Condition::Started.level(),
+                "daemon",
+                "hypr-swap 1.0.0 started"
+            ),
+            "INFO  daemon: hypr-swap 1.0.0 started"
+        );
+        assert_eq!(
+            format_record(Condition::Stopping.level(), "daemon", "stopping: SIGTERM"),
+            "INFO  daemon: stopping: SIGTERM"
+        );
+        assert_eq!(
+            format_record(
+                Condition::CompositorVersionUnsupported.level(),
+                "compositor",
+                "Hyprland 0.52.1 is below the supported range (>= 0.55); continuing anyway"
+            ),
+            "WARN  compositor: Hyprland 0.52.1 is below the supported range (>= 0.55); \
+             continuing anyway"
+        );
+    }
+
+    #[test]
+    fn adding_conditions_left_the_existing_policy_untouched() {
+        // FR-114: the levels, the format and the notification policy are unchanged for every
+        // condition 001 and 002 named. The two tests above assert the new rows; this asserts that
+        // the set of notifying conditions did not grow with them.
+        let notifying = ALL.into_iter().filter(|c| c.notifies()).count();
+        assert_eq!(notifying, 6, "the six notifying conditions of FR-030");
     }
 
     #[test]

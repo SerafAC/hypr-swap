@@ -1,0 +1,52 @@
+# The configuration contract as of the last release (FR-117, research.md R43).
+#
+# `e2e_config_from_previous_release` runs the current build against this file and asserts that it
+# is read without a single diagnostic: every key still recognised, every value still meaning what
+# it meant, nothing silently reinterpreted. A release that renames or removes a key has to keep
+# the old name recognised, reporting what replaced it — and this fixture is refreshed to that
+# release's contract afterwards, which is a release-checklist item at the foot of quickstart.md.
+#
+# At 1.0.0 there is no earlier release to copy, so this *is* the 1.0.0 contract: every key
+# specs/001-workspace-swap-overlay/contracts/config.md and
+# specs/002-overlay-visuals/contracts/config.md accept, each at a value that is not its default,
+# so that a key which stopped being read would change the daemon's behaviour rather than merely
+# passing unnoticed.
+#
+# `icon_set` is deliberately the standard default set rather than a named one: whether a set is
+# installed is a property of the machine the test runs on, and the fixture asserts the *contract*,
+# not the developer's icon collection.
+
+# --- feature 001 ---
+presentation = "grid"
+placement = "all"
+order = "compositor"
+
+# --- feature 002 ---
+icons = true
+icon_set = "hicolor"
+theme = "light"
+
+[style]
+backdrop = "#17171ced"
+highlight = "#3569b8"
+active_mark = "#6bb873"
+text = "#ebebf0"
+text_highlighted = "#ffffff"
+text_dim = "#a8a8b3"
+text_dim_highlighted = "#dbe6f5"
+miniature = "#292930"
+window = "#4a4a56"
+window_floating = "#5c5c6b"
+window_edge = "#737a8f"
+font_family = "Sans"
+text_size = 0.9
+text_line_height = 28
+row_padding = 10
+overlay_padding = 16
+width_fraction = 0.9
+height_fraction = 0.85
+grid_cell_width = 260
+grid_cell_height = 150
+grid_gap = 14
+corner_radius = 0.3
+mark_width = 0.15

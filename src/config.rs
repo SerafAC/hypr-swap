@@ -265,6 +265,97 @@ pub fn parse(source: &str) -> (Configuration, Vec<Diagnostic>) {
     (configuration, diagnostics)
 }
 
+/// The settings that differ from their defaults, as `key = value` in the file's own key names
+/// (FR-116, FR-071).
+///
+/// Read from the **resolved** configuration rather than from the file, which is what keeps
+/// `--environment` safe to paste into a public issue: the file's own text never reaches it, so a
+/// key this program does not recognise, a comment, or a path a user wrote in one cannot leak. A
+/// setting whose value was rejected and fell back does not appear either, because it did not in
+/// fact differ from its default once the daemon had judged it.
+///
+/// The order is the order [`contracts/config.md`] lists the settings in: behaviour, then icons,
+/// then the theme, then the `[style]` overrides.
+///
+/// [`contracts/config.md`]: ../../specs/002-overlay-visuals/contracts/config.md
+#[must_use]
+pub fn differences(configuration: &Configuration) -> Vec<String> {
+    let default = Configuration::default();
+    let mut out = Vec::new();
+
+    named(configuration.presentation, default.presentation, &mut out);
+    named(configuration.placement, default.placement, &mut out);
+    named(configuration.order, default.order, &mut out);
+
+    if configuration.icons != default.icons {
+        out.push(format!("{ICONS_KEY} = {}", configuration.icons));
+    }
+    if let Some(set) = &configuration.icon_set {
+        out.push(format!("{ICON_SET_KEY} = {set:?}"));
+    }
+
+    let style = &configuration.style;
+    if style.palette.name != default.style.palette.name {
+        out.push(format!("{THEME_KEY} = {:?}", style.palette.name));
+    }
+
+    // A `[style]` override is a difference from *the theme in effect*, not from the default
+    // palette: with `theme = "light"` every colour differs from the default one, and listing all
+    // eleven would bury the one the user actually wrote.
+    let base = theme::BUILT_IN
+        .iter()
+        .find(|theme| theme.name == style.palette.name)
+        .copied()
+        .unwrap_or(theme::BUILT_IN[0]);
+    for colour in theme::COLOURS {
+        let written = colour.read(&style.palette);
+        if written != colour.read(&base) {
+            // `#rrggbbaa`: a colour override can carry opacity — the backdrop's does — and a
+            // report that dropped it would say the wrong thing about the one colour that is not
+            // opaque.
+            out.push(format!(
+                "{STYLE_KEY}.{} = {:?}",
+                colour.key,
+                written.hex_rgba()
+            ));
+        }
+    }
+    if style.font_family != default.style.font_family {
+        out.push(format!(
+            "{STYLE_KEY}.{} = {:?}",
+            theme::FONT_FAMILY_KEY,
+            style.font_family
+        ));
+    }
+    if (style.text_size - default.style.text_size).abs() > f64::EPSILON {
+        out.push(format!(
+            "{STYLE_KEY}.{} = {}",
+            theme::TEXT_SIZE.key,
+            theme::TEXT_SIZE.show(style.text_size)
+        ));
+    }
+    for geometry in theme::GEOMETRY {
+        let written = geometry.read(&style.geometry);
+        if (written - geometry.read(&default.style.geometry)).abs() > f64::EPSILON {
+            out.push(format!(
+                "{STYLE_KEY}.{} = {}",
+                geometry.key,
+                geometry.show(written)
+            ));
+        }
+    }
+
+    out
+}
+
+/// One `key = "value"` line for a setting whose values are a fixed vocabulary, or nothing when it
+/// is at its default.
+fn named<T: Setting + PartialEq>(value: T, default: T, out: &mut Vec<String>) {
+    if value != default {
+        out.push(format!("{} = {:?}", T::KEY, value.name()));
+    }
+}
+
 /// Every top-level key the configuration file accepts, in one place (FR-024, FR-079).
 ///
 /// `load` reports anything absent from this list as an unknown key, and the catalogue walk in
@@ -913,5 +1004,87 @@ mod tests {
             "##,
         );
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    // The `settings` line of the `--environment` report (FR-116, FR-071).
+
+    /// The differences the report would list, given a configuration file.
+    fn listed(source: &str) -> Vec<String> {
+        differences(&parse(source).0)
+    }
+
+    #[test]
+    fn an_unconfigured_daemon_differs_from_its_defaults_in_nothing() {
+        assert!(listed("").is_empty());
+        // Settings written out at exactly their default values are still not differences: the
+        // report says what is unusual about this installation, not what the file happens to hold.
+        assert!(
+            listed(
+                "presentation = \"list\"\nplacement = \"active\"\norder = \"mru\"\nicons = true\n"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn each_changed_setting_is_listed_under_the_key_the_file_uses() {
+        assert_eq!(
+            listed("presentation = \"grid\"\n"),
+            vec![r#"presentation = "grid""#]
+        );
+        assert_eq!(
+            listed("placement = \"all\"\norder = \"monitor\"\n"),
+            vec![r#"placement = "all""#, r#"order = "monitor""#]
+        );
+        assert_eq!(listed("icons = false\n"), vec!["icons = false"]);
+        assert_eq!(
+            listed("icon_set = \"Papirus-Dark\"\n"),
+            vec![r#"icon_set = "Papirus-Dark""#]
+        );
+        assert_eq!(listed("theme = \"light\"\n"), vec![r#"theme = "light""#]);
+    }
+
+    #[test]
+    fn a_style_override_is_measured_against_the_theme_it_sits_on() {
+        // With `theme = "light"` every colour differs from the *default* palette, and listing all
+        // eleven would bury the one thing the user actually wrote. Only the override appears.
+        assert_eq!(
+            listed("theme = \"light\"\n\n[style]\nhighlight = \"#ff0000\"\n"),
+            vec![r#"theme = "light""#, r##"style.highlight = "#ff0000ff""##]
+        );
+        // And on the default palette, one override is still exactly one line — carrying the
+        // opacity it was written with.
+        assert_eq!(
+            listed("[style]\nbackdrop = \"#00000080\"\n"),
+            vec![r##"style.backdrop = "#00000080""##]
+        );
+    }
+
+    #[test]
+    fn font_and_geometry_overrides_are_listed_as_written() {
+        assert_eq!(
+            listed(
+                "[style]\nfont_family = \"JetBrains Mono\"\ntext_size = 0.9\nrow_padding = 14\n"
+            ),
+            vec![
+                r#"style.font_family = "JetBrains Mono""#,
+                "style.text_size = 0.9",
+                "style.row_padding = 14",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_rejected_value_is_not_a_difference_and_the_file_is_never_echoed() {
+        // FR-071: the report is safe to paste into a public issue. A value that was rejected fell
+        // back to its default, so it did not in fact differ from it; a key this program does not
+        // recognise never reaches the report at all, whatever the user wrote beside it.
+        assert!(listed("presentation = \"tiles\"\n").is_empty());
+        let reported = listed("secret_path = \"/home/someone/private\"\norder = \"compositor\"\n");
+        assert_eq!(reported, vec![r#"order = "compositor""#]);
+        assert!(
+            !reported.iter().any(|line| line.contains("private")),
+            "nothing the file holds outside the schema is reported: {reported:?}"
+        );
     }
 }

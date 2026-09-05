@@ -855,28 +855,129 @@ reported in between, and a shutdown record naming the cause.
 
 ### Implementation for User Story 7
 
-- [ ] T085 [US7] Add `Started`, `Stopping` and `CompositorVersionUnsupported` to `src/diag.rs`'s `Condition` enum — `Info`/`Info`/`Warn`, subjects `daemon`/`daemon`/`compositor`, none notifying — leaving the levels, the format and the notification policy untouched (FR-112, FR-113, FR-114, FR-118, [research.md](./research.md) R40, [contracts/diagnostics.md](./contracts/diagnostics.md))
-- [ ] T086 [US7] Add `CompositorVersion` to `src/model.rs`: deserialised from Hyprland's `j/version` response, reading `version` and `tag` only ([data-model.md](./data-model.md))
-- [ ] T087 [US7] Add the pure `parse(&str) -> Option<(u32, u32, u32)>` and `supported(&self) -> Support` to `src/model.rs` — `MAJOR.MINOR[.PATCH]` with an optional `v` prefix and any trailing suffix ignored, yielding `Supported`, `TooOld { found, minimum }` or `Unknown { found }` against `SUPPORTED_HYPRLAND` (FR-118, [research.md](./research.md) R42)
-- [ ] T088 [US7] Report `Started` from `src/main.rs`'s `serve`, once per connected lifetime, after the world, the Wayland client and the event stream are all up — not on reconnection, which keeps reporting its existing `CompositorConnection` record (FR-112, [contracts/diagnostics.md](./contracts/diagnostics.md))
-- [ ] T089 [US7] Report `Stopping` from every exit path in `src/main.rs` — `SIGTERM`, `SIGINT`, a compositor unreachable at start-up, a second instance already running, a usage error — as the last line the process writes, before the exit code is returned (FR-113, SC-042)
-- [ ] T090 [US7] Add the start-up compositor-version check to `src/main.rs`: query `j/version`, report `CompositorVersionUnsupported` at most once when the version is below the minimum or cannot be parsed, and **continue anyway** rather than taking the user's switcher away over a version comparison (FR-118)
-- [ ] T091 [US7] Add `--environment` to `src/main.rs`'s argument parser: print the six `key: value` lines of [contracts/cli.md](./contracts/cli.md) to stdout in order and exit 0 without starting the daemon, with an explicit word where a value is unavailable, listing only settings that differ from their defaults, and never printing the configuration file's contents, window titles or any path outside the configuration and icon-set locations — and add `--environment` to the usage text's OPTIONS block so the binary keeps listing its own options (FR-116, FR-071, FR-033, [research.md](./research.md) R41)
-- [ ] T092 [US7] Record the FR-117 obligation **without new machinery** ([research.md](./research.md) R43): state in [contracts/versioning.md](./contracts/versioning.md) → Deprecation and on [quickstart.md](./quickstart.md)'s release checklist that a setting renamed or removed between releases keeps its old name recognised, reporting what replaced it. No compatibility layer is built — the existing `UnknownConfigKey` diagnostic, FR-024's per-setting fallback and FR-101a's major-version rule are the whole mechanism, and T100 is the test that would notice (FR-117, plan.md → Constitution Check II)
-- [ ] T093 [US7] Add the env-gated compositor-version override used only by the FR-118 E2E test, following the existing precedent of `hypr/ipc.rs`'s fault injection and `diag.rs`'s paint records — inert in normal operation (plan.md → Complexity Tracking)
+- [X] T085 [US7] Add `Started`, `Stopping` and `CompositorVersionUnsupported` to `src/diag.rs`'s `Condition` enum — `Info`/`Info`/`Warn`, subjects `daemon`/`daemon`/`compositor`, none notifying — leaving the levels, the format and the notification policy untouched (FR-112, FR-113, FR-114, FR-118, [research.md](./research.md) R40, [contracts/diagnostics.md](./contracts/diagnostics.md))
+- [X] T086 [US7] Add `CompositorVersion` to `src/model.rs`: deserialised from Hyprland's `j/version` response, reading `version` and `tag` only ([data-model.md](./data-model.md))
+- [X] T087 [US7] Add the pure `parse(&str) -> Option<(u32, u32, u32)>` and `supported(&self) -> Support` to `src/model.rs` — `MAJOR.MINOR[.PATCH]` with an optional `v` prefix and any trailing suffix ignored, yielding `Supported`, `TooOld { found, minimum }` or `Unknown { found }` against `SUPPORTED_HYPRLAND` (FR-118, [research.md](./research.md) R42)
+- [X] T088 [US7] Report `Started` from `src/main.rs`'s `serve`, once per connected lifetime, after the world, the Wayland client and the event stream are all up — not on reconnection, which keeps reporting its existing `CompositorConnection` record (FR-112, [contracts/diagnostics.md](./contracts/diagnostics.md))
+- [X] T089 [US7] Report `Stopping` from every exit path in `src/main.rs` — `SIGTERM`, `SIGINT`, a compositor unreachable at start-up, a second instance already running, a usage error — as the last line the process writes, before the exit code is returned (FR-113, SC-042)
+- [X] T090 [US7] Add the start-up compositor-version check to `src/main.rs`: query `j/version`, report `CompositorVersionUnsupported` at most once when the version is below the minimum or cannot be parsed, and **continue anyway** rather than taking the user's switcher away over a version comparison (FR-118)
+- [X] T091 [US7] Add `--environment` to `src/main.rs`'s argument parser: print the six `key: value` lines of [contracts/cli.md](./contracts/cli.md) to stdout in order and exit 0 without starting the daemon, with an explicit word where a value is unavailable, listing only settings that differ from their defaults, and never printing the configuration file's contents, window titles or any path outside the configuration and icon-set locations — and add `--environment` to the usage text's OPTIONS block so the binary keeps listing its own options (FR-116, FR-071, FR-033, [research.md](./research.md) R41)
+- [X] T092 [US7] Record the FR-117 obligation **without new machinery** ([research.md](./research.md) R43): state in [contracts/versioning.md](./contracts/versioning.md) → Deprecation and on [quickstart.md](./quickstart.md)'s release checklist that a setting renamed or removed between releases keeps its old name recognised, reporting what replaced it. No compatibility layer is built — the existing `UnknownConfigKey` diagnostic, FR-024's per-setting fallback and FR-101a's major-version rule are the whole mechanism, and T100 is the test that would notice (FR-117, plan.md → Constitution Check II)
+- [X] T093 [US7] Add the env-gated compositor-version override used only by the FR-118 E2E test, following the existing precedent of `hypr/ipc.rs`'s fault injection and `diag.rs`'s paint records — inert in normal operation (plan.md → Complexity Tracking)
 
 ### Tests for User Story 7
 
-- [ ] T094 [P] [US7] Unit tests in `src/model.rs` for `parse` and `supported`: the accepted forms, the `v` prefix, a trailing suffix, a two-component version, an unparseable version, and each `Support` outcome against `SUPPORTED_HYPRLAND` (FR-118)
-- [ ] T095 [P] [US7] Unit tests in `src/diag.rs` asserting the three new conditions' levels, subjects and that none notifies — the policy table is unchanged for every existing condition (FR-114)
-- [ ] T096 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_records_start_with_version` (FR-112, US7-AS1, SC-042) and `e2e_records_stop_on_signal` (FR-113, US7-AS2)
-- [ ] T097 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_records_stop_on_fatal_startup` — the daemon started with no compositor reachable still says why, then exits 3 (FR-113, spec edge case)
-- [ ] T098 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_existing_diagnostics_unchanged` — an invalid configuration value still reports at its existing level in the existing format (FR-114, US7-AS3)
-- [ ] T099 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_environment_report` — `--environment` against the nested instance produces every line, with no configuration file contents (FR-116, US7-AS5)
-- [ ] T100 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_config_from_previous_release`, running against the committed fixture `tests/fixtures/config-previous-release.toml` — a copy of the configuration contract as of the last release, which at 1.0.0 is the 1.0.0 contract itself and asserts a clean run with no diagnostics — so the test has something to run against before there is a previous release, and a release-checklist item refreshes the fixture at each release (FR-117, US7-AS6, SC-043)
-- [ ] T101 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_unsupported_compositor_version` — the T093 override below the minimum produces the `WARN compositor:` record and the daemon continues (FR-118, US1-AS5)
-- [ ] T102 [US7] Run the whole 001/002 E2E suite unchanged (`cargo test --test 'e2e_*'`) and confirm it passes untouched — the check that the lifecycle records joined the existing record rather than reshaping it (FR-114, quickstart scenario 2)
-- [ ] T103 [US7] Walk the inspection item for FR-115 — the troubleshooting page still names where the compositor collects the daemon's output and how to retrieve it
+- [X] T094 [P] [US7] Unit tests in `src/model.rs` for `parse` and `supported`: the accepted forms, the `v` prefix, a trailing suffix, a two-component version, an unparseable version, and each `Support` outcome against `SUPPORTED_HYPRLAND` (FR-118)
+- [X] T095 [P] [US7] Unit tests in `src/diag.rs` asserting the three new conditions' levels, subjects and that none notifies — the policy table is unchanged for every existing condition (FR-114)
+- [X] T096 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_records_start_with_version` (FR-112, US7-AS1, SC-042) and `e2e_records_stop_on_signal` (FR-113, US7-AS2)
+- [X] T097 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_records_stop_on_fatal_startup` — the daemon started with no compositor reachable still says why, then exits 3 (FR-113, spec edge case)
+- [X] T098 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_existing_diagnostics_unchanged` — an invalid configuration value still reports at its existing level in the existing format (FR-114, US7-AS3)
+- [X] T099 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_environment_report` — `--environment` against the nested instance produces every line, with no configuration file contents (FR-116, US7-AS5)
+- [X] T100 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_config_from_previous_release`, running against the committed fixture `tests/fixtures/config-previous-release.toml` — a copy of the configuration contract as of the last release, which at 1.0.0 is the 1.0.0 contract itself and asserts a clean run with no diagnostics — so the test has something to run against before there is a previous release, and a release-checklist item refreshes the fixture at each release (FR-117, US7-AS6, SC-043)
+- [X] T101 [US7] Extend `tests/e2e_lifecycle.rs` with `e2e_unsupported_compositor_version` — the T093 override below the minimum produces the `WARN compositor:` record and the daemon continues (FR-118, US1-AS5)
+- [X] T102 [US7] Run the whole 001/002 E2E suite unchanged (`cargo test --test 'e2e_*'`) and confirm it passes untouched — the check that the lifecycle records joined the existing record rather than reshaping it (FR-114, quickstart scenario 2)
+- [X] T103 [US7] Walk the inspection item for FR-115 — the troubleshooting page still names where the compositor collects the daemon's output and how to retrieve it
+
+### Story 7 record (T085–T103 — the phase is complete)
+
+**Landed 2026-09-05.** All nineteen tasks are done, `cargo test --lib` is 407 green, and
+`tests/e2e_lifecycle.rs` — which held only the two version tests — now carries all seven of
+plan.md's US7 rows under exactly the names the plan gives them. What follows is what a later
+reader would otherwise have to rediscover.
+
+**`Stopping` is a type, not nineteen `diag::report` calls.** FR-113 asks for a record on *every*
+exit path, which is the kind of requirement that rots the moment somebody adds a `return`. So
+`main.rs` grew a `Stopping` enum carrying both the cause and the exit code, `main` shrank to
+"call `execute`, report what it returned, exit with its code", and every former `return
+Err(EXIT_*)` became a `Stopping` variant. SC-042 is now a property of the type rather than of
+remembering: there is one place the process can leave from, and it always writes the record.
+`Result<_, u8>` disappeared from `serve` and `event_loop` in the same move — the code was already
+carrying the cause and throwing it away.
+
+**The signal is named because the handler now looks at it.** `Outcome::Terminated` became
+`Terminated(&'static str)` and `wait_or_terminate` returns `Option<&'static str>` instead of
+`bool`, both fed by one `signal_name`. `SIGINT` during a backoff delay is recorded as `SIGINT`,
+which it was not before, because nothing had ever asked.
+
+**`--version --help` used to exit 0; it now exits 2.** [contracts/cli.md](./contracts/cli.md)
+says "two of these options together is a usage error (exit 2), unchanged" — and it was not in fact
+the behaviour: `Options::parse` printed and returned on the first one it met, so the second was
+never seen. Adding `--environment` forced the question, because that flag cannot print during
+parsing (it needs the configuration). Parsing now *records* which print-and-exit option was given
+and the caller answers it, which makes refusing a second one free and makes the published contract
+true. No test asserted the old behaviour; `e2e_version_and_help` still passes untouched.
+
+**The `settings` line is computed from the resolved configuration, never from the file.**
+`config::differences` walks the parsed `Configuration` against `Configuration::default()`, so
+FR-071's promise is structural rather than a matter of care: an unrecognised key, a comment, or a
+path a user wrote beside one cannot reach the report, because the report never sees the text. Two
+consequences worth knowing: a value that was rejected and fell back does *not* appear (it did not
+in the end differ from its default), and a `[style]` override is measured against **the theme in
+effect** rather than the default palette — with `theme = "light"` the alternative would have
+listed all eleven colours and buried the one thing the user actually wrote. Colours are printed
+`#rrggbbaa`, not `#rrggbb`: the backdrop's opacity is exactly the kind of thing a report is
+written about.
+
+**`icon-set` reports what was resolved, not what was configured** — those differ exactly when
+something is wrong, which is the case being reported. `icons::resolved_set` runs the same
+`iconset::select` rule as `IconStore::new` against the same roots, but builds no store and reports
+nothing, because `--environment` answers a question rather than starting a daemon.
+
+**Where the records fall, and one test that had to be corrected.** The configuration file is read
+before the daemon has a compositor to serve against, so a complaint about it precedes the start
+record. `e2e_existing_diagnostics_unchanged` was first written asserting the start record came
+first and failed on exactly that; the assertion was wrong, not the code, and it now asserts the
+true ordering — the daemon reports what it found on the way up, and only then claims to be up. The
+one invariant that does hold unconditionally is the last line: `stopping:` (SC-042).
+
+**One nested compositor at a time, and a deadlock that proves it.**
+`e2e_unsupported_compositor_version` was first written as two `Nested::start_with` calls in one
+function. The second blocked forever on the harness's instance lock, which the first still held —
+`let nested = …` shadows the binding but does not drop the value. Both halves now run two daemons
+against one instance, which is also faster. Worth remembering for any future test that wants two
+compositors: it cannot have them.
+
+**T092 needed no work, and that is the point** ([research.md](./research.md) R43). Both places the
+task names already carried the FR-117 obligation — [contracts/versioning.md](./contracts/versioning.md)'s
+Deprecation section and the release checklist at the foot of [quickstart.md](./quickstart.md) —
+because the documentation phase wrote them ahead of the code. No compatibility layer was built:
+`UnknownConfigKey`, FR-024's per-setting fallback and FR-101a's major-version rule are the whole
+mechanism, and `e2e_config_from_previous_release` is the test that would notice.
+
+**T100's fixture deliberately names `hicolor`.** `tests/fixtures/config-previous-release.toml`
+holds every accepted key at a non-default value, so a key that stopped being read would change
+behaviour rather than pass unnoticed — except `icon_set`, which is the standard default set rather
+than a named one, because whether a set is installed is a property of the machine the test runs on
+and the fixture asserts the contract, not the developer's icon collection.
+
+**T103 is machine-checked, not only inspected.** `scripts/checks.sh`'s `docs-map` already asserts
+that `docs/user/troubleshooting.md` says where the compositor collects the output (FR-115) and that
+every condition the page names is a real `diag::Condition` variant. Both pass. The page gained a
+short section on the two records that bracket a run and on the version warning's *continuing
+anyway*, since the three new conditions exist now and FR-084 wants one authoritative answer.
+
+**T102 ran green across all twelve E2E binaries** — 95 tests, nothing skipped but the two
+deliberately ignored ones (`record_pre_feature_baseline`, `soak`):
+
+| Binary | | Binary | |
+|---|---|---|---|
+| `e2e_baseline` | 1 ignored | `e2e_new_workspace` | 2 ✅ |
+| `e2e_budgets` | 3 ✅ | `e2e_presentation` | 9 ✅ |
+| `e2e_config` | 13 ✅ | `e2e_style` | 10 ✅ |
+| `e2e_harness` | 7 ✅ | `e2e_swap` | 4 ✅, 1 ignored |
+| `e2e_icons` | 16 ✅ | `e2e_switcher` | 13 ✅ |
+| `e2e_lifecycle` | 9 ✅ | `e2e_theme` | 9 ✅ |
+
+**Getting there took three runs, and the reason is worth writing down.** The first two each failed
+one *unrelated* 001/002 test — `e2e_sticky_mode_commits_on_enter`, then
+`e2e_reconnects_after_restart` with notifications in its log that belonged to a different test's
+configuration. Both were contamination: a nested compositor orphaned by the deadlocked run above
+was still alive, and the suite's isolation assumes it is the only one. After killing the strays and
+clearing `/tmp/hypr-swap-e2e-*`, `e2e_config` went 13/13. A later run lost
+`e2e_no_icon_cache_on_disk` to a 10 s `wait_until` timeout — that test points `XDG_CACHE_HOME` at an
+empty directory, so fontconfig rebuilds its cache from scratch before the first text can be
+measured — and it passed 16/16 on rerun. **Kill every stray before trusting a red E2E run**, and
+treat a lone `wait_until` timeout on a loaded machine as a question rather than an answer.
 
 **Checkpoint**: No daemon run ends without a record of why (SC-042); a bug reporter can produce the
 environment block with one flag.

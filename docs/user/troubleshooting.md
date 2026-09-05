@@ -53,6 +53,25 @@ One line each: a level, the subject the record is about, then what happened. The
 `WARN` means something was wrong and was recovered from. `ERROR` means something you have to act
 on. `INFO` means the daemon is telling you what it is doing while it handles it itself.
 
+### The two records that bracket a run
+
+Every run begins and ends with a record under the subject `daemon`, so you can always tell a daemon
+that never started from one that started and stopped:
+
+```text
+INFO  daemon: hypr-swap 1.0.0 started
+INFO  daemon: stopping: SIGTERM
+```
+
+The start record appears once the daemon can actually serve a shortcut, and carries the exact
+version — which is the first thing a bug report needs. The stopping record is the **last** line the
+process writes, and it names the cause: `SIGTERM`, `SIGINT`, `cannot reach the compositor at
+start-up`, `another hypr-swap is already running`, or `usage error`. A run that died before it was
+ready has no start record and a stopping record all the same.
+
+Reconnection is not a restart: the daemon says `INFO  compositor: reconnected, state rebuilt,
+shortcuts re-registered` and there is no second start record, because it started once.
+
 ## Before anything else
 
 ```bash
@@ -136,7 +155,16 @@ shortcuts.
 **Exit 2.** The message names the argument. `hypr-swap --help` lists the accepted ones.
 
 An unsupported compositor version is also reported here, naming the version found and the range
-required, rather than the daemon guessing at an interface it does not know.
+required, rather than the daemon guessing at an interface it does not know:
+
+```text
+WARN  compositor: Hyprland 0.52.1 is below the supported range (>= 0.55); continuing anyway
+```
+
+Note the level and the last three words: this is a warning, not an exit. The daemon carries on,
+because it may well work — and losing your switcher over a version comparison would be a worse
+failure than the obscure one this record exists to replace. If it then misbehaves, that line is the
+first thing to put in the report.
 
 ## The icons are wrong or missing
 

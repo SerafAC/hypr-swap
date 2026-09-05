@@ -258,6 +258,19 @@ impl IconStore {
 /// would leave a caller no way to say "search nothing but what I gave you" — which is exactly what
 /// the E2E fixtures need in order to force a lookup miss without depending on what the developer
 /// has installed (research.md R22).
+/// The icon set that would actually be drawn from, given what the user configured (FR-116).
+///
+/// The same rule [`IconStore::new`] runs, against the same roots, but without building a store or
+/// reporting anything: `--environment` answers a question rather than starting a daemon, and the
+/// set that was *resolved* — which differs from the one configured exactly when something is
+/// wrong — is the fact a bug report needs.
+#[must_use]
+pub fn resolved_set(configured: Option<&str>) -> String {
+    let roots = data_roots();
+    let (set, _diagnostic) = iconset::select(configured, &themed_roots(&roots), &config_roots());
+    set
+}
+
 fn data_roots() -> Vec<PathBuf> {
     let home = std::env::var_os("XDG_DATA_HOME")
         .filter(|value| !value.is_empty())

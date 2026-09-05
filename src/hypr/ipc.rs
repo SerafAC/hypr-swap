@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde::de::DeserializeOwned;
 
 use crate::actions::{CommandPlan, ExpectedState};
-use crate::model::{Monitor, Window, Workspace};
+use crate::model::{CompositorVersion, Monitor, Window, Workspace};
 
 /// Environment variable that makes a nominated batch step fail.
 ///
@@ -26,6 +26,18 @@ use crate::model::{Monitor, Window, Workspace};
 /// it repairs could only ever demonstrate FR-013c, and FR-013b — the ordinary case, where the
 /// undo works — would be untestable.
 pub const FAULT_INJECTION_VAR: &str = "HYPR_SWAP_E2E_FAIL_BATCH_STEP";
+
+/// Environment variable that substitutes the version string the compositor reports.
+///
+/// FR-118's warning fires on a compositor older than this project supports, and there is no way
+/// to run one of those from inside the E2E suite — the nested instance is the developer's own
+/// Hyprland. So the one value the decision reads is substituted, exactly as
+/// [`FAULT_INJECTION_VAR`] substitutes a failing dispatch step and `diag::PAINT_RECORDS_VAR`
+/// opens the paint records (plan.md → Complexity Tracking).
+///
+/// Unset — which is always the case in normal use — this costs one environment read at start-up
+/// and changes nothing.
+pub const COMPOSITOR_VERSION_VAR: &str = "HYPR_SWAP_E2E_COMPOSITOR_VERSION";
 
 /// Batched responses are concatenated with this separator.
 const BATCH_SEPARATOR: &str = "\n\n\n";
@@ -140,6 +152,20 @@ impl Ipc {
     /// If the compositor is unreachable, or answers with JSON this application cannot read.
     pub fn clients(&self) -> Result<Vec<Window>, IpcError> {
         self.query("clients")
+    }
+
+    /// The compositor's own version, for the FR-118 check and the `--environment` report.
+    ///
+    /// Asked once, at start-up. [`COMPOSITOR_VERSION_VAR`] substitutes the answer when it is set,
+    /// and the socket is not touched at all in that case.
+    ///
+    /// # Errors
+    /// If the compositor is unreachable, or answers with JSON this application cannot read.
+    pub fn version(&self) -> Result<CompositorVersion, IpcError> {
+        match substituted_version() {
+            Some(version) => Ok(version),
+            None => self.query("version"),
+        }
     }
 
     /// Dispatch a list of commands as a single batch, so the compositor applies them in one pass
@@ -318,6 +344,26 @@ pub fn classify_dispatch(response: &str, expected: usize) -> Result<(), IpcError
         ))),
         None => Ok(()),
     }
+}
+
+/// The version [`COMPOSITOR_VERSION_VAR`] names, if it names one.
+///
+/// Split from [`Ipc::version`] so the gate's rule — an unset or empty value substitutes nothing —
+/// is unit-testable without a compositor to ask.
+fn substituted_version() -> Option<CompositorVersion> {
+    substitution(std::env::var_os(COMPOSITOR_VERSION_VAR).as_deref())
+}
+
+fn substitution(value: Option<&std::ffi::OsStr>) -> Option<CompositorVersion> {
+    let version = value?.to_str()?;
+    if version.is_empty() {
+        return None;
+    }
+    Some(CompositorVersion {
+        version: version.to_owned(),
+        // A substituted version has no tag: the report says so rather than inventing one.
+        tag: None,
+    })
 }
 
 fn injected_fault() -> Option<Fault> {
@@ -525,6 +571,40 @@ mod tests {
         assert!(
             Ipc::new(Path::new("/run/user/1000"), "abc").fault.is_none()
                 || std::env::var(FAULT_INJECTION_VAR).is_ok()
+        );
+    }
+
+    // T093 — the compositor-version substitution (research.md R42).
+
+    #[test]
+    fn the_version_gate_substitutes_only_when_it_is_given_something() {
+        use std::ffi::OsStr;
+
+        // Unset and empty are both "ask the compositor", which is what keeps the hook inert in
+        // every ordinary run.
+        assert_eq!(substitution(None), None);
+        assert_eq!(substitution(Some(OsStr::new(""))), None);
+
+        let substituted = substitution(Some(OsStr::new("0.52.1"))).expect("a value substitutes");
+        assert_eq!(substituted.version, "0.52.1");
+        assert_eq!(
+            substituted.tag, None,
+            "a substituted version has no tag to report"
+        );
+
+        // The value is passed through verbatim, unparsed: deciding what it means is
+        // `CompositorVersion::supported`'s job, and the hook must be able to feed it nonsense.
+        assert_eq!(
+            substitution(Some(OsStr::new("next"))).map(|v| v.version),
+            Some("next".to_owned())
+        );
+    }
+
+    #[test]
+    fn nothing_is_substituted_in_an_ordinary_run() {
+        assert!(
+            substituted_version().is_none() || std::env::var(COMPOSITOR_VERSION_VAR).is_ok(),
+            "a version is only ever substituted by {COMPOSITOR_VERSION_VAR}"
         );
     }
 }
