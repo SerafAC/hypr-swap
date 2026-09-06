@@ -521,7 +521,14 @@ fn commit_session(ipc: &Ipc, app: &mut App) {
     };
 
     match ipc.dispatch_verified(&plan) {
-        DispatchOutcome::Verified => {}
+        // The compositor has reached the layout the plan asked for. The activation events saying
+        // so are still to come, and a swap's are not the ones a user would have caused — one names
+        // the workspace the other monitor is about to stop showing, and the displaced workspace's
+        // arrival names nothing at all. So the history is told to expect this plan and to record
+        // what the plan meant, rather than what its events appear to say (FR-008c).
+        DispatchOutcome::Verified => app
+            .world
+            .settling_after(plan.expected.active.clone(), plan.intended_history.clone()),
         // FR-013b: the user asked for a change that did not happen. Their layout is intact, but
         // saying nothing would leave them believing the gesture worked.
         DispatchOutcome::RolledBack { reason } => diag::report(
