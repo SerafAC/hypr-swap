@@ -137,6 +137,12 @@ fn entry(world: &World, id: i32) -> Option<Entry> {
     })
 }
 
+/// A deliberate `clippy::pedantic` violation for the T048 probe: a truncating cast, in one
+/// function nothing calls. Not for merge.
+pub fn probe_entry_width(count: u64) -> u32 {
+    count as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
