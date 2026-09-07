@@ -59,6 +59,35 @@ pub enum Applied {
     ByRebuilding,
 }
 
+/// How many events a dispatched plan may take to land before its intent is applied anyway.
+///
+/// Generous enough for the four-command swap of `actions::swap`, which lands in four events, and
+/// small enough that a plan whose expected state never appears cannot freeze the history for the
+/// rest of the session.
+const SETTLING_BUDGET: u8 = 16;
+
+/// A plan this application dispatched, while the compositor is still working through it.
+///
+/// The compositor cannot say who asked for a change, so the events a dispatched plan causes are
+/// the ones a user would cause, and two of them lie about recency: `moveworkspacetomonitor` on the
+/// origin's active workspace carries focus to the destination (research.md R8), which reports the
+/// workspace that monitor is *about to stop* showing as newly active, and the arrival of the
+/// displaced workspace comes as `moveworkspace`, which carries too little to apply and so records
+/// no activation at all. Read as user activity, the pair puts a workspace the user never visited
+/// ahead of the one they just left (FR-008c).
+///
+/// So the history stops listening while a plan lands, and the plan states its own intent instead —
+/// which it knows exactly, having computed the layout it was asking for.
+#[derive(Debug, Clone)]
+struct Settling {
+    /// The `(monitor, workspace)` pairs that together mean the plan has landed.
+    expected: Vec<(String, i32)>,
+    /// The activations to record once it has, least recent first.
+    intended: Vec<i32>,
+    /// Events remaining before the intent is applied regardless.
+    budget: u8,
+}
+
 /// The whole cached compositor view.
 #[derive(Debug, Clone, Default)]
 pub struct World {
@@ -67,6 +96,8 @@ pub struct World {
     pub workspaces: Vec<Workspace>,
     pub windows: Vec<Window>,
     pub history: ActivationHistory,
+    /// Set while a plan this application dispatched is still landing; see [`Settling`].
+    settling: Option<Settling>,
 }
 
 impl World {
@@ -86,6 +117,11 @@ impl World {
         self.history
             .order
             .retain(|id| self.workspaces.iter().any(|w| w.id == *id));
+        // A rebuild is where a swap's new bindings actually arrive: the events that describe one
+        // carry too little to apply, so the event loop drains the whole burst and refreshes from
+        // IPC afterwards. Without this, a plan would still be waiting to land after the very
+        // update that landed it (FR-008c).
+        self.advance_settling();
     }
 
     #[must_use]
@@ -120,6 +156,13 @@ impl World {
 
     /// Apply one compositor event, per the state-transition table in `data-model.md`.
     pub fn apply(&mut self, event: &Event) -> Applied {
+        let applied = self.apply_event(event);
+        self.advance_settling();
+        applied
+    }
+
+    /// The state transition itself, without the settling bookkeeping around it.
+    fn apply_event(&mut self, event: &Event) -> Applied {
         match event {
             Event::WorkspaceActivated { id, name } => {
                 let Some(id) = id.or_else(|| self.workspace_by_name(name).map(|w| w.id)) else {
@@ -199,12 +242,57 @@ impl World {
             monitor.active_workspace = id;
         }
         // Special and scratchpad workspaces never appear in the overlay, so they have no place
-        // in the order it is built from.
-        if self
-            .workspace(id)
-            .is_some_and(|workspace| !workspace.is_special())
+        // in the order it is built from. Nor does anything observed while a plan this application
+        // dispatched is still landing: those activations describe the compositor working through
+        // the plan, not the user choosing a workspace (FR-008c, see [`Settling`]).
+        if self.settling.is_none()
+            && self
+                .workspace(id)
+                .is_some_and(|workspace| !workspace.is_special())
         {
             self.history.push(id);
+        }
+    }
+
+    /// Note that this application has dispatched a plan, so that the activations it is about to
+    /// cause are read as the plan landing rather than as the user visiting a workspace (FR-008c).
+    ///
+    /// `expected` is the `(monitor, workspace)` set that means it has landed; `intended` is the
+    /// recency the plan asked for, least recent first.
+    pub fn settling_after(&mut self, expected: Vec<(String, i32)>, intended: Vec<i32>) {
+        self.settling = Some(Settling {
+            expected,
+            intended,
+            budget: SETTLING_BUDGET,
+        });
+    }
+
+    /// Close the settling window once the plan has landed — or once it has plainly not.
+    ///
+    /// The intent is applied either way: it was computed from a dispatch that verified, so it
+    /// describes the layout the compositor actually reached, and a plan whose expected state never
+    /// appears must not leave the history deaf for the rest of the session.
+    fn advance_settling(&mut self) {
+        let Some(mut settling) = self.settling.take() else {
+            return;
+        };
+        let landed = settling.expected.iter().all(|(monitor, workspace)| {
+            self.monitors
+                .iter()
+                .any(|known| known.name == *monitor && known.active_workspace == *workspace)
+        });
+        settling.budget = settling.budget.saturating_sub(1);
+        if !landed && settling.budget > 0 {
+            self.settling = Some(settling);
+            return;
+        }
+        for id in &settling.intended {
+            if self
+                .workspace(*id)
+                .is_some_and(|workspace| !workspace.is_special())
+            {
+                self.history.push(*id);
+            }
         }
     }
 
@@ -329,6 +417,134 @@ mod tests {
         assert!(!world.history.order().is_empty());
         world.history.clear();
         assert!(world.history.order().is_empty());
+    }
+
+    // --- The settling window (FR-008c) --------------------------------------
+
+    /// The bug this window exists for, as the compositor actually reports it.
+    ///
+    /// `eDP-1` shows workspace 1 (the user is on it); `HEADLESS-2` shows 2, with 4 behind. The user
+    /// selects 4, so 4 comes to `eDP-1` and 1 is displaced to `HEADLESS-2`. Hyprland reports that
+    /// as: 4 activated, then focus carried to `HEADLESS-2` **while it still shows 2**, then 1's
+    /// arrival as a `moveworkspace` that carries too little to apply (so the caller rebuilds), then
+    /// focus back.
+    ///
+    /// Two things go wrong if those are read as the user's own activity: 2 — a workspace the user
+    /// never visited — is recorded as just used, and 1 — the one they just left — is not recorded
+    /// at all. The history here starts three deep so both are visible: 2 is the *oldest* entry
+    /// before the swap, and must still be the oldest after it.
+    #[test]
+    fn a_swap_records_the_workspace_the_user_left_not_the_one_focus_passed_over() {
+        let mut world = World::default();
+        world.rebuild(
+            vec![monitor("eDP-1", 1, true), monitor("HEADLESS-2", 2, false)],
+            vec![
+                workspace(1, "1", "eDP-1", 2),
+                workspace(2, "2", "HEADLESS-2", 1),
+                workspace(3, "3", "eDP-1", 1),
+                workspace(4, "mail", "HEADLESS-2", 0),
+            ],
+            vec![window("0xa", 1), window("0xb", 1), window("0xc", 2)],
+        );
+        world.history.push(2);
+        world.history.push(3);
+        world.history.push(1);
+        assert_eq!(
+            world.history.order(),
+            &[1, 3, 2],
+            "the user was on 1, before that 3, and 2 is the oldest thing they touched"
+        );
+
+        // The layout `dispatch_verified` confirmed, and what the plan meant by it.
+        world.settling_after(
+            vec![("eDP-1".to_owned(), 4), ("HEADLESS-2".to_owned(), 1)],
+            vec![1, 4],
+        );
+
+        world.apply(&Event::WorkspaceActivated {
+            id: Some(4),
+            name: "mail".to_owned(),
+        });
+        world.apply(&Event::MonitorFocused {
+            monitor: "HEADLESS-2".to_owned(),
+            workspace_name: "2".to_owned(),
+        });
+        // `moveworkspace` carries too little to apply, so the event loop rebuilds from IPC — which
+        // is where the post-swap bindings and active workspaces actually come from.
+        assert_eq!(
+            world.apply(&Event::WorkspaceMoved {
+                name: "1".to_owned(),
+                monitor: "HEADLESS-2".to_owned(),
+            }),
+            Applied::ByRebuilding
+        );
+        world.rebuild(
+            vec![monitor("eDP-1", 4, true), monitor("HEADLESS-2", 1, false)],
+            vec![
+                workspace(1, "1", "HEADLESS-2", 2),
+                workspace(2, "2", "HEADLESS-2", 1),
+                workspace(3, "3", "eDP-1", 1),
+                workspace(4, "mail", "eDP-1", 0),
+            ],
+            vec![window("0xa", 1), window("0xb", 1), window("0xc", 2)],
+        );
+        world.apply(&Event::MonitorFocused {
+            monitor: "eDP-1".to_owned(),
+            workspace_name: "mail".to_owned(),
+        });
+
+        assert_eq!(
+            world.history.order(),
+            &[4, 1, 3, 2],
+            "the selected workspace leads and the displaced one is next, so the next gesture \
+             bounces back to where the user just was (FR-008b); 2 is still the oldest entry, \
+             because focus only passed over it on the way through the swap"
+        );
+    }
+
+    #[test]
+    fn the_settling_window_closes_when_the_plan_lands() {
+        let mut world = world();
+        world.settling_after(vec![("HEADLESS-2".to_owned(), 4)], vec![4]);
+
+        world.apply(&Event::WorkspaceActivated {
+            id: Some(4),
+            name: "mail".to_owned(),
+        });
+        assert_eq!(
+            world.history.order(),
+            &[4],
+            "the plan's intent, once it landed"
+        );
+
+        // Closed: an ordinary activation feeds the history again.
+        world.apply(&Event::WorkspaceActivated {
+            id: Some(2),
+            name: "2".to_owned(),
+        });
+        assert_eq!(world.history.order(), &[2, 4]);
+    }
+
+    #[test]
+    fn a_plan_that_never_lands_does_not_deafen_the_history_for_ever() {
+        let mut world = world();
+        // An expectation no event will ever satisfy.
+        world.settling_after(vec![("eDP-1".to_owned(), 999)], vec![2]);
+        for _ in 0..=SETTLING_BUDGET {
+            world.apply(&Event::WorkspaceActivated {
+                id: Some(1),
+                name: "1".to_owned(),
+            });
+        }
+        world.apply(&Event::WorkspaceActivated {
+            id: Some(1),
+            name: "1".to_owned(),
+        });
+        assert_eq!(
+            world.history.order().first(),
+            Some(&1),
+            "once the budget is spent the history listens to the compositor again"
+        );
     }
 
     // --- Event transitions, one per row of the data-model table ------------

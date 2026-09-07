@@ -1097,14 +1097,187 @@ maintainer learns about a vulnerable dependency from the project's own checks.
 by walking the published path once.
 
 - [ ] T109 Run the full gate locally — `cargo build --release`, `cargo test --lib`, `cargo test --test 'e2e_*'`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`, `pnpm build`, `pnpm validate`, `./scripts/checks.sh` — and confirm all are green
-- [ ] T110 [P] Confirm every requirement of features 001, 002 and 003 — FR-001 through FR-121, lettered variants included — has a named tier at `docs/dev/verification.md`: this feature's included from [plan.md](./plan.md)'s `verification-tiers` anchor, 001's and 002's derived from their plans' E2E coverage mappings, and that no requirement's status is unknown (FR-092, SC-036)
-- [ ] T111 [P] Measure SC-026 — landing page to working overlay, under 15 minutes — and record the walk in [quickstart.md](./quickstart.md) (quickstart scenario 4, item 3)
-- [ ] T112 [P] Measure SC-032 — `DEVELOPMENT.md` to every test tier run, under 30 minutes — and record the walk (quickstart scenario 4, item 4)
-- [ ] T113 [P] Measure SC-031 — someone assembles a complete custom appearance from the site's styling page alone, no source reading — and record the outcome (quickstart scenario 4, item 5)
-- [ ] T114 Run [quickstart.md](./quickstart.md) scenario 4 items 1–2: the README answers the six questions in order, and five questions picked from [contracts/documentation.md](./contracts/documentation.md)'s map each have exactly one authoritative answer with the others linking; and a reader can state the licence, the supported compositor range, the requirements and how to report a vulnerability within 60 seconds of arriving (FR-084, SC-028, SC-029)
-- [ ] T115 Walk the complete release checklist at the foot of [quickstart.md](./quickstart.md) — every Inspection-tier requirement in one pass — before the repository is made public
-- [ ] T116 Write the `[Unreleased]` changelog entry for this feature in `CHANGELOG.md`: the lifecycle records, `--environment`, the compositor-version diagnostic (FR-102a)
-- [ ] T117 Mark every task complete in this file and update [plan.md](./plan.md)'s tier and E2E tables if any test name or tier changed during implementation (CLAUDE.md: keep `tasks.md` current)
+- [X] T110 [P] Confirm every requirement of features 001, 002 and 003 — FR-001 through FR-121, lettered variants included — has a named tier at `docs/dev/verification.md`: this feature's included from [plan.md](./plan.md)'s `verification-tiers` anchor, 001's and 002's derived from their plans' E2E coverage mappings, and that no requirement's status is unknown (FR-092, SC-036)
+- [X] T111 [P] Measure SC-026 — landing page to working overlay, under 15 minutes — and record the walk in [quickstart.md](./quickstart.md) (quickstart scenario 4, item 3)
+- [X] T112 [P] Measure SC-032 — `DEVELOPMENT.md` to every test tier run, under 30 minutes — and record the walk (quickstart scenario 4, item 4)
+- [X] T113 [P] Measure SC-031 — someone assembles a complete custom appearance from the site's styling page alone, no source reading — and record the outcome (quickstart scenario 4, item 5)
+- [X] T114 Run [quickstart.md](./quickstart.md) scenario 4 items 1–2: the README answers the six questions in order, and five questions picked from [contracts/documentation.md](./contracts/documentation.md)'s map each have exactly one authoritative answer with the others linking; and a reader can state the licence, the supported compositor range, the requirements and how to report a vulnerability within 60 seconds of arriving (FR-084, SC-028, SC-029)
+- [X] T115 Walk the complete release checklist at the foot of [quickstart.md](./quickstart.md) — every Inspection-tier requirement in one pass — before the repository is made public
+- [X] T116 Write the `[Unreleased]` changelog entry for this feature in `CHANGELOG.md`: the lifecycle records, `--environment`, the compositor-version diagnostic (FR-102a)
+- [X] T117 Mark every task complete in this file and update [plan.md](./plan.md)'s tier and E2E tables if any test name or tier changed during implementation (CLAUDE.md: keep `tasks.md` current)
+
+### Phase 11 record (T109–T117) — the gate, the measurements, and the one thing still red
+
+**Walked on 2026-09-06**, against this tree on a live Hyprland session. Eight of the nine tasks
+are done; **T109 is deliberately left open**, and the reason is the only interesting thing here.
+
+**T110 — the coverage claim is exact, not approximate.** FR-092 asks that every requirement of
+001, 002 and 003 has a named tier and none is unknown. That was checked as a set comparison rather
+than by reading: every `**FR-xxx**` defined across the three `spec.md` files against every
+requirement given a row in `docs/dev/verification.md` (001/002) and [plan.md](./plan.md)'s tier
+table (003, `::include[]`d into that page). **152 defined, 152 tiered, and both differences empty
+— nothing untiered, nothing tiered that is not defined.** Lettered variants included. No test name
+or tier changed during Phase 11, so the plan's tables needed no edit (T117).
+
+**T114 — every mechanical check passed while a question had no route.** The README answers its six
+questions in order, and five questions taken from
+[contracts/documentation.md](./contracts/documentation.md)'s map each had exactly one authoritative
+home with the others linking. But SC-029 also asks that a reader can state **how to report a
+vulnerability** within 60 seconds of arriving, and nothing routed them there: `SECURITY.md` says it
+well, the map names it authoritative and requires the others to link, and the README's
+*Documentation* list named the user guide, `DEVELOPMENT.md`, `CONTRIBUTING.md` and `CHANGELOG.md`
+and stopped. `./scripts/checks.sh` was green throughout — it greps for what must **not** be in the
+README, not for what must. The link was added. This is the clearest argument in the feature for
+why Inspection is a tier and not a shrug.
+
+**T116 — three things the changelog claimed that the program does not do.** The task was to add
+this feature's entries; writing them meant reading the `[Unreleased]` section as a user would, and
+three statements inherited from 001/002 were simply false. It said **"a second shortcut that swaps
+the highlighted workspace with the one on the focused monitor"** — the second shortcut is
+`new-workspace`, and the cross-monitor swap is what committing inside the switcher does. It said
+**"the last entry creates a new workspace"** — there is no such entry; `new_workspace_plan` is
+driven by the shortcut. And it said **"five built-in colour themes"** where `theme.rs` has
+`BUILT_IN: &[Theme] = &[DARK, LIGHT]` — two. All three were corrected, then this feature's own
+entries added: the start and stop records, `--environment`, and the compositor-version diagnostic.
+Worth noting *why* they survived: the catalogue walk keeps the styling documentation honest because
+it reads `theme.rs`, and `checks.sh` requires the `[Unreleased]` section to be non-empty — but
+nothing compares changelog *prose* against behaviour, and nothing can. FR-102's Inspection tier is
+what caught it, on the one pass it gets.
+
+**T111–T113 — the three human measurements, recorded in
+[quickstart.md](./quickstart.md) scenario 4.** SC-026 (landing page → overlay) and SC-032
+(`DEVELOPMENT.md` → every tier) both passed comfortably. SC-031 was made worth trusting with a
+negative control: a configuration naming all twenty-three style settings, assembled from the
+rendered styling page without opening a source file, was accepted in silence — and the same file
+with a bad colour and an out-of-range dimension produced exactly the per-setting fallback and the
+clamp the page promises, so the silence meant acceptance rather than indifference. **SC-026's
+caveat is stated there rather than here**: nothing is released, so only the from-source channel
+could be walked, and the four package channels are still unmeasured.
+
+**T115 — the release checklist holds, with two carried forward.** Every Inspection item was walked.
+The `ci-required` divergence the [T050 record](#t050-record--the-gate-is-live-and-one-row-still-differs)
+left open is **closed**: `needs: [build, unit, clippy, fmt, msrv, docs, checks, licenses]` is
+exactly the eight rows of [contracts/ci.md](./contracts/ci.md)'s gating table, which is what T081
+promised. Two items could not be re-verified from this checkout and are re-walks at the release,
+not gaps: the live branch ruleset (FR-091), verified anonymously on 2026-09-03 in the T050 record
+and not re-checkable here because `gh` is not installed on this machine; and FR-109a's distribution
+matrix, which is a judgement about support windows that goes stale by design. The FR-066a ordering
+slip — the repository was made public before the history review rather than after — is already
+recorded in [history-review.md](./history-review.md) and is not re-opened here.
+
+#### The MRU defect behind most of it — found by the user, not by this walk
+
+**The paragraph below this one used to say the flaky family was "a test-suite robustness issue,
+not a product defect". That was wrong**, and it is left corrected rather than deleted because the
+reasoning that produced it is the interesting part: every one of those tests passed in isolation
+and per-binary, so the evidence pointed at load — and stopped there. The tests were reporting a
+real defect the whole time, and the entry order they disagreed about was the symptom.
+
+**The scenario**, reported against a real desktop and then reproduced against a nested compositor:
+monitor 1 shows workspace A; monitor 2 shows B with C behind it. Select C. The layout that results
+is correct — C comes to monitor 1, A is displaced to monitor 2 — but the *next* hold-and-release
+lands on B rather than A, so the bounce-back that FR-008b promises goes somewhere the user has
+never been.
+
+**What the compositor actually reports**, captured from `.socket2.sock` while dispatching the four
+commands of `actions::swap`:
+
+```text
+>>> moveworkspacetomonitor 3 WAYLAND-1
+>>> moveworkspacetomonitor 1 HEADLESS-1
+>>> focusmonitor WAYLAND-1
+>>> focusworkspaceoncurrentmonitor 3
+workspace>>3                  → activate(3)
+focusedmon>>HEADLESS-1,2      → activate(2)   ← B, which the user never chose
+moveworkspace>>1,HEADLESS-1   → ByRebuilding  ← A's arrival records nothing at all
+focusedmon>>WAYLAND-1,3       → activate(3)
+```
+
+Two failures in one gesture, and the same cause under both: **the compositor cannot say who asked
+for a change, so a plan this application dispatched produces exactly the events a user would.**
+Moving the origin's active workspace away carries focus with it (research.md R8's finding 3, which
+this feature had already recorded — as a reason to reorder the commands, not as something the
+history had to know about), and that focus lands on the other monitor *while it is still showing
+the workspace it is about to lose*. Meanwhile the displaced workspace arrives as `moveworkspace`,
+which carries too little to apply and so pushes nothing.
+
+**The fix is that the history stops listening while a plan lands, and the plan states its own
+intent instead** — which it knows exactly, having computed the layout it asked for. `CommandPlan`
+gains `intended_history` (the workspace being left, then the one chosen); `World` gains a settling
+window, opened by `commit_session` only on a dispatch that **verified**, closed when the expected
+`(monitor, workspace)` set is observed, and bounded by a budget so a plan that never lands cannot
+deafen the history for the rest of the session.
+
+**One thing that had to be learned by instrumenting rather than by reading.** The window would not
+close. The event loop drains a whole burst, applies every event, and only then refreshes from IPC —
+so the rebuild that *is* the swap landing happens after the last `apply`, and a check that only ran
+per-event was still waiting for a plan that had already arrived. `World::rebuild` closes the window
+too, which is where the new bindings actually come from.
+
+Covered by three unit tests in `state.rs` — including one that replays the exact event sequence
+above and pins that the workspace focus merely passed over stays the *oldest* entry — and by
+`e2e_swap_leaves_the_displaced_workspace_next_in_the_history`, which performs the gesture, then
+performs the bounce, and asserts it lands on the workspace the user left. Both halves of the fix
+were confirmed load-bearing by removing each and watching the tests fail.
+
+#### T109 — seven of eight are green, and the eighth is honestly amber
+
+`cargo build --release`, `cargo test --lib` (**407 passed**), `cargo clippy --all-targets -- -D
+warnings`, `cargo fmt --check`, `pnpm build`, `pnpm validate` and `./scripts/checks.sh` are all
+green. The end-to-end tier is not, quite, and the shape of the failure matters more than the count:
+
+| How it was run | Result |
+|---|---|
+| One test alone (`--exact`) | green, every time (3 of 3) |
+| One test binary (`--test e2e_icons`) | green, 16 of 16 |
+| The whole tier in one invocation, before the MRU fix | **94 passed, 1 failed — three runs, three times, never the same test** |
+| The whole tier in one invocation, after it | 95/1, **96/0**, 95/1 — and no longer an ordering assertion |
+
+The three failures were `e2e_reconnects_after_restart`, `e2e_icons_disabled_matches_pre_feature`
+(twice) and `e2e_refactor_is_pixel_neutral` — **and the entry-order ones were the MRU defect
+recorded above, not the flakiness they were first read as.** With it fixed, all three pass in the
+full tier, and a full run came back **96 passed, 0 failed** for the first time in this walk.
+
+A thinner residue is still there, and it is worth stating precisely rather than rounding off.
+Three full runs after the fix went 95/1, **96/0**, 95/1 — and the two failures were
+`e2e_grid_commit_matches_list` (a surface-geometry `assert_ne!`, the grid and list overlays coming
+out the same size) and `e2e_malformed_icon_reported_once` (a diagnostic count). Neither is an
+ordering assertion, both pass alone, and they are different tests each time. So the family that
+was masking a real bug is fixed, and what is left is a smaller, different thing that has **not**
+been diagnosed — only observed.
+
+**One of the original three was ours and is gone**:
+`e2e_version_reports_build` failed once because the README edit made the tree dirty *after* the
+binary had been built from a clean one, so `build.rs` had baked a version without `-dirty` while
+the test recomputed it with — a stale-build artefact that a rebuild fixed, not a defect.
+
+The rest were one family. Both `e2e_icons_disabled_matches_pre_feature` and
+`e2e_refactor_is_pixel_neutral` compare paint records against a **committed pre-feature baseline**,
+and both failed the same way — the entry order differed:
+
+```text
+pass 0 record 0 drew entry 0 list: label="3" windows=0 active=true …, expected the baseline's "1"
+```
+
+Entry order is MRU, and that was the tell. It was read here as the daemon's history being seeded
+in a load-dependent order — plausible, consistent with every observation available at the time, and
+wrong. The order was moving because the history was being fed activations the application had
+caused itself, which is the defect recorded above; whether the race fell one way or the other on a
+given run is what made it look like load.
+
+**It is left red on purpose.** `cargo test --test 'e2e_*'` is the command
+[DEVELOPMENT.md](../../DEVELOPMENT.md) gives a contributor, and a tier that fails roughly once per
+full run teaches them to re-run until it is green — which is how a real regression gets waved
+through. Marking T109 `[X]` would record a green gate that does not exist. The MRU defect that
+accounted for most of it is fixed; the remainder is smaller, has not yet been given the same
+treatment, and deserves the same suspicion rather than the benefit of the doubt — **the first
+diagnosis here was "flaky test", and it was wrong.**
+
+---
+
+**Checkpoint**: Every requirement has a named tier, the three human measurements are recorded, the
+release checklist has been walked once end to end — and the one flaky tier is written down rather
+than re-run until it agreed.
 
 ---
 
