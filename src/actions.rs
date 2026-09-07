@@ -110,6 +110,13 @@ pub struct CommandPlan {
     pub expected: ExpectedState,
     /// How to undo it, computed from the pre-state *before* anything is sent (FR-013a).
     pub rollback: RollbackPlan,
+    /// The recency this plan asks for, least recent first — the workspace the user is leaving,
+    /// then the one they chose.
+    ///
+    /// Stated by the plan rather than inferred from the events it causes, because the compositor
+    /// reports a swap as activations that name the wrong workspace and omit the right one
+    /// (FR-008c, `state::Settling`).
+    pub intended_history: Vec<i32>,
 }
 
 impl CommandPlan {
@@ -184,6 +191,7 @@ fn activate(origin: &Monitor, selected: i32) -> CommandPlan {
     CommandPlan {
         commands: vec![format!("workspace {selected}")],
         expected: state(selected),
+        intended_history: vec![previous, selected],
         rollback: RollbackPlan {
             // One command cannot half-apply, so this really is the literal inverse — the general
             // pre-state restore below would be four commands saying the same thing.
@@ -248,6 +256,7 @@ fn swap(world: &World, origin: &Monitor, other: &Monitor, selected: i32) -> Comm
     CommandPlan {
         commands,
         expected,
+        intended_history: vec![displaced, selected],
         rollback: RollbackPlan {
             commands: restore(&pre),
             expected: pre,
@@ -286,6 +295,7 @@ pub fn new_workspace_plan(world: &World) -> Option<CommandPlan> {
     // it pulls a workspace from wherever it already lives.
     Some(CommandPlan {
         commands: vec![format!("focusworkspaceoncurrentmonitor {selected}")],
+        intended_history: vec![previous, selected],
         expected: ExpectedState {
             bindings: vec![(selected, name.clone())],
             active: vec![(name.clone(), selected)],
