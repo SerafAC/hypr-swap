@@ -204,7 +204,7 @@ the measured limit R29 records and [docker/e2e/README.md](../../docker/e2e/READM
 
 ## 6. Every gated failure is actually caught (SC-034)
 
-Open five deliberately broken changes, one of each kind, and confirm automation catches each
+Open four deliberately broken changes, one of each kind, and confirm automation catches each
 without a human:
 
 | Break | Expected failing job |
@@ -223,6 +223,28 @@ It is struck because there is no `e2e` job: no automation can supply a composito
 nested one this tier needs ([research.md](./research.md) R29, **failed**). That break is now caught
 only by running the tier on a machine with a Wayland session, which is exactly the exposure the
 deviation recorded at FR-088 describes.
+
+### The walk, as it went (T048, 2026-09-07)
+
+Four branches off `master`, one break each, opened as draft pull requests #6–#9 and closed as soon
+as the verdict was in.
+
+| Break | Red job | Elapsed |
+|---|---|---|
+| `ordering.rs`'s MRU highlight assertion inverted | `unit` | 43s |
+| `Outcome`'s variants re-indented by hand | `fmt` | 14s |
+| an uncalled function with a truncating `u64 as u32` | `clippy` | 36s |
+| `u32::bit_width`, stable since Rust 1.97.0 | `msrv`, and `clippy` too | 36s / 39s |
+
+Each failing job printed the "reproduce locally" command of
+[contracts/ci.md](./contracts/ci.md) — the `msrv` one interpolating the real minimum,
+`rustup run 1.96 cargo build` — and every gating job unrelated to the break stayed green.
+`ci-required` refused all four. **Submitted 12:03:33Z, every verdict in by 12:05:34Z**: under two
+minutes against SC-034's thirty.
+
+The one surprise: `cargo clippy` reads `rust-version` from `Cargo.toml` and denies
+`clippy::incompatible_msrv`, so the minimum-toolchain break is caught on stable as well as on 1.96.
+Two jobs, one cause, and each still names its own command.
 
 ## 7. A release, end to end (FR-105–FR-111, SC-037, SC-038)
 
