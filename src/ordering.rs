@@ -137,6 +137,14 @@ fn entry(world: &World, id: i32) -> Option<Entry> {
     })
 }
 
+/// A deliberate minimum-toolchain violation for the T048 probe: `u32::bit_width` is stable
+/// since Rust 1.97.0 and `Cargo.toml` declares `rust-version = "1.96"`, so this builds on
+/// stable and fails on the declared minimum. Not for merge.
+#[must_use]
+pub fn probe_bit_width(count: u32) -> u32 {
+    count.bit_width()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
