@@ -28,7 +28,7 @@ pango = "0.22"
 pangocairo = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.9"
+toml = "1.1"
 calloop = { version = "0.14", features = ["signals"] }
 calloop-wayland-source = "0.4"
 # A proc-macro crate in this line: it expands the vendored protocol XML at compile time rather
