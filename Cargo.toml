@@ -43,7 +43,7 @@ resvg = { version = "0.48", default-features = false }
 [dev-dependencies]
 wayland-protocols-misc = { version = "0.3", features = ["client"] }
 wayland-protocols = { version = "0.32", features = ["client"] }
-xkbcommon = "0.8"
+xkbcommon = "0.9"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
