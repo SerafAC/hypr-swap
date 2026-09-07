@@ -317,3 +317,61 @@ fn soak() {
         );
     }
 }
+
+#[test]
+fn e2e_swap_leaves_the_displaced_workspace_next_in_the_history() {
+    // FR-008b, FR-008c: after a cross-monitor swap the *next* gesture must bounce back to the
+    // workspace the user just left, exactly as it does after a same-monitor switch.
+    //
+    // The regression this pins is not in the swap — the layout was always right — but in what the
+    // history learned from it. Hyprland reports the swap as: the selection activated, then focus
+    // carried to the other monitor *while it is still showing the workspace it is about to lose*,
+    // then the displaced workspace's arrival as a `moveworkspace` that records no activation at
+    // all. Read as the user's own activity, that puts a workspace they never visited ahead of the
+    // one they just left, and the bounce-back lands on the wrong workspace.
+    //
+    // Staged as three workspaces so the wrong answer is a different workspace rather than a
+    // different order of the same two: 1 on the primary, 2 showing on the other monitor, and 3
+    // behind it — 3 being the one selected, and 2 the one focus merely passes over.
+    let nested = Nested::start();
+    let other = nested.add_headless_output();
+
+    let _w1 = clients::spawn_on(&nested, 1, "on-1");
+    show(&nested, &other, 3);
+    let _w3 = clients::spawn(&nested, "on-3");
+    show(&nested, &other, 2);
+    let _w2 = clients::spawn(&nested, "on-2");
+    show(&nested, PRIMARY, 1);
+    assert_compositor_order(&nested, &[1, 3, 2]);
+
+    let windows = clients::inventory(&nested);
+    let _daemon = nested.start_daemon();
+    let mut keyboard = Keyboard::attach(&nested.wayland_display);
+
+    // With an empty history the entry order is compositor order, so the highlight opens on the
+    // second entry — workspace 3, the one sitting behind what the other monitor is showing.
+    hold_tap_release(&nested, &mut keyboard);
+    nested.wait_until("workspace 3 is swapped onto the primary", || {
+        nested.active_workspace_on(PRIMARY) == Some(3)
+    });
+    assert_eq!(
+        nested.active_workspace_on(&other),
+        Some(1),
+        "the displaced workspace goes to the other monitor and is shown there"
+    );
+    assert_windows_unmoved(&nested, &windows);
+
+    // The bounce: hold, one tap, release. The highlight opens on the second entry, which must be
+    // workspace 1 — where the user just was — and not workspace 2, which focus only passed over.
+    hold_tap_release(&nested, &mut keyboard);
+    nested.wait_until("the bounce returns workspace 1 to the primary", || {
+        nested.active_workspace_on(PRIMARY) == Some(1)
+    });
+    assert_eq!(
+        nested.active_workspace_on(PRIMARY),
+        Some(1),
+        "the gesture after a swap bounces back to the workspace the user left (FR-008b), not to \
+         the one the compositor reported while focus passed over it"
+    );
+    assert_windows_unmoved(&nested, &windows);
+}
