@@ -181,6 +181,7 @@ file, and your desktop's icon files and desktop entries. Nothing it reads leaves
 - [User guide](docs/user/) — installing, binds, configuration, appearance, icons, troubleshooting
 - [`DEVELOPMENT.md`](DEVELOPMENT.md) — building, running and testing it as a developer
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to propose a change
+- [`SECURITY.md`](SECURITY.md) — how to report a vulnerability privately
 - [`CHANGELOG.md`](CHANGELOG.md) — what changed in each release
 
 ## Licence
