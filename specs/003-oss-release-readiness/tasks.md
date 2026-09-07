@@ -246,11 +246,11 @@ only the E2E tier catches — and confirm each is caught without human involveme
 ### Tests for User Story 3
 
 - [X] T047 [US3] Add a unit test parsing `deny.toml` that fails when an `ignore` entry's `reason` does not begin `until YYYY-MM-DD:` or when that date has passed — the gating half of FR-093's bounded acceptance, in `cargo test --lib` where a contributor sees it ([research.md](./research.md) R38)
-- [ ] T048 [US3] Run [quickstart.md](./quickstart.md) scenario 6: open **four** deliberately broken changes — a failing unit test, a formatting violation, a lint warning and a minimum-toolchain build failure — and confirm each fails in its own job naming its own reproducing command, within 30 minutes of submission. The fifth, an overlay regression only the E2E tier catches, is **not testable in automation** and its row is struck from the scenario: there is no E2E job (T044a) (SC-034, SC-033, FR-090)
+- [X] T048 [US3] Run [quickstart.md](./quickstart.md) scenario 6: open **four** deliberately broken changes — a failing unit test, a formatting violation, a lint warning and a minimum-toolchain build failure — and confirm each fails in its own job naming its own reproducing command, within 30 minutes of submission. The fifth, an overlay regression only the E2E tier catches, is **not testable in automation** and its row is struck from the scenario: there is no E2E job (T044a) (SC-034, SC-033, FR-090)
 - [X] T049 [US3] Run [quickstart.md](./quickstart.md) scenario 5: the image runs the whole tier against a developer's own session — **86 passed, 0 failed**, verified repeatedly. Its purpose is now local compatibility testing against pinned versions rather than reproducing a CI failure, since there is no CI run to reproduce ([docker/e2e/README.md](../../docker/e2e/README.md), FR-089)
 - [X] T050 [US3] Walk the inspection item for FR-091 — **done 2026-09-03**, and verified against the live repository rather than asserted: the ruleset on `master` reports `required_status_checks -> ci-required`, and nothing else, beside `deletion` and `non_fast_forward`. [contracts/ci.md](./contracts/ci.md) lists both sets. See the record below for the one row where the table and the `needs:` list still differ
 
-### Story 3 record (T039, T049, and what T048/T050 still need)
+### Story 3 record (T039, T048, T049, T050)
 
 **The image (T039), verified on 2026-09-01.** `docker build -t hypr-swap-e2e docker/e2e` on the
 digest-pinned `archlinux:latest`, then quickstart scenario 5's exact `docker run` against this
@@ -279,16 +279,45 @@ the environment come up" probe on the same code path the suite uses — which is
 assertion runs, with no second implementation to drift. Status **78** means the environment failed;
 `e2e.yml` turns that into a message saying so rather than a test verdict.
 
-**T048 and T050 are not done, and cannot be done from a checkout.** Both need the workflows to
-exist on GitHub:
+**T048 — the gate was made to fail on purpose, four times (2026-09-07).** This needed what a
+checkout cannot supply: pull requests against a repository whose Actions run. They exist now, so
+four branches were opened off `master`, one break each, and closed the moment the verdict was in
+(PRs #6–#9, branches deleted; the diffs remain readable on the closed pull requests).
 
-- **T048** (five deliberately broken changes, one per gated kind) needs five pull requests against
-  a repository whose Actions have run at least once.
-- **T050** (branch protection requires `ci-required` and nothing else) is a repository setting.
-  The half of it that lives in the tree is done: [contracts/ci.md](./contracts/ci.md) lists the
-  gating set and the informational set, and `ci-required`'s `needs:` list matches the gating table
-  minus `licenses`, which T081 adds along with the job — a `needs:` naming a job that does not
-  exist makes the whole workflow unloadable, so the two land together.
+| PR | Break | Red job | What its failure step printed |
+|---|---|---|---|
+| #6 | `ordering.rs`'s MRU highlight assertion inverted (FR-008b) | `unit` (43s) | `a unit test failed — reproduce locally with: cargo test --lib` |
+| #7 | `Outcome`'s variants re-indented by hand | `fmt` (14s) | `the tree is not formatted — reproduce locally with: cargo fmt --check (and fix with: cargo fmt)` |
+| #8 | an uncalled function with a truncating `u64 as u32` | `clippy` (36s) | `clippy found a warning — reproduce locally with: cargo clippy --all-targets -- -D warnings` |
+| #9 | `u32::bit_width`, stable since Rust 1.97.0 | `msrv` (36s) **and** `clippy` (39s) | `the build fails on the declared minimum toolchain — reproduce locally with: rustup run 1.96 cargo build` |
+
+**Every break failed in its own job, and no other gating job went red with it** — `build`, `unit`,
+`clippy`, `fmt`, `msrv`, `docs`, `checks` and `licenses` were each green on the three changes that
+were not about them. `ci-required` failed on all four with `one or more gating checks did not
+succeed — see the jobs above; each names the command that reproduces it locally`, which is FR-085's
+single verdict doing its job. **SC-034's budget is 30 minutes; the measurement is under two.**
+Pushed 12:03:33Z, runs created 12:04:02–12:04:08Z, all four verdicts in by 12:05:34Z.
+
+Two things were learned that the scenario did not predict:
+
+- **The `msrv` break is caught twice, and `clippy` is the faster of the two.** `cargo clippy` reads
+  `rust-version` out of `Cargo.toml` and denies `clippy::incompatible_msrv` on stable, so #9 is red
+  in two jobs for one cause. This is the gate being stronger than the table assumed rather than a
+  leak between jobs: both name their own reproducing command, and a contributor who runs the local
+  `clippy` line learns about the MSRV without owning the 1.96 toolchain. The msrv job's message is
+  still the one that names the toolchain to install, so neither job is redundant.
+- **The `msrv` failure step interpolates the real minimum.** It printed `rustup run 1.96 cargo
+  build`, not the `<rust-version>` fallback — the version genuinely comes from `Cargo.toml` (T041,
+  FR-087), which no reading of the workflow could have established on its own.
+
+**The fifth row stays struck.** There is no `e2e` job to fail, so the overlay regression the
+scenario used to carry has no automation to catch it — the deviation recorded against FR-088.
+
+**T050 is a repository setting, and its in-tree half is done**:
+[contracts/ci.md](./contracts/ci.md) lists the gating set and the informational set, and
+`ci-required`'s `needs:` list matches the gating table minus `licenses`, which T081 adds along with
+the job — a `needs:` naming a job that does not exist makes the whole workflow unloadable, so the
+two land together. The live ruleset was read back at T084a.
 
 **The R29 spike, half settled on the runner (2026-09-02).** The automation route implemented is
 R29's first — `vkms` plus the container's own seatd — because it has the fewest moving parts. The
@@ -1096,7 +1125,7 @@ maintainer learns about a vulnerable dependency from the project's own checks.
 **Purpose**: The whole-feature verification, and the human measurements the plan says are measured
 by walking the published path once.
 
-- [ ] T109 Run the full gate locally — `cargo build --release`, `cargo test --lib`, `cargo test --test 'e2e_*'`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`, `pnpm build`, `pnpm validate`, `./scripts/checks.sh` — and confirm all are green
+- [X] T109 Run the full gate locally — `cargo build --release`, `cargo test --lib`, `cargo test --test 'e2e_*'`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`, `pnpm build`, `pnpm validate`, `./scripts/checks.sh` — and confirm all are green
 - [X] T110 [P] Confirm every requirement of features 001, 002 and 003 — FR-001 through FR-121, lettered variants included — has a named tier at `docs/dev/verification.md`: this feature's included from [plan.md](./plan.md)'s `verification-tiers` anchor, 001's and 002's derived from their plans' E2E coverage mappings, and that no requirement's status is unknown (FR-092, SC-036)
 - [X] T111 [P] Measure SC-026 — landing page to working overlay, under 15 minutes — and record the walk in [quickstart.md](./quickstart.md) (quickstart scenario 4, item 3)
 - [X] T112 [P] Measure SC-032 — `DEVELOPMENT.md` to every test tier run, under 30 minutes — and record the walk (quickstart scenario 4, item 4)
@@ -1106,10 +1135,11 @@ by walking the published path once.
 - [X] T116 Write the `[Unreleased]` changelog entry for this feature in `CHANGELOG.md`: the lifecycle records, `--environment`, the compositor-version diagnostic (FR-102a)
 - [X] T117 Mark every task complete in this file and update [plan.md](./plan.md)'s tier and E2E tables if any test name or tier changed during implementation (CLAUDE.md: keep `tasks.md` current)
 
-### Phase 11 record (T109–T117) — the gate, the measurements, and the one thing still red
+### Phase 11 record (T109–T117) — the gate, the measurements, and the tier that is now green
 
 **Walked on 2026-09-06**, against this tree on a live Hyprland session. Eight of the nine tasks
-are done; **T109 is deliberately left open**, and the reason is the only interesting thing here.
+are done; **T109 was deliberately left open**, and what closed it — a day later, on
+2026-09-07 — is the only interesting thing here.
 
 **T110 — the coverage claim is exact, not approximate.** FR-092 asks that every requirement of
 001, 002 and 003 has a named tier and none is unknown. That was checked as a set comparison rather
@@ -1220,64 +1250,73 @@ above and pins that the workspace focus merely passed over stays the *oldest* en
 performs the bounce, and asserts it lands on the workspace the user left. Both halves of the fix
 were confirmed load-bearing by removing each and watching the tests fail.
 
-#### T109 — seven of eight are green, and the eighth is honestly amber
+#### T109 — the gate is green, and the amber tier had two named causes
 
-`cargo build --release`, `cargo test --lib` (**407 passed**), `cargo clippy --all-targets -- -D
-warnings`, `cargo fmt --check`, `pnpm build`, `pnpm validate` and `./scripts/checks.sh` are all
-green. The end-to-end tier is not, quite, and the shape of the failure matters more than the count:
+**As first walked (2026-09-06) this read "seven of eight are green, and the eighth is honestly
+amber".** The seven were: `cargo build --release`, `cargo test --lib`, `cargo clippy --all-targets
+-- -D warnings`, `cargo fmt --check`, `pnpm build`, `pnpm validate` and `./scripts/checks.sh`. The
+eighth, `cargo test --test 'e2e_*'`, failed about half the time, never on the same test, and the
+record said the residue "has **not** been diagnosed — only observed". **It has now been diagnosed.
+Both causes were in the test infrastructure; neither was in the application.** The gate is green:
+`cargo test --lib` **410 passed**, the tier **97 passed, 0 failed across five consecutive full
+runs**, and the other six unchanged.
 
-| How it was run | Result |
+**The measured failure rate was ~50 %, not the "roughly once per full run" first recorded.** Across
+sixteen full-tier runs before either fix: eight green, eight red, over **seven distinct tests** —
+`e2e_grid_commit_matches_list`, `e2e_malformed_icon_reported_once`,
+`e2e_overlay_scales_with_the_monitor`, `e2e_no_icon_cache_on_disk`,
+`e2e_default_appearance_unchanged`, `e2e_geometry_override_still_caps_and_scrolls` and
+`e2e_scrolls_many_workspaces`. Every one passed alone; two consecutive green runs reported by hand
+had made it look fixed, which is what a ~50 % rate does to a two-run sample.
+
+**Cause 1 — two instances were handed the same scratch directory.** `scratch_directory` built its
+name from `Instant::now().elapsed().as_nanos() ^ next_serial()`, and `Instant::now().elapsed()` is
+not a timestamp: it is the time since the `Instant` constructed on that same line, tens of
+nanoseconds of jitter. XORed with a small serial, names repeat. Instrumented, **one tier run
+created 102 directories and reused 7 of them.** A reused directory still holds the previous test's
+`config.toml`, because a `Setup` carrying no `app_config` writes no file rather than removing one
+(the FR-023 default-everything case) — so the daemon faithfully rendered a configuration the test
+never wrote. That is why `e2e_scrolls_many_workspaces` was shown `(264, 362)`: a one-column grid at
+default geometry, `overlay_padding * 2 + grid_cell_width` = `12 * 2 + 240`, when it asked for a
+`(512, 384)` list. Same for the light-palette colour in `e2e_default_appearance_unchanged` and the
+two identical sizes in `e2e_grid_commit_matches_list`. Uniqueness now comes from `create_dir`
+refusing a name that exists, retried until it wins — a property rather than a hope. Guarded by
+`scratch_directories_are_never_handed_out_twice`, which asks for 64 directories and requires them
+all distinct and empty; it fails against the old formula and passes against the new one.
+
+**Cause 2 — a test built its expectation for a monitor it had unfocused.**
+`e2e_geometry_override_still_caps_and_scrolls` focuses an 800x600 panel, then spawns twenty windows
+with `spawn_on`, each of which dispatches `workspace N` — and that moves focus to whichever monitor
+already owns that workspace. It then computed its expected geometry from the small panel
+regardless. Captured at the failure: `WAYLAND-1 (1920x1080) focused=true, HEADLESS-1 (800x600)
+focused=false`, and the overlay correctly mapped on `WAYLAND-1` at `(1536, 816)` — the test's own
+override geometry (row height 88, nine rows, capped) on the monitor that actually held focus. **The
+daemon obeyed FR-017 exactly; the expectation was wrong.** One run in eight. The scenario now
+re-focuses the panel after the spawns and waits for the compositor to agree, through a
+`focus_monitor` helper used at both points.
+
+**Four hypotheses died before these two, each killed by a measurement rather than an argument** —
+worth recording, because the cost of this walk was in the wrong ones:
+
+| Hypothesis | How it died |
 |---|---|
-| One test alone (`--exact`) | green, every time (3 of 3) |
-| One test binary (`--test e2e_icons`) | green, 16 of 16 |
-| The whole tier in one invocation, before the MRU fix | **94 passed, 1 failed — three runs, three times, never the same test** |
-| The whole tier in one invocation, after it | 95/1, **96/0**, 95/1 — and no longer an ordering assertion |
+| The daemon held stale monitor geometry across a `hyprctl keyword` change | `measure_overlay` already restarts the daemon for exactly this reason, and says so |
+| `spawn_on` stole focus (as a *general* cause) | 12/12 green in isolation with focus correct every time — it needed the full tier |
+| A daemon outlived its test and reconnected into the next one | `pgrep -f` was matching the sampler's own command line; with `pgrep -x` the tier never runs more than one test daemon. The constant baseline was the developer's own installed daemon |
+| The surface was read between map and configure | 0 of 33 overlays changed size in the 600 ms after mapping |
 
-The three failures were `e2e_reconnects_after_restart`, `e2e_icons_disabled_matches_pre_feature`
-(twice) and `e2e_refactor_is_pixel_neutral` — **and the entry-order ones were the MRU defect
-recorded above, not the flakiness they were first read as.** With it fixed, all three pass in the
-full tier, and a full run came back **96 passed, 0 failed** for the first time in this walk.
-
-A thinner residue is still there, and it is worth stating precisely rather than rounding off.
-Three full runs after the fix went 95/1, **96/0**, 95/1 — and the two failures were
-`e2e_grid_commit_matches_list` (a surface-geometry `assert_ne!`, the grid and list overlays coming
-out the same size) and `e2e_malformed_icon_reported_once` (a diagnostic count). Neither is an
-ordering assertion, both pass alone, and they are different tests each time. So the family that
-was masking a real bug is fixed, and what is left is a smaller, different thing that has **not**
-been diagnosed — only observed.
-
-**One of the original three was ours and is gone**:
-`e2e_version_reports_build` failed once because the README edit made the tree dirty *after* the
-binary had been built from a clean one, so `build.rs` had baked a version without `-dirty` while
-the test recomputed it with — a stale-build artefact that a rebuild fixed, not a defect.
-
-The rest were one family. Both `e2e_icons_disabled_matches_pre_feature` and
-`e2e_refactor_is_pixel_neutral` compare paint records against a **committed pre-feature baseline**,
-and both failed the same way — the entry order differed:
-
-```text
-pass 0 record 0 drew entry 0 list: label="3" windows=0 active=true …, expected the baseline's "1"
-```
-
-Entry order is MRU, and that was the tell. It was read here as the daemon's history being seeded
-in a load-dependent order — plausible, consistent with every observation available at the time, and
-wrong. The order was moving because the history was being fed activations the application had
-caused itself, which is the defect recorded above; whether the race fell one way or the other on a
-given run is what made it look like load.
-
-**It is left red on purpose.** `cargo test --test 'e2e_*'` is the command
-[DEVELOPMENT.md](../../DEVELOPMENT.md) gives a contributor, and a tier that fails roughly once per
-full run teaches them to re-run until it is green — which is how a real regression gets waved
-through. Marking T109 `[X]` would record a green gate that does not exist. The MRU defect that
-accounted for most of it is fixed; the remainder is smaller, has not yet been given the same
-treatment, and deserves the same suspicion rather than the benefit of the doubt — **the first
-diagnosis here was "flaky test", and it was wrong.**
+**What this says about the tier.** Nothing here was a product defect, but nothing here was noise
+either: both were real defects in the harness that made the suite lie, in one direction (a test
+shown another test's configuration) and then the other. The earlier record's instinct was right —
+`cargo test --test 'e2e_*'` is the command [DEVELOPMENT.md](../../DEVELOPMENT.md) gives a
+contributor, and a tier that fails half the time teaches them to re-run until it is green. It is
+now green five times in a row.
 
 ---
 
 **Checkpoint**: Every requirement has a named tier, the three human measurements are recorded, the
-release checklist has been walked once end to end — and the one flaky tier is written down rather
-than re-run until it agreed.
+release checklist has been walked once end to end — and the tier that was flaky was diagnosed down
+to two named causes rather than re-run until it agreed.
 
 ---
 

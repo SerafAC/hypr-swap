@@ -443,6 +443,18 @@ fn e2e_geometry_override_resizes() {
     );
 }
 
+/// Focus a named monitor and wait until the compositor agrees, because the overlay opens on
+/// whichever monitor holds the focus (FR-017) and the size it is given follows from that one.
+fn focus_monitor(nested: &Nested, monitor: &str) {
+    nested.dispatch(&format!("focusmonitor {monitor}"));
+    nested.wait_until("the monitor the overlay will follow is focused", || {
+        nested
+            .monitors()
+            .iter()
+            .any(|reported| reported.name == monitor && reported.focused)
+    });
+}
+
 /// US5-AS2, FR-053, SC-023: with twenty workspaces and geometry raised well past what fits, the
 /// three layout guarantees still hold — the overlay stays inside its cap, it scrolls rather than
 /// shrinking, and the entries are the size one entry would be.
@@ -454,13 +466,13 @@ fn e2e_geometry_override_still_caps_and_scrolls() {
     let nested = Nested::start_with(&Setup::documented().with_app_config(config));
     let small = nested.add_headless_output();
     nested.hyprctl(&["keyword", "monitor", &format!("{small},800x600@60,auto,1")]);
-    nested.dispatch(&format!("focusmonitor {small}"));
-    nested.wait_until("the small output is focused at 800x600", || {
+    nested.wait_until("the small output is sized at 800x600", || {
         nested
             .monitors()
             .iter()
-            .any(|monitor| monitor.name == small && monitor.focused && monitor.size == (800, 600))
+            .any(|monitor| monitor.name == small && monitor.size == (800, 600))
     });
+    focus_monitor(&nested, &small);
 
     let mut windows = Vec::new();
     for id in 1..=20 {
@@ -474,6 +486,11 @@ fn e2e_geometry_override_still_caps_and_scrolls() {
             .count()
             >= 20
     });
+    // Each `spawn_on` dispatches `workspace N`, and that moves focus to whichever monitor already
+    // holds that workspace — so filling the workspaces leaves focus wherever the last one landed,
+    // while everything below is computed for the small panel. The overlay opens on the focused
+    // monitor (FR-017), so the panel this scenario is about has to be focused again first.
+    focus_monitor(&nested, &small);
 
     let monitor = nested
         .monitors()

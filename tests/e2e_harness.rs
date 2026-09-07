@@ -11,7 +11,7 @@ mod e2e;
 use std::time::Duration;
 
 use e2e::clients;
-use e2e::harness::{Nested, Setup};
+use e2e::harness::{Nested, Setup, scratch_directory};
 use e2e::keyboard::{KEY_LEFTALT, KEY_TAB, Keyboard};
 use hypr_swap::ui::shortcuts::Shortcut;
 
@@ -168,4 +168,36 @@ fn a_held_modifier_with_taps_is_delivered_as_one_gesture() {
     nested.wait_until("the held-modifier gesture reaches the bind", || {
         nested.active_workspace() == 9
     });
+}
+
+/// Two instances must never be handed the same scratch directory.
+///
+/// A `Setup` with no `app_config` writes no `config.toml`, which is the FR-023
+/// default-everything case — so an instance given a directory another test had already written
+/// into would read a configuration it never asked for and render someone else's overlay. That
+/// failed only in a full run, where there is another test to collide with, and never alone.
+#[test]
+fn scratch_directories_are_never_handed_out_twice() {
+    let directories: Vec<_> = (0..64).map(|_| scratch_directory()).collect();
+
+    let mut unique = directories.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        directories.len(),
+        "every instance gets its own directory"
+    );
+    for directory in &directories {
+        assert!(
+            directory
+                .read_dir()
+                .expect("the scratch directory exists")
+                .next()
+                .is_none(),
+            "{} was handed over with another instance's files in it",
+            directory.display()
+        );
+        std::fs::remove_dir_all(directory).ok();
+    }
 }

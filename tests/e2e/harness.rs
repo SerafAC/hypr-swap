@@ -818,15 +818,24 @@ fn relink(target: &Path, link: &Path) {
     std::os::unix::fs::symlink(target, link).expect("create the stable symlink");
 }
 
-fn scratch_directory() -> PathBuf {
-    let unique = format!(
-        "hypr-swap-e2e-{}-{}",
-        std::process::id(),
-        Instant::now().elapsed().as_nanos() ^ next_serial()
-    );
-    let directory = std::env::temp_dir().join(unique);
-    std::fs::create_dir_all(&directory).expect("create the scratch directory");
-    directory
+/// A scratch directory no other instance can be holding.
+///
+/// Uniqueness is established by `create_dir` failing when the name is taken, rather than by a name
+/// assumed to be unique: a `Setup` carrying no `app_config` writes no `config.toml` at all, which
+/// is the FR-023 default-everything case, so an instance handed a directory another test had
+/// already written into reads a configuration it never asked for. That is invisible when a test
+/// runs alone and is a different overlay entirely in a full run.
+pub fn scratch_directory() -> PathBuf {
+    loop {
+        let unique = format!("hypr-swap-e2e-{}-{}", std::process::id(), next_serial());
+        let directory = std::env::temp_dir().join(unique);
+        match std::fs::create_dir(&directory) {
+            Ok(()) => return directory,
+            // A leftover from an earlier run that happened to draw this pid: take the next name.
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => panic!("create the scratch directory: {error}"),
+        }
+    }
 }
 
 fn next_serial() -> u128 {
