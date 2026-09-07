@@ -25,19 +25,43 @@ edits the released sections.
 - Alt-Tab style workspace switching for Hyprland, driven by two global shortcuts you bind in
   `hyprland.conf`: hold the modifier to browse workspaces in an overlay, release it to switch.
   Bound to a bare key with no modifier to release, the overlay stays open in sticky mode instead.
-- A second shortcut that swaps the highlighted workspace with the one on the focused monitor,
-  moving both, so a workspace can be pulled across monitors without losing the other.
-- Empty workspaces are offered alongside occupied ones, and the last entry creates a new workspace,
-  so switching to somewhere that does not exist yet takes the same two keys as everywhere else.
+- Selecting a workspace that lives on another monitor swaps the two, moving both, so a workspace
+  can be pulled across monitors without losing the one you were on. A swap that cannot be completed
+  is rolled back whole and reported, rather than leaving the monitors half-moved.
+- A second shortcut that jumps to the lowest-numbered unused workspace on the focused monitor, so
+  reaching somewhere that does not exist yet takes one key rather than a detour through the overlay.
+  It does nothing when you are already on an empty workspace.
+- Empty workspaces are offered in the overlay alongside occupied ones, so somewhere you have not
+  used yet is reachable the same way as everywhere else.
 - Two presentations of the overlay — a vertical list and a grid of miniatures — selected with
   `presentation` in the configuration file.
 - Window miniatures carry their program's real icon, taken from the icon set the desktop is already
   configured to use, or `icon_set` to name a different one. Without an icon set installed, every
   window shows a built-in placeholder and nothing else changes.
 - A configuration file at `~/.config/hypr-swap/config.toml`, every setting optional: ordering,
-  presentation, the workspaces offered, five built-in colour themes and per-value overrides for
+  presentation, the workspaces offered, two built-in colour themes and per-value overrides for
   the eleven colours, the font and the ten geometry values.
 - `--config <path>` to read a different configuration file, `--version`, and `--help`, whose usage
   text carries the bind lines so a user who has the binary has the instructions.
 - Problems are reported on standard error and, where the failure is one only the user can fix,
   as a desktop notification through `notify-send`.
+- The daemon says when it started and why it stopped. One record on start-up naming the version it
+  is running, and one on the way out naming the cause — the signal that arrived, or the failure
+  that stopped it before it ever came up. Under `exec-once` both land in the compositor's log, so
+  "when did it restart, and why" is answerable after the fact rather than only while watching.
+- `--environment` prints what the daemon can actually see — its version, the compositor it found,
+  the session, the configuration file in use and whether an icon set and a notification service are
+  available. It is what the bug report form asks you to paste, and it never prints the contents of
+  your configuration file. Where a value cannot be determined it says so in words rather than
+  leaving a blank.
+- A compositor older than the supported minimum is named as such at start-up, with the version
+  found and the version needed, instead of failing later in a way that looks like a bug in the
+  program.
+
+### Fixed
+
+- After swapping a workspace in from another monitor, the next hold-and-release now bounces back to
+  the workspace you just left. It used to land on whichever workspace the other monitor happened to
+  be showing before the swap — a workspace you never visited — because the compositor reports a
+  swap partly as a focus change over the monitor that is about to lose its workspace, and that was
+  being read as you having gone there.
