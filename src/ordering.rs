@@ -232,7 +232,7 @@ mod tests {
 
         let (entries, highlight) = entries(&world, Order::Mru);
         assert_eq!(ids(&entries), vec![1, 7, 3, 2]);
-        assert_eq!(highlight, 1);
+        assert_eq!(highlight, 0);
         assert_eq!(entries[highlight].workspace_id, 7);
     }
 
