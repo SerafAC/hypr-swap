@@ -22,9 +22,9 @@ pub type ModMask = u32;
 /// Where a session ended up. `Open` until exactly one of the other two is reached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
-    Open,
+      Open,
     /// The user selected this workspace id.
-    Committed(i32),
+        Committed( i32 ),
     /// Escape, a lost connection, or an empty entry list. Dispatches nothing and leaves the
     /// activation history untouched (US1-AS5).
     Cancelled,
