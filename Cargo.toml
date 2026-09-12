@@ -1,6 +1,6 @@
 [package]
 name = "hypr-swap"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 rust-version = "1.96"
 # The copyright holder LICENSE names. cargo-deb reads this to write the `Copyright:` line of the

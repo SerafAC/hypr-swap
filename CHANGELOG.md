@@ -20,6 +20,8 @@ edits the released sections.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-12
+
 ### Fixed
 
 - Building from source on Fedora and RHEL now works from the dependency list the installation
