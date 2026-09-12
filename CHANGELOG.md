@@ -20,6 +20,8 @@ edits the released sections.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-12
+
 ### Added
 
 - Alt-Tab style workspace switching for Hyprland, driven by two global shortcuts you bind in
