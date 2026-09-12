@@ -9,20 +9,21 @@ you are about to propose a change, [CONTRIBUTING.md](CONTRIBUTING.md) is what re
 | | |
 |---|---|
 | Rust | `1.96` or newer — the edition is 2024 |
-| System libraries | cairo, pango and pangocairo, **development** packages |
+| System libraries | cairo, pango, pangocairo and xkbcommon, **development** packages |
 | To run it | Hyprland `>= 0.55`, on Wayland |
 | To run the end-to-end tests | the same session, plus `foot` |
 | To build the documentation site | Node.js `>= 22` and **pnpm** `>= 11` — and nothing else in the repository needs them |
 
 ```bash
 # Debian, Ubuntu and derivatives
-sudo apt install build-essential pkg-config libcairo2-dev libpango1.0-dev
+sudo apt install build-essential pkg-config libcairo2-dev libpango1.0-dev libxkbcommon-dev
 
 # Fedora, RHEL and derivatives
-sudo dnf install gcc pkgconf-pkg-config cairo-devel pango-devel
+sudo dnf install gcc pkgconf-pkg-config cairo-devel cairo-gobject-devel pango-devel \
+  libxkbcommon-devel
 
 # Arch
-sudo pacman -S --needed base-devel cairo pango
+sudo pacman -S --needed base-devel cairo pango libxkbcommon
 ```
 
 The Rust toolchain comes from [rustup](https://rustup.rs/); `rust-version` in `Cargo.toml` is the

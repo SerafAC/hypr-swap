@@ -369,7 +369,10 @@ jobs:
       - name: Install the build environment
         run: |
           set -eu
-          dnf install -y gcc pkgconf-pkg-config cairo-devel pango-devel libxkbcommon-devel \
+          # cairo-gobject.pc lives in its own subpackage on Fedora, where the Debian family
+          # ships it inside libcairo2-dev; cairo-rs needs it either way.
+          dnf install -y gcc pkgconf-pkg-config cairo-devel cairo-gobject-devel pango-devel \
+            libxkbcommon-devel \
             curl ca-certificates git tar
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"

@@ -118,9 +118,11 @@ cargo build --release
 sudo install -Dm755 target/release/hypr-swap /usr/local/bin/hypr-swap
 ```
 
-You need the cairo, pango and pangocairo **development** packages, not just the runtime libraries —
-`libcairo2-dev libpango1.0-dev` on Debian family, `cairo-devel pango-devel` on Fedora,
-`cairo pango` on Arch. Building the project as a contributor, rather than installing it, is
+You need the cairo, pango, pangocairo and xkbcommon **development** packages, not just the runtime
+libraries — `libcairo2-dev libpango1.0-dev libxkbcommon-dev` on Debian family,
+`cairo-devel cairo-gobject-devel pango-devel libxkbcommon-devel` on Fedora (cairo's pkg-config file
+for GObject is a separate subpackage there), `cairo pango libxkbcommon` on Arch. Building the
+project as a contributor, rather than installing it, is
 [`DEVELOPMENT.md`](https://github.com/SerafAC/hypr-swap/blob/master/DEVELOPMENT.md)'s subject.
 
 ## Where each channel puts things
