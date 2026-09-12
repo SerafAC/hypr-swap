@@ -92,8 +92,10 @@ file set or fails; it never produces a second, different artefact for one versio
 
 ### Packaging recipe
 
-`packaging/aur/PKGBUILD`. Fields the release workflow rewrites: `pkgver`, `sha256sums`. Its source
-is the published release archive, never the default branch (FR-107).
+Two, one directory each: `packaging/aur/hypr-swap/PKGBUILD` compiles the published source
+archive, `packaging/aur/hypr-swap-bin/PKGBUILD` installs the published `x86_64` binary and takes
+its documentation files from that same archive. Fields the release workflow rewrites in both:
+`pkgver`, `pkgrel`, `sha256sums`. Neither's source is ever the default branch (FR-107, FR-107a).
 
 ### Changelog entry
 

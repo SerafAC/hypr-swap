@@ -1,9 +1,9 @@
 ---
 title: Installing
-description: Every published channel — the Debian and RPM packages, the AUR recipe, the prebuilt binary, and building from source.
+description: Every published channel — the Debian and RPM packages, the two AUR recipes, the prebuilt binary, and building from source.
 ---
 
-Five channels, and the right one depends mostly on your distribution. Everything below installs the
+Six channels, and the right one depends mostly on your distribution. Everything below installs the
 same `x86_64` binary; on any other architecture, build from source.
 
 ## What it needs first
@@ -53,16 +53,44 @@ supported Fedora release and verified there and on the current one.
 
 ## Arch
 
-From the AUR, with whichever helper you use:
+Two packages, and you want exactly one of them. Neither is on the AUR **yet** — the AUR has paused
+new account registration, so they cannot be created there for now. Until it reopens, both recipes
+install from this repository with `makepkg`, which does what a helper would have done for you:
 
 ```bash
-paru -S hypr-swap    # or: yay -S hypr-swap
+git clone https://github.com/SerafAC/hypr-swap.git
+cd hypr-swap/packaging/aur/hypr-swap-bin   # or hypr-swap, to compile instead
+makepkg -si
 ```
 
-The recipe builds from the release's **source archive** rather than from the default branch, so it
-has an integrity value to check, and its `pkgver` and `sha256sums` are rewritten by the release
-workflow from the artefacts it has just published — the recipe cannot fall behind the release.
-`optdepends` names `libnotify` and an icon set.
+Take the recipe from the **default branch**, not from a release tag: the release workflow rewrites
+`pkgver` and `sha256sums` after the tag is cut, so the branch carries the recipe for the newest
+release and the tag carries the one before it. What you get is an ordinary package — `pacman -Qi
+hypr-swap`, `pacman -R hypr-swap` — built from the same published artefacts and checked against the
+same digests as the AUR copy will be. The one thing you lose by not going through a helper is the
+update: `git pull` and re-run `makepkg -si`.
+
+Once both packages are on the AUR, the whole of the above becomes one line:
+
+```bash
+paru -S hypr-swap        # compiles the release's source
+paru -S hypr-swap-bin    # installs the release's binary
+```
+
+`hypr-swap` builds from source, which takes a couple of minutes and needs a Rust toolchain that
+your helper installs as a build dependency and can remove afterwards. **`hypr-swap-bin` installs
+the `x86_64` binary the release already published** — nothing is compiled and no toolchain is
+involved. Pick that one unless you have a reason to build it yourself.
+
+They install identical files, and each declares the other as a conflict, so switching between them
+is an ordinary replace rather than something you have to clean up by hand. Anything that depends on
+`hypr-swap` is satisfied by either.
+
+Neither builds from the default branch: both name a published release, so there is an integrity
+value to check, and both have their `pkgver` and `sha256sums` rewritten by the release workflow
+from the artefacts it has just published — a recipe cannot fall behind the release. The prebuilt
+one installs the binary **unmodified**, so what lands in `/usr/bin` is byte-for-byte the file whose
+checksum is in `SHA256SUMS`. `optdepends` on both names `libnotify` and an icon set.
 
 ## The prebuilt binary
 

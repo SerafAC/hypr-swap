@@ -36,7 +36,13 @@ Any failure stops the workflow before the first commit, so a refused release lea
 | 9 | Compute `SHA256SUMS` over every artefact | FR-108 |
 | 10 | Publish the release with its notes: the changelog entry, plus the packager block of FR-111 | FR-106, FR-111 |
 | 11 | Verify every published asset against `SHA256SUMS` by re-downloading | FR-108 |
-| 12 | Regenerate `packaging/aur/PKGBUILD` (`pkgver`, `sha256sums`) from the published archive; commit; push to the AUR | FR-107 |
+| 12 | Regenerate **both** Arch recipes (`pkgver`, `pkgrel`, `sha256sums`) from the published artefacts — the archive for `hypr-swap`, the binary *and* the archive for `hypr-swap-bin`; commit; push each to its own AUR repository | FR-107, FR-107a |
+
+Step 12 is its own workflow, called by the release workflow as its last job. It is the same step in
+the same order; what it gains by being separate is that the one step whose failures come from
+outside the repository can be disabled, re-enabled and re-run alone, against a release published
+long before. It takes only the version: the digests it rewrites the recipes with are read out of
+the release's own published `SHA256SUMS`.
 
 ## Artefacts (FR-106)
 
@@ -73,9 +79,25 @@ Because every artefact is built from the tag rather than from the branch head, a
 cannot produce a different file for the same version.
 
 The AUR push is **step 12, after** the release is published and verified, so a run that fails late
-never leaves the recipe pointing at a release that does not exist. When the AUR key is absent the
-step fails loudly rather than being skipped: FR-107's "in step with the released version" is not
-conditional, and a silently skipped push is exactly how the recipe falls behind.
+never leaves a recipe pointing at a release that does not exist. A failure on either of the two
+recipes fails the job — they describe the same release, and one of them quietly lagging is the
+same defect.
+
+## The AUR push, while the AUR is closed
+
+The AUR has paused new account registration, so neither package can be created there yet. Step 12
+therefore separates the two things it was doing:
+
+- **regenerating both recipes and committing them** happens on every release, unconditionally.
+  This is what FR-107's "in step with the released version" asks for, and it is satisfied in this
+  repository whatever the AUR is doing;
+- **pushing them to the AUR** is gated on the repository variable `AUR_PUBLISH` being `true`, and
+  it is currently unset. When it does run and the key is absent it still fails loudly rather than
+  skipping: a push that silently skips itself is how a recipe falls behind, and the gate exists so
+  that a *deliberate* pause is visible in the workflow rather than disguised as one.
+
+Turning it back on is setting that variable. Recipes for releases published while it was off are
+caught up by running the AUR workflow by hand, once per version, with the push box ticked.
 
 ## Supported versions
 

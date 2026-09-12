@@ -1,5 +1,9 @@
 # Maintainer: SerafAC <seraf_ac@hotmail.com>
 #
+# The compiling half of the pair: `hypr-swap` builds from source, `hypr-swap-bin` installs the
+# binary the same release published (FR-107a, research.md R49). They install identical files and
+# declare each other as conflicts, so a user picks one.
+#
 # Built from the release's **source archive**, never from the default branch, so there is an
 # integrity value to check and the recipe names one exact commit (FR-107, research.md R35). The
 # archive is fetched from the release's own assets rather than from GitHub's `/archive/` route:
@@ -16,7 +20,7 @@ pkgdesc="Alt-Tab style workspace switcher with cross-monitor swapping for Hyprla
 arch=('x86_64')
 url="https://github.com/SerafAC/hypr-swap"
 license=('MIT')
-depends=('cairo' 'pango')
+depends=('cairo' 'pango' 'glib2' 'libxkbcommon')
 makedepends=('rust' 'pkgconf')
 optdepends=(
     'libnotify: desktop notifications for problems only the user can fix'

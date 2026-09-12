@@ -647,7 +647,9 @@ would have been: the run is against the exact ref the artefacts are built from.
   case where it is not, and falls back to the built-in token otherwise.
 - `AUR_SSH_KEY` must exist before the first release. The AUR step **fails loudly** without it
   rather than skipping — R35 allowed a conditional push and T059 overrules it, because a silently
-  skipped push is exactly how the recipe falls behind (FR-107).
+  skipped push is exactly how the recipe falls behind (FR-107). *(Phase 13 adds the one exception:
+  while the AUR cannot accept new packages at all, the push is held behind the `AUR_PUBLISH`
+  variable and the recipes are regenerated anyway — see T123–T125 and R50.)*
 
 **The Arch recipe fetches the release's asset, not GitHub's `/archive/` route.** GitHub regenerates
 a tag archive on request; an uploaded asset is immutable. The workflow downloads the tag archive
@@ -1317,6 +1319,119 @@ now green five times in a row.
 **Checkpoint**: Every requirement has a named tier, the three human measurements are recorded, the
 release checklist has been walked once end to end — and the tier that was flaky was diagnosed down
 to two named causes rather than re-run until it agreed.
+
+---
+
+## Phase 12: The prebuilt Arch package (FR-107a)
+
+**Goal**: An Arch user installs `hypr-swap` without a Rust toolchain and without a build, from the
+binary the release already publishes. Added after Phase 11, before the first release, so no
+published recipe ever has to change shape.
+
+- [X] T118 Add **FR-107a** to [spec.md](./spec.md) and **R49** to [research.md](./research.md): a second recipe installing the published binary, providing and conflicting with the first, installing the same files, and installing the binary unmodified
+- [X] T119 Move `packaging/aur/PKGBUILD` to `packaging/aur/hypr-swap/PKGBUILD` and create `packaging/aur/hypr-swap-bin/PKGBUILD` — two sources (the binary, and the archive for the four documentation files), `provides`/`conflicts`, no `makedepends`, a `check()` that runs what it downloaded, and `options=('!strip' '!debug')` (FR-107a, R49)
+- [X] T120 Teach `.github/workflows/release.yml` both recipes: `publish` also outputs the binary's digest, and the `aur` job rewrites, commits and pushes each recipe to its own AUR repository, failing the job if either fails (FR-107, FR-107a)
+- [X] T121 Declare `libxkbcommon` and `glib2` in all four packages — both recipes, `[package.metadata.deb]`, `[package.metadata.generate-rpm]` — and state the dependency set in [contracts/packaging.md](./contracts/packaging.md) as the binary's direct `DT_NEEDED` set (FR-109)
+- [X] T122 Update the reader-facing documents: [contracts/packaging.md](./contracts/packaging.md), [contracts/release.md](./contracts/release.md), [data-model.md](./data-model.md), [plan.md](./plan.md), `DEVELOPMENT.md`, `README.md`, `docs/user/install.md` and `CHANGELOG.md`
+
+### Phase 12 record (T118–T122) — what building the package found
+
+**Walked on 2026-09-12**, before any release exists, which is why this cost one commit rather than
+a second published recipe.
+
+**Both recipes were built, not just parsed.** `makepkg --printsrcinfo` in an `archlinux:latest`
+container confirms the generated `.SRCINFO` for each, including `provides = hypr-swap=1.0.0` and
+`conflicts = hypr-swap` on the prebuilt one and no `makedepends` at all. Then the prebuilt recipe
+was built for real against a locally staged "release" — the tree's own release binary and a
+tarball of the four documentation files — and installed in a clean `archlinux:latest` with only
+its declared dependencies: it runs, and `/usr/share/licenses/hypr-swap/LICENSE` is on disk. The
+package contains exactly the five files of the install map and nothing else.
+
+**`libxkbcommon` was missing from every package the project ships, and the prebuilt recipe is what
+found it.** The recipe's `check()` runs the binary it just downloaded; in a container carrying
+only `cairo` and `pango` — the declared set — that failed on the first attempt:
+
+```
+./hypr-swap-0.1.0-x86_64: error while loading shared libraries:
+libxkbcommon.so.0: cannot open shared object file: No such file or directory
+```
+
+`readelf -d` puts `libxkbcommon.so.0` in the binary's direct `DT_NEEDED` set, and nothing else in
+the dependency list pulls it in — not cairo, not pango. It was absent from both Arch recipes,
+from `[package.metadata.deb]` and from `[package.metadata.generate-rpm]`. **Every machine running
+Hyprland has it**, so no live-session test could ever have caught this, and the E2E tier runs
+against exactly such a machine. The release's own step-8 smoke test would have caught it, at
+release time, which is the first moment it has ever been reachable. `glib2` was missing on the
+same grounds — also direct, also undeclared — and is now stated for the reason the contract gives
+for stating any of them: so the contract and the package cannot disagree. Fixed in all four
+(FR-109).
+
+**`options=('!strip' '!debug')` is load-bearing, and that was measured too.** makepkg strips
+binaries and splits their debug symbols by default. Built without the option, the packaged
+binary's sha256 is `3ad29267010aadc0…` against the published `92e5d263a78bf4ca…`; with it, the two
+are identical. A prebuilt package that modifies the artefact whose digest it verified has given
+away the one thing it was for.
+
+**What is still owed.** `hypr-swap-bin` needs its own AUR repository, created by the first push,
+which needs `AUR_SSH_KEY` — the same secret the existing recipe waits on. Neither recipe has been
+pushed to the AUR, because nothing has been released yet.
+
+---
+
+## Phase 13: The AUR step, split out and paused (FR-107, FR-107a)
+
+**Goal**: The one release step that depends on a third party cannot fail a release that is
+otherwise complete, and can be caught up later without re-running anything that must not be
+re-run. Prompted by the AUR pausing new account registration, which makes creating either package
+impossible for now.
+
+- [X] T123 Add **R50** to [research.md](./research.md) and the AUR section to
+  [contracts/release.md](./contracts/release.md): step 12 as its own called workflow, the push
+  gated on `AUR_PUBLISH`, the recipes regenerated regardless
+- [X] T124 Move step 12 into `.github/workflows/aur.yml` — `workflow_call` from `release.yml` plus
+  `workflow_dispatch` for a catch-up run, `recipes` (regenerate, commit) and `push` (gated on the
+  `push_to_aur` input), digests read from the published `SHA256SUMS` rather than passed from
+  `publish`, both jobs re-runnable (FR-107, FR-107a, R50)
+- [X] T125 Update the reader-facing documents: [plan.md](./plan.md)'s workflow tree and
+  `docs/dev/releasing.md`'s "what it needs configured, once"
+- [X] T126 Give Arch users a route that does not go through the AUR: `README.md` and
+  `docs/user/install.md` install both recipes with `makepkg -si` from a clone of the default
+  branch, and say why the AUR line is not the one to use yet (FR-067, FR-081)
+
+### Phase 13 record (T123–T125)
+
+**Walked on 2026-09-12**, still before any release exists — which is the only reason this costs
+nothing: no published version has a recipe waiting to be caught up.
+
+**What the split is, and is not.** It is not a new step and not a new order: `release.yml`'s last
+job is `uses: ./.github/workflows/aur.yml`, needing `publish`, so "after the release is published
+and verified" is still a `needs:` rather than a coincidence. What changed is that the step can now
+be run alone, for a version whose release already exists, which is what a paused AUR eventually
+requires.
+
+**`publish` no longer exports the two digests.** `aur.yml` downloads the release's `SHA256SUMS`
+and reads them out of it. That is a smaller interface — one input, the version — and a truer one:
+the recipes are rewritten from the file a stranger checks the download against, not from a
+value computed on the runner that built it.
+
+**The recipes still move every release.** Only the push is gated, so FR-107's "in step with the
+released version" keeps holding in this repository while the AUR cannot accept the packages. The
+`recipes` job emits a `::notice::` when the push is skipped, so the pause is stated in the run
+rather than inferred from a missing job.
+
+**The Arch instructions no longer describe something that does not exist.** `paru -S hypr-swap`
+was the only Arch route either document offered, and it will fail for as long as the packages are
+not on the AUR. Both now install the checked-in recipes with `makepkg -si`, which reaches the same
+package from the same published artefacts and the same digests — the AUR's value here is the
+update path, not the build. Both say to take the recipe from the **default branch** rather than
+from a tag, because the recipes are regenerated *after* the tag is cut: the tag carries the
+previous release's recipe, which is a detail that would otherwise be found by installing the
+wrong version.
+
+**Still owed, unchanged from Phase 12 and now with a name.** Neither package exists on the AUR;
+both need an account that cannot currently be registered. When it can: create the two
+repositories, set `AUR_SSH_KEY`, set `AUR_PUBLISH` to `true`, and dispatch the **aur** workflow
+once per already-published version with its push box ticked.
 
 ---
 

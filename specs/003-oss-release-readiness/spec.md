@@ -565,6 +565,11 @@ Numbering continues features 001 and 002 (FR-062 onward).
   prebuilt `x86_64` binary, a Debian-family package and an RPM-family package, both for `x86_64`.
 - **FR-107**: The project MUST maintain an Arch packaging recipe that builds an installable package
   from a published release, and it MUST be updated in step with the released version.
+- **FR-107a**: The project MUST also maintain a second Arch recipe that installs the release's
+  prebuilt binary rather than compiling it, so that an Arch user needs no Rust toolchain. It MUST
+  install the same files to the same locations as the compiling recipe, MUST declare itself as
+  providing and conflicting with it so that exactly one can be installed, and MUST install the
+  published binary unmodified — the artefact whose digest it verified.
 - **FR-108**: Every published artefact MUST be verifiable against a published integrity value.
 - **FR-109**: Each distribution package MUST install the binary, its licence and its documentation to
   that family's conventional locations, MUST declare its runtime dependencies, and MUST run on a

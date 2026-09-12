@@ -79,7 +79,7 @@ the one on the focused monitor. The daemon is started from the user's hyprland.c
 no unit file and needs no configuration."""
 # Stated rather than left to `$auto`, so the contract and the package cannot disagree. Hyprland is
 # deliberately absent: pinning a compositor version would refuse installs the program supports.
-depends = "libcairo2, libpango-1.0-0, libpangocairo-1.0-0, libc6"
+depends = "libcairo2, libpango-1.0-0, libpangocairo-1.0-0, libglib2.0-0, libxkbcommon0, libc6"
 recommends = "libnotify-bin"
 assets = [
     ["target/release/hypr-swap", "usr/bin/hypr-swap", "755"],
@@ -109,6 +109,8 @@ assets = [
 [package.metadata.generate-rpm.requires]
 cairo = "*"
 pango = "*"
+glib2 = "*"
+libxkbcommon = "*"
 
 [package.metadata.generate-rpm.suggests]
 libnotify = "*"
