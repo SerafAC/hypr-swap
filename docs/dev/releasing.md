@@ -25,8 +25,8 @@ Three things are worth checking, because they are the three that will stop it:
 
 ## What it needs configured, once
 
-Two things live in the repository's settings rather than in the tree, and both fail the run rather
-than being worked around:
+Three things live in the repository's settings rather than in the tree, and each fails the run
+rather than being worked around:
 
 - **`AUR_SSH_KEY`**, the key the AUR push authenticates with. When the push runs without it, it
   fails loudly and says so. Keeping the recipe in step with the release is not conditional, and a
@@ -37,10 +37,17 @@ than being worked around:
   usual and stops short of pushing them, saying so in the run. Setting it to `true` is the whole
   of turning the push back on — and releases published while it was off are caught up by running
   the **aur** workflow by hand, once per version, with its push box ticked.
-- **A way for the release commit to reach the default branch.** The branch ruleset requires
-  `ci-required`, and required checks are evaluated on push, so either GitHub Actions is a bypass
-  actor on that ruleset or a `RELEASE_TOKEN` secret holds a token belonging to one. The workflow
-  prefers `RELEASE_TOKEN` when it is set and uses the built-in token otherwise.
+- **`RELEASE_SSH_KEY`**, the way the release commit reaches the default branch. The branch ruleset
+  requires `ci-required`, and required checks are evaluated on push, so the release commit — which
+  no check has seen yet, because it did not exist until the run created it — is refused unless the
+  pusher is a bypass actor. This repository is owned by a user rather than an organisation, and
+  GitHub will not make the Actions app a bypass actor on a personal repository's ruleset; **deploy
+  keys** are the one bypass actor such a repository can name. So `RELEASE_SSH_KEY` holds a
+  write-enabled deploy key, the ruleset lists `DeployKey` as a bypass actor, and both the release
+  commit and the Arch recipe commit are pushed over SSH. Like the built-in token and unlike a
+  personal token, a deploy-key push starts no workflow, which is what keeps the `gate` job the
+  only thing that runs CI against a release. A `RELEASE_TOKEN` secret holding a token that belongs
+  to a bypass actor is still honoured if the key is absent.
 
 ## The procedure
 

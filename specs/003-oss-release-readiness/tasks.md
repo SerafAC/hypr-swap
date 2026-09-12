@@ -642,9 +642,9 @@ would have been: the run is against the exact ref the artefacts are built from.
 **Two repository settings the workflow depends on, neither of which is in the tree.**
 
 - The ruleset verified in the T050 record requires `ci-required` on `master`, and required status
-  checks are evaluated on push, so the release commit is rejected unless GitHub Actions is a
-  bypass actor on that ruleset. The workflow honours an optional `RELEASE_TOKEN` secret for the
-  case where it is not, and falls back to the built-in token otherwise.
+  checks are evaluated on push, so the release commit is rejected unless the pusher is a bypass
+  actor on that ruleset. **`RELEASE_SSH_KEY` must exist before the first release** — see the
+  correction below.
 - `AUR_SSH_KEY` must exist before the first release. The AUR step **fails loudly** without it
   rather than skipping — R35 allowed a conditional push and T059 overrules it, because a silently
   skipped push is exactly how the recipe falls behind (FR-107). *(Phase 13 adds the one exception:
@@ -1432,6 +1432,74 @@ wrong version.
 both need an account that cannot currently be registered. When it can: create the two
 repositories, set `AUR_SSH_KEY`, set `AUR_PUBLISH` to `true`, and dispatch the **aur** workflow
 once per already-published version with its push box ticked.
+
+---
+
+## Phase 14: The release commit gets past the ruleset (FR-091, FR-110)
+
+**Goal**: The one repository setting the release workflow assumed, and could not have, exists.
+Prompted by the first `release` dispatch — 1.0.0, run 34696020757, 2026-09-12 — failing in
+`prepare` at step 4.
+
+- [X] T127 Push the release commit and the Arch recipe commit with a **write-enabled deploy key**
+  named as a bypass actor on the `master` ruleset: `RELEASE_SSH_KEY` in the repository's secrets,
+  `DeployKey` in the ruleset's `bypass_actors`, and `ssh-key:` on the `actions/checkout` step of
+  both `release.yml`'s `prepare` job and `aur.yml`'s `recipes` job. Correct the two documents that
+  stated the assumption it replaces — this file's "Two repository settings" note and
+  `docs/dev/releasing.md`'s "What it needs configured, once" (FR-091, FR-110)
+
+### Phase 14 record (T127) — what the first release attempt found
+
+**It refused exactly as designed, and that is the finding.** The run reached step 4, wrote the
+version bump, the changelog section, the commit and the tag, and then:
+
+```text
+remote: error: GH013: Repository rule violations found for refs/heads/master.
+remote: - Required status check "ci-required" is expected.
+ ! [remote rejected] HEAD -> master (push declined due to repository rule violations)
+```
+
+Nothing survived it. The tag push is the line *after* the branch push and `set -e` stopped
+before it, so the repository was left with no orphan tag, no draft release and `master` untouched
+at `72a8286` — the "a refused release leaves no trace" property of FR-110, demonstrated by an
+actual refusal rather than asserted. The whole cost of the failure was a re-dispatch.
+
+**The assumption that was wrong** was recorded in this file and in `docs/dev/releasing.md` in the
+same words: *the built-in token is enough when GitHub Actions is a bypass actor on that ruleset*.
+It cannot be. `SerafAC/hypr-swap` is owned by a user, and the API is explicit about what that
+forbids:
+
+```text
+422: Actor GitHub Actions integration must be part of the ruleset source or owner organization
+```
+
+An organisation can name its installed apps as bypass actors; a personal repository can name
+repository roles and **deploy keys**, and nothing else. The fallback the workflow already carried
+— `RELEASE_TOKEN`, a personal token belonging to the admin, who does have bypass `always` — would
+have worked, but it expires, needs rotating, and would have cost a second full CI run on every
+release: `ci.yml` triggers on `push` to `master`, and a personal token's push starts workflows
+where the built-in token's does not.
+
+**The deploy key keeps the property the built-in token had.** A deploy-key push starts no
+workflow either, so the `gate` job stays the only thing that runs `ci.yml` against a release, and
+the run it watches is still the one against the **tag** rather than against the branch. What
+changed is four lines of YAML and two repository settings; the step order of
+[contracts/release.md](./contracts/release.md) is untouched.
+
+**`aur.yml` needed the same change and would have failed the same way**, one job later and after
+a release had been published — the worse place to discover it. Its `recipes` job commits the
+regenerated recipes to the default branch too, so it now checks out with the same key. It
+installs `openssh` in the step before the checkout, which an SSH checkout inside that container
+needs; that was already true for the AUR push and is now load-bearing twice.
+
+**Verified against the live repository**, not asserted: the ruleset reports `bypass_actors` of
+`DeployKey` and `RepositoryRole 5` with its `required_status_checks -> ci-required`,
+`strict_required_status_checks_policy` and the `deletion` and `non_fast_forward` rules all intact;
+the deploy key is listed `read-write`; `RELEASE_SSH_KEY` is set. The private key was generated on
+the maintainer's machine, written straight into the secret and shredded — it exists in one place.
+
+**Still owed**: the re-dispatch. 1.0.0 has never been released, so the next run starts from the
+same preconditions as this one, with `resume=false` and nothing to clean up first.
 
 ---
 

@@ -69,9 +69,15 @@ jobs:
       - name: Install the packaging tools
         run: pacman -Sy --noconfirm --needed base-devel git openssh github-cli pacman-contrib
 
+      # The recipe commit below lands on the default branch, so it meets the same ruleset the
+      # release commit does and needs the same way past it: `RELEASE_SSH_KEY`, the write-enabled
+      # deploy key that is a bypass actor on it. See the note at the head of `release.yml`'s
+      # `prepare` job. `openssh` is installed in the step above, which is what an SSH checkout
+      # needs inside this container.
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.repository.default_branch }}
+          ssh-key: ${{ secrets.RELEASE_SSH_KEY }}
           token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Read the digests of what was published

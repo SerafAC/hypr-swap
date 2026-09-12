@@ -59,12 +59,23 @@ jobs:
       sha: ${{ steps.commit.outputs.sha || steps.check.outputs.sha }}
     steps:
       # A push to the default branch has to survive the branch ruleset that requires
-      # `ci-required` (FR-091). `RELEASE_TOKEN` is honoured when it is set — a personal token
-      # belonging to a bypass actor — and the built-in token is used otherwise, which is enough
-      # when GitHub Actions itself is a bypass actor on that ruleset.
+      # `ci-required` (FR-091), and neither token this job could hold is allowed past it: this
+      # repository is owned by a user rather than an organisation, so GitHub refuses to make the
+      # Actions app a bypass actor on that ruleset at all. **Deploy keys** are the one bypass
+      # actor a personal repository can name, so the push is made over SSH with `RELEASE_SSH_KEY`
+      # — a write-enabled deploy key — and the ruleset lists `DeployKey` as a bypass actor.
+      #
+      # It is also the closest match for what the built-in token gave us: a deploy-key push
+      # starts no workflow, so the `gate` job below stays the only thing that runs `ci.yml`
+      # against the release, and one release never produces two CI runs.
+      #
+      # `RELEASE_TOKEN` is still honoured as a fallback for the case where the key is missing —
+      # a personal token belonging to a bypass actor — and `actions/checkout` ignores an empty
+      # `ssh-key` and uses the token instead.
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_SSH_KEY }}
           token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Check every precondition
