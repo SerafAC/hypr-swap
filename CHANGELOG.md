@@ -20,6 +20,10 @@ edits the released sections.
 
 ## [Unreleased]
 
+### Fixed
+
+- Documentation was corrected. It needs to specify a version of the release.
+
 ## [1.0.1] - 2026-09-12
 
 ### Fixed

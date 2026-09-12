@@ -36,7 +36,9 @@ in a release is marked in place, like this:
 > **Unreleased.** Behaviour described this way is on the default branch and is not in any
 > published version yet.
 
-Nothing on the site carries that marker today, because nothing has been released yet.
+* 1.0.0 - release failed as there were pipeline issues
+* 1.0.1 - fixed the issues but was missing a documentation entry
+* 1.0.2 - adds required documentation
 
 ## Getting help
 
