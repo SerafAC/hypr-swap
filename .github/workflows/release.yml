@@ -12,10 +12,13 @@
 #   deb/rpm  steps 6–7   the binary and both packages, each in its family's oldest container
 #   smoke    step 8      both packages installed and run in clean containers
 #   publish  steps 9–11  SHA256SUMS, the draft with its notes, verification, then publication
-#   aur      step 12     the Arch recipe, regenerated from what was actually published
+#   aur      step 12     the Arch recipes, regenerated from what was actually published — in
+#                        [aur.yml], called from here, so the one step that depends on the AUR
+#                        can be disabled and re-run without touching the eleven above it
 #
 # [contracts/release.md]: ../../specs/003-oss-release-readiness/contracts/release.md
 # [contracts/ci.md]: ../../specs/003-oss-release-readiness/contracts/ci.md
+# [aur.yml]: ./aur.yml
 name: release
 
 on:
@@ -484,8 +487,6 @@ jobs:
     name: publish
     runs-on: ubuntu-latest
     needs: [prepare, gate, deb, rpm, smoke]
-    outputs:
-      archive-sha256: ${{ steps.sums.outputs.archive_sha256 }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -512,9 +513,6 @@ jobs:
           ls -l release
 
       - name: Compute SHA256SUMS
-        id: sums
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           cd release
@@ -522,7 +520,9 @@ jobs:
           # downloaded them into.
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
-          echo "archive_sha256=$(sha256sum "hypr-swap-$VERSION.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          # Both Arch recipes are rewritten from this file, and `aur.yml` reads it back off the
+          # published release rather than being handed the digests from here: what the recipes
+          # verify is what a stranger downloads (FR-107, FR-108).
 
       - name: Compose the release notes
         env:
@@ -636,74 +636,24 @@ jobs:
           sha256sum -c SHA256SUMS
 
   # -------------------------------------------------------------------------------------------
-  # Step 12. **After** the release is published and verified, so a run that fails late never
-  # leaves the AUR pointing at a release that does not exist (FR-107, research.md R35).
+  # Step 12, in its own file — [aur.yml] — and still the last job of this flow: it runs **after**
+  # the release is published and verified, so a run that fails late never leaves the AUR pointing
+  # at a release that does not exist (FR-107, research.md R35, R50). It reads the digests it
+  # rewrites the recipes with out of the published `SHA256SUMS`, so it needs nothing from this
+  # workflow but the version.
   #
-  # When the key is absent this fails loudly rather than being skipped: "in step with the released
-  # version" is not conditional, and a silently skipped push is exactly how a recipe falls behind.
+  # `AUR_PUBLISH` gates only the push to the AUR; the recipes in this repository are regenerated
+  # and committed either way, so they stay in step with the released version. It is unset — the
+  # AUR has paused new account registration, so neither package can be created there yet — and
+  # setting it to `true` is the whole of turning the push back on.
+  #
+  # [aur.yml]: ./aur.yml
   # -------------------------------------------------------------------------------------------
   aur:
     name: aur
-    runs-on: ubuntu-latest
     needs: [prepare, publish]
-    container: archlinux:latest
-    steps:
-      - name: Install the packaging tools
-        run: pacman -Sy --noconfirm --needed base-devel git openssh pacman-contrib
-
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-
-      - name: Regenerate the recipe from what was published
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-          ARCHIVE_SHA256: ${{ needs.publish.outputs.archive-sha256 }}
-        run: |
-          set -euo pipefail
-          [ -n "$ARCHIVE_SHA256" ] || { echo "::error::no digest for the published archive"; exit 1; }
-          cd packaging/aur
-          sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
-          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-          sed -i "s/^sha256sums=.*/sha256sums=('$ARCHIVE_SHA256')/" PKGBUILD
-          # makepkg refuses to run as root, and the .SRCINFO the AUR requires is generated from
-          # the recipe rather than written by hand.
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          useradd -m builder && chown -R builder .
-          su builder -c 'makepkg --printsrcinfo' > .SRCINFO
-          cat PKGBUILD .SRCINFO
-
-      - name: Commit the recipe back
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add packaging/aur/PKGBUILD
-          git commit -m "release: point the Arch recipe at $VERSION"
-          git push origin "HEAD:${{ github.event.repository.default_branch }}"
-
-      - name: Push it to the AUR
-        env:
-          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          set -euo pipefail
-          if [ -z "${AUR_SSH_KEY:-}" ]; then
-            echo "::error::AUR_SSH_KEY is not configured, so the AUR recipe cannot be kept in step with the release (FR-107). Configure the key and re-run this job."
-            exit 1
-          fi
-          mkdir -p ~/.ssh
-          printf '%s\n' "$AUR_SSH_KEY" > ~/.ssh/aur
-          chmod 600 ~/.ssh/aur
-          printf 'Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur\n  User aur\n  StrictHostKeyChecking accept-new\n' > ~/.ssh/config
-          git clone ssh://aur@aur.archlinux.org/hypr-swap.git aur
-          cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO aur/
-          cd aur
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add PKGBUILD .SRCINFO
-          git commit -m "$VERSION"
-          git push
+    uses: ./.github/workflows/aur.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      push_to_aur: ${{ vars.AUR_PUBLISH == 'true' }}
+    secrets: inherit

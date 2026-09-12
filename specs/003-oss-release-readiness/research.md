@@ -798,3 +798,82 @@ three files under a dot-directory would only make them harder to find. **A `meta
 section**, giving each its title and page order — the previous shape, and the only non-Markdown
 files that were ever in `docs/`; one navigation list in the configuration says the same thing in
 one place and can be checked against the tree.
+
+## R49: A second Arch recipe, for the prebuilt binary (FR-107a)
+
+**Decision.** Two recipes under `packaging/aur/`, one per directory: `hypr-swap/PKGBUILD` compiles
+the release's source archive (R35, unchanged), and `hypr-swap-bin/PKGBUILD` installs the `x86_64`
+binary that same release published. The prebuilt one declares `provides=("hypr-swap=$pkgver")` and
+`conflicts=('hypr-swap')`, the AUR's standard pairing, so a user installs exactly one and anything
+depending on `hypr-swap` is satisfied by either. The release workflow rewrites both from the
+artefacts it has just published and pushes each to its own AUR repository.
+
+**Rationale.** Compiling is a two-minute build and a Rust toolchain an Arch user may not want
+installed for one program. The binary is already built, already published and already covered by
+`SHA256SUMS`, so the second recipe costs one file and no new artefact.
+
+**Three decisions inside it, each measured rather than assumed:**
+
+- **It fetches the source archive too, for documentation only.** The binary asset carries no
+  `LICENSE`, and Arch requires the licence on disk. Fetching the published archive for the four
+  documentation files keeps the install map byte-identical across all four packages the project
+  ships, at the cost of a small download and no compilation. The alternative — publishing the
+  documentation as separate release assets — adds artefacts to serve one consumer.
+- **`options=('!strip' '!debug')`.** makepkg strips binaries and splits their debug symbols by
+  default, which would install a file that is *not* the artefact whose digest the recipe just
+  verified. Confirmed by building it both ways: without the option the packaged binary's sha256
+  differs from the published one's; with it they are identical. Installing exactly what was
+  published is the only thing this package is for, so the default had to be turned off.
+- **`check()` runs the downloaded binary rather than a test suite.** There is no source to test.
+  What a prebuilt package can verify is that the file it fetched executes on this machine and
+  reports the version the recipe claims, which is what it does.
+
+**What building it found.** The binary's direct `DT_NEEDED` set includes `libxkbcommon.so.0`,
+which **no** package declared — not the two Arch recipes, not `[package.metadata.deb]`, not
+`[package.metadata.generate-rpm]`. Nothing pulls it in transitively: neither cairo nor pango
+depends on it. Every machine running Hyprland has it, which is why a live-session test could never
+have caught this; a `makepkg` `check()` in a container with only the declared dependencies did, on
+the first run. `glib2` was missing on the same grounds and is now declared for the same reason the
+contract states the others explicitly rather than deriving them — so the contract and the package
+cannot disagree. Fixed in all four (FR-109).
+
+**Alternatives considered.** **One recipe with a `_prebuilt` option** — the AUR has no mechanism
+for build-time options; a package is one recipe. **A `-bin` package that installs only the binary
+and the licence** — cheaper, but then the four packages no longer install the same files and the
+install map needs a footnote per package.
+
+## R50: The AUR step as its own workflow, and off (FR-107, FR-107a)
+
+**Decision.** Step 12 moves out of `release.yml` into `.github/workflows/aur.yml`, a reusable
+workflow that `release.yml` calls as its last job — same step, same order, same preconditions. It
+takes one input, the version, and reads the digests it rewrites the recipes with out of the
+published release's own `SHA256SUMS` rather than being handed them by the job that built the
+artefacts. Inside it, regenerating and committing the recipes is unconditional; the push to the
+AUR is a second job, gated on the repository variable `AUR_PUBLISH`, which is unset. The same
+workflow can be run by hand for a version whose release already exists.
+
+**Rationale.** The AUR has paused new account registration, so neither package can be created
+there for now. That is a condition of the world, not of this repository, and it should not be able
+to fail a release that is otherwise complete — nor should it be worked around by deleting the
+step and remembering to put it back. Splitting the step draws the line where the failure modes
+actually differ: eleven steps that depend only on this repository and its runners, and one that
+depends on a third party's account policy, its SSH key and its git server. Once separated, the
+part FR-107 really asks for — recipes that cannot fall behind the released version — keeps running
+every release, and only the push waits. Reading the digests from the published `SHA256SUMS`
+rather than passing them between jobs is what makes the workflow runnable alone: catching up a
+release published months earlier is then one dispatch with a version number, not a re-run of a
+release that must not be re-run.
+
+**Why a gate rather than a deleted step.** R35's reasoning stands — a push that silently skips
+itself is how a recipe falls behind — so the gate is deliberately not a `if: secrets.AUR_SSH_KEY`
+in disguise: with the key present and the variable set, a missing key still fails loudly. The
+variable records a decision that a person made and can unmake; an absent secret records nothing.
+The `recipes` job says in a notice that the push was skipped, so a release's own log states it.
+
+**Alternatives considered.** **Commenting the job out** — invisible in the run, and the next
+editor cannot tell a pause from a mistake. **Gating the whole job** — then the in-repository
+recipes stop being regenerated and FR-107 is genuinely violated rather than merely delayed.
+**A separate workflow triggered by the `release` event** — it would no longer be part of the
+release flow: a failed release that still published a tag would fire it, and the ordering
+guarantee of "after the release is published and verified" would be a coincidence of timing
+rather than a `needs:`.

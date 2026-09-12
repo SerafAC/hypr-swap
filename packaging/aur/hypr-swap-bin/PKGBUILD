@@ -1,0 +1,58 @@
+# Maintainer: SerafAC <seraf_ac@hotmail.com>
+#
+# The prebuilt half of the pair. `hypr-swap` compiles the release's source archive; this one
+# installs the `x86_64` binary that same release published, so an Arch user who does not want a
+# Rust toolchain and a two-minute build does not need either (FR-107a, research.md R49).
+#
+# It fetches **two** assets. The binary is what gets installed; the source archive is fetched only
+# for the four documentation files, so that every package the project ships installs the same five
+# files to the same places (contracts/packaging.md's install map, FR-066, FR-109). Nothing is
+# compiled — that is the whole point — and the archive is small.
+#
+# `pkgver` and both `sha256sums` entries are rewritten by `.github/workflows/release.yml` from the
+# artefacts it has just published, after the release is verified. Do not edit those by hand.
+
+_pkgname=hypr-swap
+pkgname=hypr-swap-bin
+pkgver=0.0.0
+pkgrel=1
+pkgdesc="Alt-Tab style workspace switcher with cross-monitor swapping for Hyprland (prebuilt binary)"
+arch=('x86_64')
+url="https://github.com/SerafAC/hypr-swap"
+license=('MIT')
+depends=('cairo' 'pango' 'glib2' 'libxkbcommon')
+provides=("$_pkgname=$pkgver")
+conflicts=("$_pkgname")
+optdepends=(
+    'libnotify: desktop notifications for problems only the user can fix'
+    'papirus-icon-theme: real program icons in the overlay; any freedesktop-layout icon set will do'
+)
+# makepkg strips binaries and splits their debug symbols by default, which would install a file
+# that is *not* the artefact whose digest was just checked — and installing exactly what the
+# release published is the only thing this package is for. Measured, not assumed: without this,
+# the packaged binary's sha256 differs from the published one's.
+options=('!strip' '!debug')
+source=(
+    "$_pkgname-$pkgver-x86_64::$url/releases/download/v$pkgver/$_pkgname-$pkgver-x86_64"
+    "$_pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/$_pkgname-$pkgver.tar.gz"
+)
+sha256sums=('SKIP' 'SKIP')
+
+check() {
+    # The one thing a prebuilt package can meaningfully verify: that the binary this recipe just
+    # downloaded runs on this machine and agrees with the version the recipe claims. The unit tier
+    # belongs to the source package, which is where there is source to test.
+    chmod +x "$_pkgname-$pkgver-x86_64"
+    "./$_pkgname-$pkgver-x86_64" --version | grep -qF "$pkgver"
+}
+
+package() {
+    install -Dm755 "$_pkgname-$pkgver-x86_64" "$pkgdir/usr/bin/$_pkgname"
+    # The same five files, at the same Arch locations as the source package installs them
+    # (specs/003-oss-release-readiness/contracts/packaging.md).
+    cd "$_pkgname-$pkgver"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$_pkgname/LICENSE"
+    install -Dm644 THIRD-PARTY.md "$pkgdir/usr/share/doc/$_pkgname/THIRD-PARTY.md"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$_pkgname/README.md"
+    install -Dm644 CHANGELOG.md "$pkgdir/usr/share/doc/$_pkgname/CHANGELOG.md"
+}

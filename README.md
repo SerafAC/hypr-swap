@@ -60,9 +60,14 @@ sudo apt install ./hypr-swap_<version>_amd64.deb
 # Fedora, RHEL and derivatives
 sudo dnf install ./hypr-swap-<version>-1.x86_64.rpm
 
-# Arch — from the AUR
-paru -S hypr-swap
+# Arch — the two recipes in packaging/aur/, either compiled or prebuilt
+cd packaging/aur/hypr-swap-bin && makepkg -si   # installs the release's binary, no Rust toolchain
+cd packaging/aur/hypr-swap     && makepkg -si   # builds from the release's source
 ```
+
+Neither Arch package is on the AUR yet — new account registration there is paused — so the two
+recipes install from a clone of this repository, from the default branch, which is where the
+release workflow keeps them in step with the newest release.
 
 Or build it yourself, which is the supported path on every other architecture and distribution:
 

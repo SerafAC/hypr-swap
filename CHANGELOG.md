@@ -57,8 +57,18 @@ edits the released sections.
 - A compositor older than the supported minimum is named as such at start-up, with the version
   found and the version needed, instead of failing later in a way that looks like a bug in the
   program.
+- An `hypr-swap-bin` Arch package alongside `hypr-swap`, installing the release's prebuilt
+  binary instead of compiling it, so installing on Arch needs no Rust toolchain and no build. The
+  two install the same files and conflict with each other, so you install whichever you prefer and
+  switching is an ordinary replace. The prebuilt one installs the binary unmodified — byte-for-byte
+  the file its published checksum covers.
 
 ### Fixed
+
+- The packages now declare `libxkbcommon`, which the program links directly and none of them
+  listed. Nothing else pulls it in, so installing on a machine that did not already have it — any
+  clean system that is not already running Hyprland — would have produced a binary that could not
+  start. `glib2` is now declared on the same grounds.
 
 - After swapping a workspace in from another monitor, the next hold-and-release now bounces back to
   the workspace you just left. It used to land on whichever workspace the other monitor happened to

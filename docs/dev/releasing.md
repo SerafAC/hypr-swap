@@ -9,7 +9,8 @@ maintainer's head, and nothing is published from a tree that is not ready.
 You give it a version. It does the rest — raising the version, closing the changelog section,
 tagging, building the binary and both packages, installing them in clean containers to prove they
 work, publishing the release with its notes, verifying every asset against its checksum, and
-pushing the updated Arch recipe.
+regenerating the Arch recipes from what it published — which it does in a second workflow it calls
+for that last step, so the one part that depends on the AUR can be paused and re-run on its own.
 
 ## Before you trigger it
 
@@ -27,9 +28,15 @@ Three things are worth checking, because they are the three that will stop it:
 Two things live in the repository's settings rather than in the tree, and both fail the run rather
 than being worked around:
 
-- **`AUR_SSH_KEY`**, the key the AUR push authenticates with. Without it the final step fails
-  loudly and says so. Keeping the recipe in step with the release is not conditional, and a push
-  that silently skips itself is exactly how a recipe falls behind.
+- **`AUR_SSH_KEY`**, the key the AUR push authenticates with. When the push runs without it, it
+  fails loudly and says so. Keeping the recipe in step with the release is not conditional, and a
+  push that silently skips itself is exactly how a recipe falls behind.
+- **`AUR_PUBLISH`**, a repository *variable* rather than a secret, and the one thing here that is
+  currently off. The AUR has paused new account registration, so neither package can be created
+  there yet; until `AUR_PUBLISH` is `true`, a release regenerates and commits both recipes as
+  usual and stops short of pushing them, saying so in the run. Setting it to `true` is the whole
+  of turning the push back on — and releases published while it was off are caught up by running
+  the **aur** workflow by hand, once per version, with its push box ticked.
 - **A way for the release commit to reach the default branch.** The branch ruleset requires
   `ci-required`, and required checks are evaluated on push, so either GitHub Actions is a bypass
   actor on that ruleset or a `RELEASE_TOKEN` secret holds a token belonging to one. The workflow

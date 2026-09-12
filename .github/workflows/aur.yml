@@ -1,0 +1,208 @@
+# Step 12 of [contracts/release.md], split out of `release.yml` into its own file. It is still the
+# same step of the same flow — `release.yml` calls this workflow as its last job, after the release
+# is published and verified, so a run that fails late never leaves a recipe pointing at a release
+# that does not exist (FR-107, [research.md] R35, R50). Splitting it changes nothing about the
+# order; it separates the one step whose failures come from outside the repository — the AUR, its
+# account policy, its SSH key — from the eleven that publish the release itself, so it can be
+# disabled, re-enabled and re-run alone.
+#
+#   recipes  both PKGBUILDs regenerated from what was actually published, and committed back
+#   push     each recipe pushed to its own AUR repository — gated on `push_to_aur`
+#
+# **The push is currently off.** The AUR has paused new account registration, so neither package
+# can be created there yet. The recipes are still regenerated and committed on every release, so
+# they stay in step with the released version (FR-107) and the first push has nothing to catch up
+# on. Turn it back on by setting the repository variable `AUR_PUBLISH` to `true`, which
+# `release.yml` passes through — or, for a release published earlier, by running this workflow by
+# hand with its version and the push box ticked.
+#
+# [contracts/release.md]: ../../specs/003-oss-release-readiness/contracts/release.md
+# [research.md]: ../../specs/003-oss-release-readiness/research.md
+name: aur
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The released version, as MAJOR.MINOR.PATCH
+        required: true
+        type: string
+      push_to_aur:
+        description: Push the regenerated recipes to the AUR
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The released version, as MAJOR.MINOR.PATCH — its release must already be published
+        required: true
+        type: string
+      push_to_aur:
+        description: Push the regenerated recipes to the AUR (leave off while AUR registration is closed)
+        required: false
+        default: false
+        type: boolean
+
+# Committing the regenerated recipes back to the default branch.
+permissions:
+  contents: write
+
+# One at a time, and never cancelled: the recipes are committed to the default branch, and a second
+# run rewriting them underneath the first is how the two recipes end up describing two releases.
+concurrency:
+  group: aur
+  cancel-in-progress: false
+
+jobs:
+  # -------------------------------------------------------------------------------------------
+  # Regenerated from the release, not from the job that built it: the digests are read out of the
+  # published `SHA256SUMS`, which is what a stranger downloading the artefacts actually gets
+  # (FR-107, FR-108). That is also what makes this workflow runnable by hand, months later,
+  # against a release nothing in this run built.
+  # -------------------------------------------------------------------------------------------
+  recipes:
+    name: recipes
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install the packaging tools
+        run: pacman -Sy --noconfirm --needed base-devel git openssh github-cli pacman-contrib
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Read the digests of what was published
+        id: digests
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release download "v$VERSION" --pattern SHA256SUMS --dir "$RUNNER_TEMP" --clobber
+          sums="$RUNNER_TEMP/SHA256SUMS"
+          cat "$sums"
+
+          # The source package checks one file; the prebuilt one checks the binary it installs and
+          # the archive it takes its documentation from.
+          archive=$(awk -v f="hypr-swap-$VERSION.tar.gz" '$2 == f { print $1 }' "$sums")
+          binary=$(awk -v f="hypr-swap-$VERSION-x86_64" '$2 == f { print $1 }' "$sums")
+          [ -n "$archive" ] || { echo "::error::no digest for hypr-swap-$VERSION.tar.gz in the release's SHA256SUMS"; exit 1; }
+          [ -n "$binary" ] || { echo "::error::no digest for hypr-swap-$VERSION-x86_64 in the release's SHA256SUMS"; exit 1; }
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "binary=$binary" >> "$GITHUB_OUTPUT"
+
+      - name: Regenerate both recipes
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCHIVE_SHA256: ${{ steps.digests.outputs.archive }}
+          BINARY_SHA256: ${{ steps.digests.outputs.binary }}
+        run: |
+          set -euo pipefail
+          # makepkg refuses to run as root, and the .SRCINFO the AUR requires is generated from
+          # the recipe rather than written by hand.
+          useradd -m builder
+          chown -R builder packaging/aur
+
+          for recipe in hypr-swap hypr-swap-bin; do
+            cd "$GITHUB_WORKSPACE/packaging/aur/$recipe"
+            sed -i "s/^pkgver=.*/pkgver=$VERSION/" PKGBUILD
+            sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+            # Both recipes keep sha256sums on one line, so this stays a single substitution rather
+            # than a range; the prebuilt one's two digests are in its source= order.
+            case "$recipe" in
+              hypr-swap)     sums="('$ARCHIVE_SHA256')" ;;
+              hypr-swap-bin) sums="('$BINARY_SHA256' '$ARCHIVE_SHA256')" ;;
+            esac
+            sed -i "s/^sha256sums=.*/sha256sums=$sums/" PKGBUILD
+            grep -q "^sha256sums=('" PKGBUILD || { echo "::error::$recipe: sha256sums was not rewritten"; exit 1; }
+            su builder -c 'makepkg --printsrcinfo' > .SRCINFO
+            echo "::group::$recipe"
+            cat PKGBUILD .SRCINFO
+            echo "::endgroup::"
+          done
+
+      # `.SRCINFO` is generated, not tracked: the push job takes it from here rather than from the
+      # commit below, so the two recipes it pushes are the exact bytes this job printed.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aur-recipes
+          path: packaging/aur
+          include-hidden-files: true
+
+      - name: Commit the recipes back
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packaging/aur/hypr-swap/PKGBUILD packaging/aur/hypr-swap-bin/PKGBUILD
+          # A re-run for a version the recipes already describe has nothing to commit, and that is
+          # a success: this workflow is re-runnable on its own.
+          if git diff --cached --quiet; then
+            echo "::notice::the recipes already describe $VERSION"
+          else
+            git commit -m "release: point the Arch recipes at $VERSION"
+            git push origin "HEAD:${{ github.event.repository.default_branch }}"
+          fi
+
+      - name: Say whether the AUR push will run
+        if: ${{ !inputs.push_to_aur }}
+        run: |
+          echo "::notice::the AUR push is disabled, so the recipes are in step in this repository but not on the AUR. Set the repository variable AUR_PUBLISH to true once both packages can be created there."
+
+  # -------------------------------------------------------------------------------------------
+  # The only part that talks to the AUR, and the only part that is gated. When it does run, the
+  # key being absent fails it loudly rather than skipping it: a push that silently skips itself is
+  # exactly how a recipe falls behind (FR-107).
+  # -------------------------------------------------------------------------------------------
+  push:
+    name: push
+    runs-on: ubuntu-latest
+    needs: recipes
+    if: ${{ inputs.push_to_aur }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: aur-recipes
+          path: recipes
+
+      - name: Push both recipes to the AUR
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AUR_SSH_KEY:-}" ]; then
+            echo "::error::AUR_SSH_KEY is not configured, so the AUR recipes cannot be kept in step with the release (FR-107). Configure the key and re-run this workflow."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$AUR_SSH_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          printf 'Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur\n  User aur\n  StrictHostKeyChecking accept-new\n' > ~/.ssh/config
+          # Both packages, each its own AUR repository. A failure on either fails the job: the two
+          # recipes describe the same release, and one of them silently falling behind is the
+          # outcome FR-107 exists to prevent.
+          for recipe in hypr-swap hypr-swap-bin; do
+            rm -rf "$RUNNER_TEMP/$recipe"
+            git clone "ssh://aur@aur.archlinux.org/$recipe.git" "$RUNNER_TEMP/$recipe"
+            cp "recipes/$recipe/PKGBUILD" "recipes/$recipe/.SRCINFO" "$RUNNER_TEMP/$recipe/"
+            cd "$RUNNER_TEMP/$recipe"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add PKGBUILD .SRCINFO
+            if git diff --cached --quiet; then
+              echo "::notice::$recipe on the AUR already describes $VERSION"
+            else
+              git commit -m "$VERSION"
+              git push
+            fi
+            cd "$GITHUB_WORKSPACE"
+          done

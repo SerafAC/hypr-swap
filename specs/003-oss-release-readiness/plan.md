@@ -304,14 +304,16 @@ pnpm-workspace.yaml          # NEW: allowBuilds — without it every install fai
 docker/e2e/Dockerfile        # NEW: the test environment image (FR-089, R29, R30)
 scripts/checks.sh            # NEW: licence-files, docs-map, changelog — runnable locally
 scripts/docmd-include.mjs    # NEW: `::include[]`, the whole of FR-084's mechanism (R32)
-packaging/aur/PKGBUILD       # NEW: the Arch recipe (FR-107)
+packaging/aur/hypr-swap/PKGBUILD      # NEW: the Arch recipe, from source (FR-107)
+packaging/aur/hypr-swap-bin/PKGBUILD  # NEW: the Arch recipe, prebuilt (FR-107a, R49)
 
 .github/
 ├── workflows/
 │   ├── ci.yml               # build, unit, clippy, fmt, msrv, docs, checks → ci-required
 │   ├── docs.yml             # build and deploy the site (FR-078)
 │   ├── advisories.yml       # cargo-deny, informational (FR-093)
-│   └── release.yml          # workflow_dispatch, version input (FR-105)
+│   ├── release.yml          # workflow_dispatch, version input (FR-105)
+│   └── aur.yml              # NEW: step 12, called by release.yml (FR-107, R50)
 ├── dependabot.yml           # NEW: cargo + npm ecosystems (FR-093, R38)
 ├── ISSUE_TEMPLATE/
 │   ├── bug.yml              # required environment fields (FR-097)
