@@ -37,7 +37,7 @@ is. It is a daemon you start with your session and drive from two hotkeys.
 | | |
 |---|---|
 | Compositor | Hyprland `>= 0.55`, on Wayland |
-| System libraries | cairo, pango, pangocairo |
+| System libraries | cairo, pango, pangocairo, glib and xkbcommon |
 | To build from source | Rust `1.96` or newer |
 
 Two optional dependencies, each of which only costs you the thing it provides:

@@ -20,6 +20,17 @@ edits the released sections.
 
 ## [Unreleased]
 
+### Fixed
+
+- Building from source on Fedora and RHEL now works from the dependency list the installation
+  page gives you. Cairo's GObject bindings live in a `cairo-gobject-devel` package of their own
+  there, where the Debian family ships them inside `libcairo2-dev`, and the list named neither —
+  so a build that followed it stopped at `Package 'cairo-gobject' not found`. The prebuilt `.rpm`
+  is built from the same list, which is why the RPM family had no package to install.
+- The build instructions now name the xkbcommon development package on all three families. It was
+  missing from every one of them, and nothing else in the list pulls it in, so a build stopped at
+  `Package 'xkbcommon' not found` on a machine that did not already happen to have it.
+
 ## [1.0.0] - 2026-09-12
 
 ### Added

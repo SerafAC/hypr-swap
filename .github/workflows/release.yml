@@ -577,8 +577,10 @@ jobs:
           cargo build --release
           \`\`\`
 
-          Rust $(sed -n 's/^rust-version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml) or newer, and the **development** packages for cairo, pango
-          and pangocairo; the library minimums are in the build matrix below.
+          Rust $(sed -n 's/^rust-version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml) or newer, and the **development** packages for cairo, pango,
+          pangocairo and xkbcommon — on the RPM family cairo's pkg-config file for GObject is a
+          \`cairo-gobject-devel\` subpackage of its own, where the Debian family ships it inside
+          \`libcairo2-dev\`. The library minimums are in the build matrix below.
 
           ### What a package installs
           NOTES

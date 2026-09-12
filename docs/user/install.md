@@ -11,7 +11,7 @@ same `x86_64` binary; on any other architecture, build from source.
 | | |
 |---|---|
 | Compositor | Hyprland `>= 0.55`, on Wayland |
-| System libraries | cairo, pango, pangocairo |
+| System libraries | cairo, pango, pangocairo, glib and xkbcommon |
 | To build from source | Rust `1.96` or newer |
 
 Two dependencies are optional and each costs you only the thing it provides: without an installed
@@ -35,7 +35,7 @@ sudo apt install ./hypr-swap_<version>_amd64.deb
 ```
 
 Installing the `.deb` through `apt` rather than `dpkg -i` is what pulls in `libcairo2`,
-`libpango-1.0-0`, `libpangocairo-1.0-0` and `libc6` for you. `libnotify-bin` is a *recommendation*,
+`libpango-1.0-0`, `libpangocairo-1.0-0`, `libglib2.0-0`, `libxkbcommon0` and `libc6` for you. `libnotify-bin` is a *recommendation*,
 so it comes along by default and can be declined.
 
 The package is built in a container of the **oldest still-supported Ubuntu LTS**, so one package
@@ -104,8 +104,8 @@ chmod +x hypr-swap-<version>-x86_64
 sudo install -Dm755 hypr-swap-<version>-x86_64 /usr/local/bin/hypr-swap
 ```
 
-You supply cairo, pango and pangocairo yourself — nothing checks for them until the daemon starts,
-and a missing one shows up as a dynamic-link failure.
+You supply cairo, pango, pangocairo, glib and xkbcommon yourself — nothing checks for them until
+the daemon starts, and a missing one shows up as a dynamic-link failure.
 
 ## From source
 
