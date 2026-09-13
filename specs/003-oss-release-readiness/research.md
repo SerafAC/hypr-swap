@@ -655,9 +655,11 @@ be stale within a month.
 **Decision.** A `docs` workflow builds the site on every push to the default branch and deploys it
 with GitHub Pages' own `actions/deploy-pages`. The pull-request build is a separate, gating `docs`
 job inside `ci.yml`, so that it reaches the `ci-required` verdict; `docs.yml` itself does not run
-on pull requests and never deploys from one. The site's front page states which release it
-documents and marks anything already on the default branch but not yet released. No versioned
-snapshots.
+on pull requests and never deploys from one. The site's front page states that it documents the
+default branch — the latest release plus anything merged since — and marks anything already on the
+default branch but not yet released. It names no version number, which would go stale the moment
+the next release lands; the per-version account is `CHANGELOG.md`, carried as a page of the site by
+`::include[]` (R32) and linked from the front page. No versioned snapshots.
 
 **What "build" means (R31).** `pnpm install --frozen-lockfile && pnpm build` at the repository
 root, producing static

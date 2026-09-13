@@ -321,11 +321,14 @@ EOF
     fi
 }
 
-# FR-078a: the front page states which release it documents, and cannot drift from the version the
-# tree actually carries. Below 1.0.0 nothing has been released (FR-101 makes the first release
-# exactly 1.0.0), so the only true statement is that the site documents the default branch.
-docs_front_page_version() {
+# FR-078a: the front page states what the site documents — the default branch, which is the latest
+# release plus whatever has been merged since — and sends a reader asking what a particular version
+# contained to the changelog. No version number is named on any page, so no page can go stale
+# between releases; the changelog is the one document that is per-version, and the site includes it
+# rather than restating it.
+docs_front_page_scope() {
     local front=docs/index.md
+    local changelog=docs/changelog.md
 
     [ -f "$front" ] || {
         fail "docs-map: $front is missing (FR-078a)" \
@@ -333,32 +336,32 @@ docs_front_page_version() {
         return
     }
 
-    local version
-    version=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)
-    if [ -z "$version" ]; then
-        fail "docs-map: version is not readable from Cargo.toml" \
-            "The check derives what the front page must say from the manifest; keep the key."
+    if grep -qF -- '`master`' "$front"; then
+        pass "docs-map: $front states that the site documents \`master\` (FR-078a)"
+    else
+        fail "docs-map: $front does not say what the site documents (FR-078a)" \
+            "One site, no per-release snapshots: the front page must say it documents \`master\`."
+    fi
+
+    if [ ! -f "$changelog" ]; then
+        fail "docs-map: $changelog is missing (FR-078a, FR-102)" \
+            "The per-version account lives in CHANGELOG.md; the site includes it as a page of its own."
         return
     fi
 
-    case "$version" in
-        0.*)
-            if grep -qF -- 'master' "$front"; then
-                pass "docs-map: $front states it documents the default branch, and nothing is released yet (FR-078a)"
-            else
-                fail "docs-map: $front does not say which version it documents (FR-078a)" \
-                    "Cargo.toml is at $version, so nothing is released: the front page must say it documents \`master\`."
-            fi
-            ;;
-        *)
-            if grep -qF -- "$version" "$front"; then
-                pass "docs-map: $front names the released version \`$version\` (FR-078a)"
-            else
-                fail "docs-map: $front does not name the released version \`$version\` (FR-078a)" \
-                    "Cargo.toml says \`$version\`; the front page states which release the site documents."
-            fi
-            ;;
-    esac
+    if grep -qF -- '::include[../CHANGELOG.md]' "$changelog"; then
+        pass "docs-map: $changelog includes CHANGELOG.md rather than restating it (FR-084, FR-102)"
+    else
+        fail "docs-map: $changelog does not include CHANGELOG.md (FR-084, FR-102)" \
+            "The page carries \`::include[../CHANGELOG.md]\` so the site and the file are the same bytes."
+    fi
+
+    if grep -qF -- '(./changelog.md)' "$front"; then
+        pass "docs-map: $front sends a reader asking about a version to the changelog (FR-078a)"
+    else
+        fail "docs-map: $front does not link the changelog (FR-078a)" \
+            "What a release contained is answered in one place; the front page points at it."
+    fi
 }
 
 # FR-081: every failure the troubleshooting page names is tied to a condition the program really
@@ -501,7 +504,7 @@ licence_files
 docs_map
 docs_pages
 docs_development_tree
-docs_front_page_version
+docs_front_page_scope
 docs_troubleshooting_conditions
 docs_dev_links_to_specs
 changelog

@@ -446,10 +446,16 @@ Numbering continues features 001 and 002 (FR-062 onward).
 - **FR-078**: The site MUST be rebuilt and republished automatically when a change lands on the
   default branch, with no manual publication step, and a build failure MUST be reported rather than
   silently leaving the site stale.
-- **FR-078a**: The site MUST document one version only — the default branch — and MUST state which
-  release it corresponds to and mark any documented behaviour that is not yet in a release, so a
-  reader on the current release is never misled. Per-release snapshots MUST NOT be published, since
-  FR-083's check can only verify documentation against the code it ships with.
+- **FR-078a**: The site MUST document one version only — the default branch, which is the latest
+  release plus whatever has been merged since — and MUST state that this is what it documents and
+  mark any documented behaviour that is not yet in a release, so a reader on the current release is
+  never misled. No page MAY claim to document a particular version — such a claim is stale the
+  moment the next release lands, and it is not the same thing as sample output or the version
+  scheme's own floor, which may of course carry numbers. What each release contained is the
+  changelog's question (FR-102), and the site MUST carry the changelog and link it from the front
+  page rather than restating any of it.
+  Per-release snapshots MUST NOT be published, since FR-083's check can only verify documentation
+  against the code it ships with.
 - **FR-079**: The end-user section MUST contain the complete configuration specification: every
   accepted setting, its accepted values, its valid range, its default, and the precedence between
   overrides, themes and defaults.

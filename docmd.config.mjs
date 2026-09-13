@@ -46,6 +46,9 @@ export default {
         { title: 'Releasing', path: '/dev/releasing/' },
       ],
     },
+    // Neither guide's page: the changelog is the repository's own file, included, and a reader
+    // upgrading arrives at it without having to pick a section first (FR-078a).
+    { title: 'Changelog', path: '/changelog/', icon: 'history' },
   ],
 
   theme: {

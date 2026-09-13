@@ -45,8 +45,9 @@ jobs:
 
       # A failed build must be reported rather than leaving the published site silently stale
       # (FR-078). The step above fails the workflow; this asserts the output is really there
-      # before anything is uploaded — one page from each of FR-077's two sections, the search
-      # index, and the `.nojekyll` without which Pages' Jekyll pass would drop the site's assets.
+      # before anything is uploaded — one page from each of FR-077's two sections, the changelog
+      # the front page sends a reader to (FR-078a), the search index, and the `.nojekyll` without
+      # which Pages' Jekyll pass would drop the site's assets.
       - name: Assert the site is complete
         run: |
           set -eu
@@ -54,6 +55,7 @@ jobs:
             site/index.html \
             site/user/binds/index.html \
             site/dev/architecture/index.html \
+            site/changelog/index.html \
             site/_docmd-search/search-index.json \
             site/.nojekyll
           do

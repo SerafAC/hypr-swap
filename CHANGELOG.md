@@ -10,7 +10,7 @@ it is left out. The versions are [semantic](https://semver.org/), and what count
 change is not a matter of taste here — it is defined over the whole contract surface, the shortcut
 names, the configuration keys, the style values, the command line, the exit codes and the
 diagnostic subjects, in
-[`specs/003-oss-release-readiness/contracts/versioning.md`](specs/003-oss-release-readiness/contracts/versioning.md).
+[`specs/003-oss-release-readiness/contracts/versioning.md`](./specs/003-oss-release-readiness/contracts/versioning.md).
 
 This file is written by hand as changes land, and is not derived from commit messages: there is no
 commit-message convention to learn. A change that alters what a user can do adds a line to

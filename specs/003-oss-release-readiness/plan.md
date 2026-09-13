@@ -154,7 +154,7 @@ the pull-request workflow) · **Release** (a precondition or step of the release
 | FR-076 site builds | CI | `docs` job: `pnpm install --frozen-lockfile && pnpm build && pnpm validate` |
 | FR-077 two navigable sections | CI | the `navigation` in `docmd.config.mjs`, asserted by the `docs-map` check |
 | FR-078 auto-published, failure reported | CI | the `docs` workflow itself (R46) |
-| FR-078a one version, states its release | CI | `docs-map` check: front page names a released version |
+| FR-078a one version, states its scope | CI | `docs-map` check: front page says it documents `master`, names no version, and links the included changelog page |
 | FR-079 complete configuration reference | Unit + CI | catalogue walk (extended, R32); include resolves at build |
 | FR-080 theming account sufficient | Unit | catalogue walk covers every colour, font and geometry value |
 | FR-081 end-user section covers install/binds/keys/icons/diagnostics/troubleshooting | CI | `docs-map` check: required page set and troubleshooting entries present, each naming a real `Condition` |
@@ -280,7 +280,7 @@ tests/
 └── e2e_lifecycle.rs         # NEW: the nine tests in the mapping above
 
 docs/                        # NOW the published documentation (FR-076, R48) — plain Markdown,
-├── index.md                 #   and nothing but. What it is; which release this documents (FR-078a)
+├── index.md                 #   and nothing but. What it is; what the site documents (FR-078a)
 ├── user/                    # FR-077's first section
 │   ├── install.md           # Every published channel (FR-081)
 │   ├── binds.md             # moved here; `shortcuts.rs` include_str!s it (FR-022b)

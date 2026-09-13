@@ -27,18 +27,16 @@ is the shorter answer.
 
 ## Which version this documents
 
-This site documents **the `master` branch**, which is where the project sits before its first
-tagged release. There are no per-release snapshots: one site, describing the code beside it.
-
-Once `1.0.0` is published this line names it instead, and anything merged to `master` but not yet
-in a release is marked in place, like this:
+This site documents **the `master` branch** — the latest release, plus whatever has been merged
+since. There are no per-release snapshots: one site, describing the code beside it. Behaviour that
+is on `master` but not yet in a published version is marked in place, like this:
 
 > **Unreleased.** Behaviour described this way is on the default branch and is not in any
 > published version yet.
 
-* 1.0.0 - release failed as there were pipeline issues
-* 1.0.1 - fixed the issues but was missing a documentation entry
-* 1.0.2 - adds required documentation
+No page here names a version, so none can go stale: what each release changed is in the
+[changelog](./changelog.md), and the published versions themselves are on the
+[releases page](https://github.com/SerafAC/hypr-swap/releases).
 
 ## Getting help
 

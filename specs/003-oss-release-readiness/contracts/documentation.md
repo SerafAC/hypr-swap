@@ -36,6 +36,7 @@ authoritatively in exactly one document**, and the others link to it. The `docs-
 | What is verified by what? | `plan.md` tier tables, `::include[]`d into site `dev/verification.md` | `CONTRIBUTING.md` links |
 | How is a release cut? | `specs/003/contracts/release.md`, `::include[]`d into site `dev/releasing.md` | `CONTRIBUTING.md` links |
 | What counts as a breaking change? | `specs/003/contracts/versioning.md` | `CHANGELOG.md` header links |
+| What changed in which release? | `CHANGELOG.md`, **included** into site `changelog.md` | the site front page links it; no other page names a version (FR-078a) |
 
 **Included, not restated** is the mechanism that makes this survive contact with editing: where a
 site page and a contract would otherwise say the same thing, the page carries an `::include[]`
@@ -54,11 +55,17 @@ User guide                         Developer guide
 ├── Appearance and themes          ├── Verification coverage
 ├── Program icons                  └── Releasing
 └── Troubleshooting
+
+Changelog — neither guide's, and the repository's own file included
 ```
 
-Each part is navigable without reading the other. The front page states which release the site
-documents and marks anything on the default branch that is not yet released; there are no
-per-release snapshots (FR-078a).
+Each part is navigable without reading the other. The front page states that the site documents
+`master` — the latest release plus anything merged since — and marks anything on the default branch
+that is not yet released; there are no per-release snapshots (FR-078a). **No page claims to
+document a particular version**: such a claim is stale the moment the next release lands, and the
+question it would answer belongs to the changelog, which the site carries as a page rather than
+paraphrasing. Sample output and the version scheme's own floor are not such claims and may name
+numbers freely.
 
 ## What the README may not contain (FR-068)
 
