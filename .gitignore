@@ -21,6 +21,9 @@
 /node_modules
 /site
 
-# Generated from packaging/aur/PKGBUILD by the release workflow and by `makepkg --printsrcinfo`;
-# it is pushed to the AUR rather than kept here (FR-107).
-/packaging/aur/.SRCINFO
+# Each AUR recipe tracks only its PKGBUILD. Everything else in a recipe directory is generated:
+# `.SRCINFO` by the release workflow and `makepkg --printsrcinfo`, pushed to the AUR rather than
+# kept here (FR-107); and `src/`, `pkg/`, the downloaded sources and the built `*.pkg.tar.zst`
+# packages by a local `makepkg`.
+/packaging/aur/*/*
+!/packaging/aur/*/PKGBUILD
