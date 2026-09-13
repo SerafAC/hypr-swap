@@ -97,9 +97,15 @@ revision = ""
 [package.metadata.generate-rpm]
 summary = "Alt-Tab style workspace switcher with cross-monitor swapping for Hyprland"
 # The RPM family keeps the licence under /usr/share/licenses and the rest under /usr/share/doc.
+#
+# The licence is deliberately *not* marked `doc`: `%doc` files are skipped wherever rpm runs with
+# `--excludedocs`, which is the default in every Fedora container image and in minimal installs
+# (`tsflags=nodocs`), and a package that installs no licence is not redistributable (FR-066). rpm
+# has `%license` for exactly this, but cargo-generate-rpm can only set `%doc`, so a plain file it
+# is. The three documentation files below stay `%doc`, where a minimal install may drop them.
 assets = [
     { source = "target/release/hypr-swap", dest = "/usr/bin/hypr-swap", mode = "755" },
-    { source = "LICENSE", dest = "/usr/share/licenses/hypr-swap/LICENSE", mode = "644", doc = true },
+    { source = "LICENSE", dest = "/usr/share/licenses/hypr-swap/LICENSE", mode = "644" },
     { source = "README.md", dest = "/usr/share/doc/hypr-swap/README.md", mode = "644", doc = true },
     { source = "THIRD-PARTY.md", dest = "/usr/share/doc/hypr-swap/THIRD-PARTY.md", mode = "644", doc = true },
     { source = "CHANGELOG.md", dest = "/usr/share/doc/hypr-swap/CHANGELOG.md", mode = "644", doc = true },

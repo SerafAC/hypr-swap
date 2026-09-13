@@ -24,6 +24,17 @@ alongside the binary: the binary asset carries no licence or documentation of it
 No unit file, no service registration, no configuration file is installed: the daemon is started
 by the user's `hyprland.conf` and runs with no configuration at all (FR-023).
 
+**The licence is installed unconditionally; the other three files are documentation.** Both
+families let an installation refuse documentation — Debian's `dpkg` through `path-exclude`, rpm
+through `--excludedocs` / `tsflags=nodocs`, which is the default in every Fedora container image —
+and a package whose licence such an installation drops is not redistributable (FR-066). So the
+licence is a plain file in the RPM recipe rather than a `%doc` one (rpm's `%license` would say this
+directly, but `cargo-generate-rpm` cannot set it), and `copyright` is where the Debian family's own
+`path-include` already keeps it. The README, the third-party account and the changelog are
+documentation and may legitimately be absent from a documentation-free installation: the release's
+smoke step therefore asserts the licence **on disk after installing**, and the other three **in the
+package payload**.
+
 ## Declared dependencies
 
 These are the binary's direct `DT_NEEDED` set, stated explicitly rather than derived, so the

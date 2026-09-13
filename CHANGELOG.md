@@ -20,6 +20,14 @@ edits the released sections.
 
 ## [Unreleased]
 
+### Fixed
+
+- The `.rpm` now installs its licence on a machine that installs no documentation. Every Fedora
+  container image, and any installation configured with `nodocs`, skips a package's `%doc` files
+  — and the licence was one of them, so `/usr/share/licenses/hypr-swap/LICENSE` was simply absent
+  there. It is now an ordinary file that such an installation keeps. The README, the third-party
+  account and the changelog are still documentation, and are still dropped where documentation is.
+
 ## [1.0.2] - 2026-09-12
 
 ### Fixed

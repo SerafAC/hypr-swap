@@ -456,14 +456,21 @@ jobs:
               deb)
                   export DEBIAN_FRONTEND=noninteractive
                   apt-get update -qq
+                  package="$(echo /packages/hypr-swap_*_amd64.deb)"
                   # Through apt rather than `dpkg -i`, because resolving the declared dependencies
                   # is the half of "installs with no manual dependency work" worth checking.
-                  apt-get install -y /packages/hypr-swap_*_amd64.deb
+                  apt-get install -y "$package"
                   licence=/usr/share/doc/hypr-swap/copyright
+                  changelog=/usr/share/doc/hypr-swap/changelog.gz
+                  # `./usr/...` in the listing, absolute everywhere else in this script.
+                  listed="$(dpkg-deb -c "$package" | awk '{print $NF}' | sed 's|^\.||')"
                   ;;
               rpm)
-                  dnf install -y /packages/hypr-swap-*.x86_64.rpm
+                  package="$(echo /packages/hypr-swap-*.x86_64.rpm)"
+                  dnf install -y "$package"
                   licence=/usr/share/licenses/hypr-swap/LICENSE
+                  changelog=/usr/share/doc/hypr-swap/CHANGELOG.md
+                  listed="$(rpm -qlp "$package")"
                   ;;
           esac
 
@@ -477,10 +484,20 @@ jobs:
           # The bug-report block prints and exits 0 with no compositor to talk to (FR-116).
           hypr-swap --environment
 
-          # The licence is on disk where this family keeps it, and the rest of the install map is
-          # there with it (FR-066, contracts/packaging.md).
-          for file in "$licence" /usr/share/doc/hypr-swap/README.md /usr/share/doc/hypr-swap/THIRD-PARTY.md; do
-              [ -s "$file" ] || { echo "::error::$file is missing from the package"; exit 1; }
+          # The licence is on disk where this family keeps it — asserted after an ordinary
+          # install, because a package whose licence a minimal install drops is not
+          # redistributable (FR-066).
+          [ -s "$licence" ] || { echo "::error::$licence is missing from the installed package (FR-066)"; exit 1; }
+
+          # The documentation is asserted in the *payload* rather than on disk, because these
+          # images strip documentation as they install and that is the image's choice rather than
+          # the package's: Ubuntu's image path-excludes /usr/share/doc (keeping only `copyright`
+          # and `changelog.*`), and Fedora's dnf.conf carries `tsflags=nodocs`. Debian's image
+          # does neither, which is why it was the one that passed. What the contract states is
+          # what the package installs, so that is what is checked (contracts/packaging.md).
+          for file in /usr/share/doc/hypr-swap/README.md /usr/share/doc/hypr-swap/THIRD-PARTY.md "$changelog"; do
+              printf '%s\n' "$listed" | grep -qxF "$file" ||
+                  { echo "::error::$file is missing from the package (contracts/packaging.md)"; exit 1; }
           done
 
           . /etc/os-release
