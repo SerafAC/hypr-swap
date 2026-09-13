@@ -14,7 +14,7 @@
 # from falling behind a release. Do not edit those two by hand.
 
 pkgname=hypr-swap
-pkgver=0.0.0
+pkgver=1.0.3
 pkgrel=1
 pkgdesc="Alt-Tab style workspace switcher with cross-monitor swapping for Hyprland"
 arch=('x86_64')
@@ -27,7 +27,7 @@ optdepends=(
     'papirus-icon-theme: real program icons in the overlay; any freedesktop-layout icon set will do'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('ebcfad1a7313b461ac452727670ec5027367bf4db33cd4fa2eea261eb488b54d')
 
 build() {
     cd "$pkgname-$pkgver"
