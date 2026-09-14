@@ -14,10 +14,10 @@
     "validate": "docmd validate"
   },
   "devDependencies": {
-    "@docmd/core": "0.9.4"
+    "@docmd/core": "0.9.5"
   },
   "dependencies": {
-    "@docmd/plugin-git": "0.9.4",
-    "@docmd/plugin-openapi": "0.9.4"
+    "@docmd/plugin-git": "0.9.5",
+    "@docmd/plugin-openapi": "0.9.5"
   }
 }

@@ -9,92 +9,92 @@ importers:
   .:
     dependencies:
       '@docmd/plugin-git':
-        specifier: 0.9.4
-        version: 0.9.4(@docmd/api@0.9.4)
+        specifier: 0.9.5
+        version: 0.9.5(@docmd/api@0.9.5)
       '@docmd/plugin-openapi':
-        specifier: 0.9.4
-        version: 0.9.4(@docmd/api@0.9.4)
+        specifier: 0.9.5
+        version: 0.9.5(@docmd/api@0.9.5)
     devDependencies:
       '@docmd/core':
-        specifier: 0.9.4
-        version: 0.9.4
+        specifier: 0.9.5
+        version: 0.9.5
 
 packages:
 
-  '@docmd/api@0.9.4':
-    resolution: {integrity: sha512-3wOlmyo5HDWh1g1hwApISm1mYrk36ffJyJtY78NVp77DpxE3Ojm0lf9Fg0sgsjbqA1F+/wo1BiS735jwOeVkIA==}
+  '@docmd/api@0.9.5':
+    resolution: {integrity: sha512-l+IEp9RftpcsQ2CNZD2JwDHAmN6TkEVEjFNTCXriu0KsEdsUuVD448LqeNsKVhr0Hl9COAdb+PddOgNhItExsw==}
     engines: {node: '>=20.0.0'}
 
-  '@docmd/core@0.9.4':
-    resolution: {integrity: sha512-xmUydrx7rrssxRUs58LtGVtMSmLFAndaZsrYSCG60L0VMKYGq0E/+oOkhgdyOeDGS/z8bgbMifRKk7AxljYApg==}
-    engines: {node: '>=20.0.0'}
-    hasBin: true
-
-  '@docmd/deployer@0.9.4':
-    resolution: {integrity: sha512-kGmAEepRI/OOnt5ZbBwswElFhP4CQm6lDGtwFOKZZfs3imcvUs2dFtRTqvNPc/Sb7ka9ElMFW6d+dZw6DU6XkQ==}
-    engines: {node: '>=20.0.0'}
-
-  '@docmd/engine-js@0.9.4':
-    resolution: {integrity: sha512-USjwNE4tA8BbD5RSnZBgaO07TX7i4m5EK4jgDQpZI1Oyw//vH/beoOVvdJRRw+63cS/eRPQmaP5HqMoVMPoAuw==}
-    engines: {node: '>=20.0.0'}
-
-  '@docmd/engine-rust@0.9.4':
-    resolution: {integrity: sha512-sNPN+SS2A1x6l0W0FxrfNJwNMtofk2JasLgaDKUtelGuaEy+pH7EJ384cxXXuiGseQ4AMJksQIKXVUVfTvV2ug==}
-    engines: {node: '>=20.0.0'}
-
-  '@docmd/live@0.9.4':
-    resolution: {integrity: sha512-tSGSISFSmm2Sfqvs+QvbOUbCKqGgar7BF7Ayvsp/Iuvo/E3qyrpNi0aTCEXKf0OvhZ4PT2N9xrgHUAiBf4KzKQ==}
+  '@docmd/core@0.9.5':
+    resolution: {integrity: sha512-Qskfef8JRUQtWc1iv0I6naeMuxLiAngXkaG3rNq5/OaKm5QgPirrsOfnK97oup0w1fi0cSs9C9k0wDFxiqILzw==}
     engines: {node: '>=20.0.0'}
     hasBin: true
 
-  '@docmd/parser@0.9.4':
-    resolution: {integrity: sha512-mGOY9HB6XtFsVqbZNAN81f8rJqJu/7JKTmq+OShkQ+RaUN5ip0Jv5Pf7TCT5Uh73V0nPU+yxKO9hLUGQU0/+yg==}
+  '@docmd/deployer@0.9.5':
+    resolution: {integrity: sha512-Z8YnwQawcOWVoHyuw1eNbJ1mdl5tIcABhbzIzUAKRMLpMFu9otBJ0+yUh5rPLccp5a+/ichEZBceJBsqgUAUWw==}
     engines: {node: '>=20.0.0'}
 
-  '@docmd/plugin-ai@0.9.4':
-    resolution: {integrity: sha512-i2v/xzscGmcbfQsCq5dS7C5QHGWyLykF03EanOfaM2n13Jr5nQOgPadDTL57AexqhPBauOTGYF0I0JAeCOz+uQ==}
+  '@docmd/engine-js@0.9.5':
+    resolution: {integrity: sha512-LNxCzgWLS6xOfLS7+QM+Mtw98OpVKvTvBrQhM25rYSkdRk3dTzS+aLvo1DaRGiBYZCnFjvZwS0yEkEX4TxS7yQ==}
     engines: {node: '>=20.0.0'}
 
-  '@docmd/plugin-analytics@0.9.4':
-    resolution: {integrity: sha512-nvvSn+ffxxkEDcBRBuLrS9xmqhy7CU6O7PKQom/d6ee/j4mGmjbcCz/4Oh16KsZ5Sl5kzbn1tr7YReKjf3JWqg==}
-    engines: {node: '>=20.0.0'}
-    peerDependencies:
-      '@docmd/api': ^0.9.4
-
-  '@docmd/plugin-git@0.9.4':
-    resolution: {integrity: sha512-SYUdt9XiAxzCqQNsu54Xq+vCjbkF1g9AE0O1ixsCiCwuB6IEA/0ILJy8g1nSsCY10knKqutBb/pHdKkv4zyrBA==}
-    engines: {node: '>=20.0.0'}
-    peerDependencies:
-      '@docmd/api': ^0.9.4
-
-  '@docmd/plugin-installer@0.9.4':
-    resolution: {integrity: sha512-EwP3jxleGVmaPka/Trnd1r85Xbie4kX9DYhp/IbxXAxexPQ92Ez0pW0BOmWnDDuVwgd7KivxuOZFX8yJJbI/5Q==}
+  '@docmd/engine-rust@0.9.5':
+    resolution: {integrity: sha512-QDCHRNmdIh4y44HHLecsX9wJlzAZ7elqehamfheF38nNne3Ydar2IWbjGo8qS5hdQ+uKdH/7FYbKKVOYI6TXQQ==}
     engines: {node: '>=20.0.0'}
 
-  '@docmd/plugin-llms@0.9.4':
-    resolution: {integrity: sha512-57S4TN6CTdxFrF3HZj2ERXjqTq34kKTjUGPybwIbdVFs/vqkAzLMXXgJnocaboyLhNplCpqAvQHe9XDsCetthQ==}
+  '@docmd/live@0.9.5':
+    resolution: {integrity: sha512-h7zdgKqqZqiEnuu2dWjq0N5+R30SQa6YpK8bMkeqzYhLJC6ebm7IDKIK4CaEIR841pKY+QuCLop/uPU8u3Kg5Q==}
+    engines: {node: '>=20.0.0'}
+    hasBin: true
+
+  '@docmd/parser@0.9.5':
+    resolution: {integrity: sha512-APCfCC5IUlt2ApqD2sJg0O2rU652pPwpzFIl/DKKBgZlId33eQMjuger6uKa8GisOnzxZyY1TSHSB1dJUSHCDQ==}
     engines: {node: '>=20.0.0'}
 
-  '@docmd/plugin-math@0.9.4':
-    resolution: {integrity: sha512-xR0vCaZBINidMXBEj9RFzmfqrIWXTUKx4PDUV4GKba26eagramoE7T/9LQ+MlU+4w+6G+FnTPLncGs+0on/8sQ==}
+  '@docmd/plugin-ai@0.9.5':
+    resolution: {integrity: sha512-GgvrnrVTk87wzFcY6eYuj7+GYLnWKNv2e/gQsnviFUYRfv+RtxA9ydfJYKNCGCxnqQL0VS2GQ9fUnO7pZfBqAA==}
     engines: {node: '>=20.0.0'}
 
-  '@docmd/plugin-mermaid@0.9.4':
-    resolution: {integrity: sha512-l1Ata8lyksQAa+r1Y+KTF7X/QYPSQwAjDFotwAzkzxcuq+jpQV2/Vdfop4+l0HJ/PBu08dy571QFX1KEPjyGvQ==}
-    engines: {node: '>=20.0.0'}
-
-  '@docmd/plugin-okf@0.9.4':
-    resolution: {integrity: sha512-b59CrfUkbYpr+/zATd4KZxSCkJ2KlIpkhOreA6TMIdf642jJkoIhvzIyyqJoztv2V0qUbdAtxERewJCMgBYvGg==}
-    engines: {node: '>=20.0.0'}
-
-  '@docmd/plugin-openapi@0.9.4':
-    resolution: {integrity: sha512-uRVK7SjPbG5VDeMS/fwueZrJnO0JL2OC/X1Imz7wWKUKVMlgJV98j7YbpRFdwh8JiKpeo9lbwDbwYC/8DcEnHQ==}
+  '@docmd/plugin-analytics@0.9.5':
+    resolution: {integrity: sha512-boX4vR35throNWr+4eqCrvbfPpgY9cbwAmXJaBmVv9Wg0/okT+VPSS/pkpTEpLZfq9AmjRnX5J3xPYYsJtbQeg==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
-      '@docmd/api': ^0.9.4
+      '@docmd/api': ^0.9.5
 
-  '@docmd/plugin-search@0.9.4':
-    resolution: {integrity: sha512-UlnCwWPUAWo6gFpWDLmSF9s5IKWTmOlUR3lV0oG4Fdu0iS8VTu75SCdCKqbRUPWEbo9RiP6uvAxvljkTBaDUBg==}
+  '@docmd/plugin-git@0.9.5':
+    resolution: {integrity: sha512-PaywgaLY639Lw/7qlusynJY3+JMkz74QBQxqr+0HwOPvvTiN/1IVBXC/kZX68mgu0dswyN916cF8dxjmXBmBHA==}
+    engines: {node: '>=20.0.0'}
+    peerDependencies:
+      '@docmd/api': ^0.9.5
+
+  '@docmd/plugin-installer@0.9.5':
+    resolution: {integrity: sha512-Mf0L+e6LmaHNUPkVa0BD4rlWe8MuACP5Nd5FhQXWUBF46apbKXvwt/Fc90U/F9vcAyqFNyAf6XopsyxOy3jkoQ==}
+    engines: {node: '>=20.0.0'}
+
+  '@docmd/plugin-llms@0.9.5':
+    resolution: {integrity: sha512-LDKkzeb+LB9H9/LgTC6Aeoy3DLM35wmnBqwE/oEfbHrfIH3ha6LRkPZppfnyoHOV4vK3uvU8jN1/w5Xp13FGVg==}
+    engines: {node: '>=20.0.0'}
+
+  '@docmd/plugin-math@0.9.5':
+    resolution: {integrity: sha512-PF6ogFAESq6D5zbziJkSMb8QnWuVgv38aPq/UUKT9IFyyCot1PZoi66y6aOOFT8IyHmolc1InwI84x2rMkQy4A==}
+    engines: {node: '>=20.0.0'}
+
+  '@docmd/plugin-mermaid@0.9.5':
+    resolution: {integrity: sha512-bV33566uDboBChwR58I3skn1P9gXJIxO9SBr5wouZ7xXHR9ooIM0KDtcXAFUzLK+0I+KaJSoyhZLZq1qp13ytQ==}
+    engines: {node: '>=20.0.0'}
+
+  '@docmd/plugin-okf@0.9.5':
+    resolution: {integrity: sha512-q3lzrOz3R9jDBZSWiJTID6y5+IEVzZml369GkBhbiAT2Jt3KAPxooI7d3N5j0G2xYDSj/JX1lNZABxbZby0zHw==}
+    engines: {node: '>=20.0.0'}
+
+  '@docmd/plugin-openapi@0.9.5':
+    resolution: {integrity: sha512-2hnnJ9/Bd1XzkSqWwF8/4Dchs7T3f/jdRj0FJrioDZwvUcEcaraOdm0fmmwdV5iX7lDm0Snyrs6qnp+taewbQg==}
+    engines: {node: '>=20.0.0'}
+    peerDependencies:
+      '@docmd/api': ^0.9.5
+
+  '@docmd/plugin-search@0.9.5':
+    resolution: {integrity: sha512-Z8sTTKd0AZDMsFaxBDOvDmEwBqaFsOgedld1PdxMJzlfUCRF2mt23Hf0JYjyXGYM+K2VJDfNjpLTMCdp8kuoyA==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
       docmd-search: '>=0.1.3'
@@ -102,30 +102,30 @@ packages:
       docmd-search:
         optional: true
 
-  '@docmd/plugin-seo@0.9.4':
-    resolution: {integrity: sha512-ZsHLdGMaGR5gSn8iYyLUZxpR7amTby6A10PbPHYk/e26cgVWzAHPmSX+2adGjjhqtnXSZpmLhpfDnrhxP+YsbA==}
+  '@docmd/plugin-seo@0.9.5':
+    resolution: {integrity: sha512-m3zrVox0gEnwGtnJWje1fjQTPE/xH9Kfa2U97Sxd9+ELSBa10vH0l+uTckKuleF0tkDrfxjNEFQa8GR4Y0Qrtw==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
-      '@docmd/api': ^0.9.4
+      '@docmd/api': ^0.9.5
 
-  '@docmd/plugin-sitemap@0.9.4':
-    resolution: {integrity: sha512-LVhSY72EozjJ/WUXqHgY4AtrfZ0UGBK2VrjgZKvj+qbTLEGGbO3d5/c8IGyv/faS8991wuJWNfwU+bvkXQFlcQ==}
+  '@docmd/plugin-sitemap@0.9.5':
+    resolution: {integrity: sha512-GGiOe0bSP/mrBTxNAGiCUsiCWSju+IP88t7cXnSqMBTxN/CzOgpJqbBGx9dodbBY9w07G0KvG5cdWkJEpMbuvg==}
     engines: {node: '>=20.0.0'}
 
-  '@docmd/themes@0.9.4':
-    resolution: {integrity: sha512-qE+jI0VsXrf6H6KaIUbpFuLlc3EO8dpFindbGvGovHqaWbLu1wfUGBZqUeUelGSHRPjSnFGHqc/EZyIVTFOfig==}
+  '@docmd/themes@0.9.5':
+    resolution: {integrity: sha512-RTYAVeDwgLb3qNpbbgvUInmvUyPJcYgUYM+nGj4LBRw5IRKTIhRnFPkZ42AgHX01Tsysc697mflwiz/URkVCFw==}
     engines: {node: '>=20.0.0'}
 
-  '@docmd/tui@0.9.4':
-    resolution: {integrity: sha512-ZbE8EXA6K8lBAr0qGnchTH/AcnjXs6B6bHunqhvf3za9TQjB9fHaSU8O4VIPxZAliPqDoQKsjgeNrMbj063u3g==}
+  '@docmd/tui@0.9.5':
+    resolution: {integrity: sha512-iRXK3laMlaEQ/tdasRkn8yA5BBwZc2thzAWbl1lm11yMrmKOTmRaBfx8j7SmPP9ejHD928GPqeSTbCyc82yZEw==}
     engines: {node: '>=20.0.0'}
 
-  '@docmd/ui@0.9.4':
-    resolution: {integrity: sha512-pL1+ASb5RNb14WrFkYUKZvXOUuGbD+YYlxOdGNsZziARrRm0ZmgkhIbFXjvpTj5TXcnYz8d0sZaycKzITStzvQ==}
+  '@docmd/ui@0.9.5':
+    resolution: {integrity: sha512-7HFuRdcQ/hp4oCFnQ3VcNDk8MiLP5ogGItCheXtZpuRONv2lhE1RTPa291FbsAfxqy+42QGvExv6ODgZqd6f9A==}
     engines: {node: '>=20.0.0'}
 
-  '@docmd/utils@0.9.4':
-    resolution: {integrity: sha512-eXv04grlQOmk2NSzJ1iYDRrJf0hu+EK/UoYJoyPrTTPe8JGBnO3ysUzFFcXsG//6yMlCyb4rLxWueUr+pTKlXw==}
+  '@docmd/utils@0.9.5':
+    resolution: {integrity: sha512-sAynahKmPX1nFQvscKrAycCYtzZMx6txKLb5VYBGwGPdBUsNI6O6DR6zG9g74E8JvMTopm+AB8s/6QRJPaZypw==}
     engines: {node: '>=20.0.0'}
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -317,8 +317,8 @@ packages:
     resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
     engines: {node: '>=22.12.0'}
 
-  docmd-assistant@0.1.15:
-    resolution: {integrity: sha512-demGLxEEbKJZlijtRM4D6Kil6+HyiE61yO+eqy43kAd8WrU2wFxr3qF1jztacLMr+Z3lCN88rstwIB/RL2rB+g==}
+  docmd-assistant@0.1.17:
+    resolution: {integrity: sha512-OiD5afvn0cB4Mcq6ZpWTs7Zb1jTiJPXCIqKDZnrxw30kkUIa+fpcIB+YObHrpIH+bEItlmt7uVY0wMwyQsxo6w==}
     engines: {node: '>=20.0.0'}
 
   embed-lite@0.1.6:
@@ -340,8 +340,8 @@ packages:
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
 
-  katex@0.18.5:
-    resolution: {integrity: sha512-1FU5H3RjGJVj6GT9fMjf2uMIXmPQp232aXS3UEeQzf0dxefHg/CKMvNB3DuOC46LFG/E5PNxrE8dOwB782FDGg==}
+  katex@0.18.7:
+    resolution: {integrity: sha512-h+UCwkZ+4Jz8WQ7MLGfj7UVFrRCizGb912fwF4luGdYsC5paYG1vx+jy+KRcC/XkpjGva/P7nAWuxNnPzRvzHw==}
     hasBin: true
 
   linkify-it@5.0.2:
@@ -356,8 +356,8 @@ packages:
   lite-template@0.1.3:
     resolution: {integrity: sha512-JVN3BA0WMTjRshH1ljQd2ZF2019NhYpQgvi0VGLJ4TXc9kkfu6kx672DhUWPLlhFMfjZCirYY4emawXl3hEKPQ==}
 
-  lucide-static@0.577.0:
-    resolution: {integrity: sha512-hx39J5Tq4JWF2ALY+5YRg+SxQLpeAmLJDXNcqiBJH/UuVwp43it9fyki/onZO7AVFgG5ZbB+fWwZR9mwGHE2XQ==}
+  lucide-static@1.45.0:
+    resolution: {integrity: sha512-MaMkcTVobsAlkat8/AsLRgZHeni3/UWHolsAZRazod6/nnBTlhHaS6xlSi+Xh1Y0I1Gf68YHUVXuJe9Up3lZww==}
 
   markdown-it-abbr@1.0.4:
     resolution: {integrity: sha512-ZeA4Z4SaBbYysZap5iZcxKmlPL6bYA8grqhzJIHB1ikn7njnzaP8uwbtuXc4YXD5LicI4/2Xmc0VwmSiFV04gg==}
@@ -423,36 +423,36 @@ packages:
 
 snapshots:
 
-  '@docmd/api@0.9.4':
+  '@docmd/api@0.9.5':
     dependencies:
-      '@docmd/parser': 0.9.4
-      '@docmd/tui': 0.9.4
-      '@docmd/utils': 0.9.4
+      '@docmd/parser': 0.9.5
+      '@docmd/tui': 0.9.5
+      '@docmd/utils': 0.9.5
     optionalDependencies:
-      '@docmd/engine-js': 0.9.4
-      '@docmd/engine-rust': 0.9.4
+      '@docmd/engine-js': 0.9.5
+      '@docmd/engine-rust': 0.9.5
 
-  '@docmd/core@0.9.4':
+  '@docmd/core@0.9.5':
     dependencies:
-      '@docmd/api': 0.9.4
-      '@docmd/deployer': 0.9.4
-      '@docmd/live': 0.9.4
-      '@docmd/parser': 0.9.4
-      '@docmd/plugin-ai': 0.9.4
-      '@docmd/plugin-analytics': 0.9.4(@docmd/api@0.9.4)
-      '@docmd/plugin-git': 0.9.4(@docmd/api@0.9.4)
-      '@docmd/plugin-installer': 0.9.4
-      '@docmd/plugin-llms': 0.9.4
-      '@docmd/plugin-mermaid': 0.9.4
-      '@docmd/plugin-okf': 0.9.4
-      '@docmd/plugin-openapi': 0.9.4(@docmd/api@0.9.4)
-      '@docmd/plugin-search': 0.9.4
-      '@docmd/plugin-seo': 0.9.4(@docmd/api@0.9.4)
-      '@docmd/plugin-sitemap': 0.9.4
-      '@docmd/themes': 0.9.4
-      '@docmd/tui': 0.9.4
-      '@docmd/ui': 0.9.4
-      '@docmd/utils': 0.9.4
+      '@docmd/api': 0.9.5
+      '@docmd/deployer': 0.9.5
+      '@docmd/live': 0.9.5
+      '@docmd/parser': 0.9.5
+      '@docmd/plugin-ai': 0.9.5
+      '@docmd/plugin-analytics': 0.9.5(@docmd/api@0.9.5)
+      '@docmd/plugin-git': 0.9.5(@docmd/api@0.9.5)
+      '@docmd/plugin-installer': 0.9.5
+      '@docmd/plugin-llms': 0.9.5
+      '@docmd/plugin-mermaid': 0.9.5
+      '@docmd/plugin-okf': 0.9.5
+      '@docmd/plugin-openapi': 0.9.5(@docmd/api@0.9.5)
+      '@docmd/plugin-search': 0.9.5
+      '@docmd/plugin-seo': 0.9.5(@docmd/api@0.9.5)
+      '@docmd/plugin-sitemap': 0.9.5
+      '@docmd/themes': 0.9.5
+      '@docmd/tui': 0.9.5
+      '@docmd/ui': 0.9.5
+      '@docmd/utils': 0.9.5
       esbuild: 0.28.2
       ws: 8.21.3
     transitivePeerDependencies:
@@ -460,38 +460,38 @@ snapshots:
       - docmd-search
       - utf-8-validate
 
-  '@docmd/deployer@0.9.4':
+  '@docmd/deployer@0.9.5':
     dependencies:
-      '@docmd/api': 0.9.4
+      '@docmd/api': 0.9.5
 
-  '@docmd/engine-js@0.9.4':
+  '@docmd/engine-js@0.9.5':
     optional: true
 
-  '@docmd/engine-rust@0.9.4':
+  '@docmd/engine-rust@0.9.5':
     optional: true
 
-  '@docmd/live@0.9.4':
+  '@docmd/live@0.9.5':
     dependencies:
-      '@docmd/parser': 0.9.4
-      '@docmd/plugin-math': 0.9.4
-      '@docmd/plugin-mermaid': 0.9.4
-      '@docmd/themes': 0.9.4
-      '@docmd/tui': 0.9.4
-      '@docmd/ui': 0.9.4
+      '@docmd/parser': 0.9.5
+      '@docmd/plugin-math': 0.9.5
+      '@docmd/plugin-mermaid': 0.9.5
+      '@docmd/themes': 0.9.5
+      '@docmd/tui': 0.9.5
+      '@docmd/ui': 0.9.5
       buffer: 6.0.3
       esbuild: 0.28.2
-      katex: 0.18.5
+      katex: 0.18.7
       markdown-it-texmath: 1.0.0
 
-  '@docmd/parser@0.9.4':
+  '@docmd/parser@0.9.5':
     dependencies:
-      '@docmd/tui': 0.9.4
-      '@docmd/utils': 0.9.4
+      '@docmd/tui': 0.9.5
+      '@docmd/utils': 0.9.5
       embed-lite: 0.1.6
       lite-hl: 0.2.1
       lite-matter: 0.1.2
       lite-template: 0.1.3
-      lucide-static: 0.577.0
+      lucide-static: 1.45.0
       markdown-it: 14.3.1
       markdown-it-abbr: 1.0.4
       markdown-it-attrs: 4.5.0(markdown-it@14.3.1)
@@ -500,65 +500,65 @@ snapshots:
       markdown-it-footnote: 3.0.3
       markdown-it-task-lists: 2.1.1
 
-  '@docmd/plugin-ai@0.9.4':
+  '@docmd/plugin-ai@0.9.5':
     dependencies:
-      docmd-assistant: 0.1.15
+      docmd-assistant: 0.1.17
 
-  '@docmd/plugin-analytics@0.9.4(@docmd/api@0.9.4)':
+  '@docmd/plugin-analytics@0.9.5(@docmd/api@0.9.5)':
     dependencies:
-      '@docmd/api': 0.9.4
-      '@docmd/utils': 0.9.4
+      '@docmd/api': 0.9.5
+      '@docmd/utils': 0.9.5
 
-  '@docmd/plugin-git@0.9.4(@docmd/api@0.9.4)':
+  '@docmd/plugin-git@0.9.5(@docmd/api@0.9.5)':
     dependencies:
-      '@docmd/api': 0.9.4
+      '@docmd/api': 0.9.5
 
-  '@docmd/plugin-installer@0.9.4':
+  '@docmd/plugin-installer@0.9.5':
     dependencies:
-      '@docmd/api': 0.9.4
+      '@docmd/api': 0.9.5
 
-  '@docmd/plugin-llms@0.9.4': {}
+  '@docmd/plugin-llms@0.9.5': {}
 
-  '@docmd/plugin-math@0.9.4':
+  '@docmd/plugin-math@0.9.5':
     dependencies:
-      katex: 0.18.5
+      katex: 0.18.7
       markdown-it-texmath: 1.0.0
 
-  '@docmd/plugin-mermaid@0.9.4':
+  '@docmd/plugin-mermaid@0.9.5':
     dependencies:
-      '@docmd/parser': 0.9.4
+      '@docmd/parser': 0.9.5
 
-  '@docmd/plugin-okf@0.9.4': {}
+  '@docmd/plugin-okf@0.9.5': {}
 
-  '@docmd/plugin-openapi@0.9.4(@docmd/api@0.9.4)':
+  '@docmd/plugin-openapi@0.9.5(@docmd/api@0.9.5)':
     dependencies:
-      '@docmd/api': 0.9.4
-      '@docmd/utils': 0.9.4
+      '@docmd/api': 0.9.5
+      '@docmd/utils': 0.9.5
 
-  '@docmd/plugin-search@0.9.4':
+  '@docmd/plugin-search@0.9.5':
     dependencies:
       markdown-it: 14.3.1
       minisearch: 7.2.0
 
-  '@docmd/plugin-seo@0.9.4(@docmd/api@0.9.4)':
+  '@docmd/plugin-seo@0.9.5(@docmd/api@0.9.5)':
     dependencies:
-      '@docmd/api': 0.9.4
-      '@docmd/utils': 0.9.4
+      '@docmd/api': 0.9.5
+      '@docmd/utils': 0.9.5
 
-  '@docmd/plugin-sitemap@0.9.4': {}
+  '@docmd/plugin-sitemap@0.9.5': {}
 
-  '@docmd/themes@0.9.4': {}
+  '@docmd/themes@0.9.5': {}
 
-  '@docmd/tui@0.9.4':
+  '@docmd/tui@0.9.5':
     dependencies:
       chalk: 4.1.2
 
-  '@docmd/ui@0.9.4':
+  '@docmd/ui@0.9.5':
     dependencies:
-      '@docmd/api': 0.9.4
-      '@docmd/tui': 0.9.4
+      '@docmd/api': 0.9.5
+      '@docmd/tui': 0.9.5
 
-  '@docmd/utils@0.9.4': {}
+  '@docmd/utils@0.9.5': {}
 
   '@esbuild/aix-ppc64@0.28.2':
     optional: true
@@ -668,7 +668,7 @@ snapshots:
 
   commander@15.0.0: {}
 
-  docmd-assistant@0.1.15:
+  docmd-assistant@0.1.17:
     dependencies:
       aiplug: 0.1.2
 
@@ -709,7 +709,7 @@ snapshots:
 
   ieee754@1.2.1: {}
 
-  katex@0.18.5:
+  katex@0.18.7:
     dependencies:
       commander: 15.0.0
 
@@ -725,7 +725,7 @@ snapshots:
 
   lite-template@0.1.3: {}
 
-  lucide-static@0.577.0: {}
+  lucide-static@1.45.0: {}
 
   markdown-it-abbr@1.0.4: {}
 
