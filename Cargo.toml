@@ -38,7 +38,7 @@ wayland-scanner = "0.31"
 # plan.md Complexity Tracking). Every optional feature stays off: `text` and `system-fonts` would
 # pull a font stack in to render `<text>` elements that application icons do not carry, and `svgz`
 # a decompressor for a format essentially no installed icon set uses.
-resvg = { version = "0.48", default-features = false }
+resvg = { version = "0.49", default-features = false }
 
 [dev-dependencies]
 wayland-protocols-misc = { version = "0.3", features = ["client"] }
